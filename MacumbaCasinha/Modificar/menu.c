@@ -1,0 +1,28611 @@
+/*
+Copyright (C) 1996-2001 Id Software, Inc.
+Copyright (C) 2002-2009 John Fitzgibbons and others
+Copyright (C) 2010-2014 QuakeSpasm developers
+
+This program is free software; you can redistribute it and/or
+modify it under the terms of the GNU General Public License
+as published by the Free Software Foundation; either version 2
+of the License, or (at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+
+See the GNU General Public License for more details.
+
+You should have received a copy of the GNU General Public License
+along with this program; if not, write to the Free Software
+Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
+
+*/
+
+#include "quakedef.h"
+#include "bgmusic.h"
+#include "q_ctype.h" // woods #modsmenu (iw)
+#include <curl/curl.h> // woods #serversmenu
+#include <zlib.h>
+#include "json.h" // woods #serversmenu
+#include <sys/stat.h>
+
+#ifdef USE_CODEC_FLAC
+#include <FLAC/format.h>
+#endif
+
+#ifdef USE_CODEC_MIKMOD
+#include <mikmod.h>
+#endif
+
+#ifdef USE_CODEC_OPUS
+#include <opus/opus_defines.h>
+#include <opus/opusfile.h>
+#endif
+
+#ifdef USE_CODEC_VORBIS
+#include <vorbis/codec.h>
+#endif
+
+#ifdef USE_CODEC_XMP
+#include <xmp.h>
+#endif
+
+#ifdef USE_CODEC_MP3
+#include <mad.h>
+#endif
+
+#ifdef _WIN32
+#include <sys/types.h>
+#else
+#include <unistd.h>
+#include <dirent.h>
+#endif
+
+void (*vid_menucmdfn)(void); //johnfitz
+void (*vid_menudrawfn)(void);
+void (*vid_menukeyfn)(int key);
+void (*vid_menumousefn)(int cx, int cy); // woods #mousemenu
+
+enum m_state_e m_state;
+int m_mousex, m_mousey; // woods #mousemenu
+char* EASY_ = " EASY";
+
+
+const char* ResolveHostname(const char* hostname); // woods #serversmenu
+extern qboolean Valid_IP(const char* ip_str); // woods #serversmenu
+extern qboolean Valid_Domain(const char* domain_str); // woods #serversmenu
+extern cvar_t net_master_ignore;
+
+void M_Menu_Main_f (void);
+	void M_Menu_SinglePlayer_f (void);
+		void M_Menu_Load_f (void);
+		void M_Menu_Save_f (void);
+		void M_Menu_Maps_f(void);
+		void M_Menu_DownloadMaps_f(void);
+		void M_Menu_Skill_f(void);
+	void M_Menu_MultiPlayer_f (void);
+		void M_Menu_Setup_f (void);
+		void M_Menu_NameMaker_f(void); // woods #namemaker
+		void M_Menu_Net_f (void);
+		void M_Menu_LanConfig_f (void);
+		void M_Menu_GameOptions_f (void);
+		void M_Menu_Search_f (enum slistScope_e scope);
+		void M_Menu_ServerList_f (void);
+		void M_Menu_History_f(void); // woods #historymenu
+		void M_Menu_Bookmarks_f(void); // woods #bookmarksmenu
+		void M_Menu_Bookmarks_Edit_f(void); // woods #bookmarksmenu
+	void M_Menu_Options_f (void);
+		void M_Menu_Keys_f (void);
+		void M_Menu_Mouse_f (void);
+		void M_Menu_Controller_f (void);
+		void M_Menu_Controller_Test_f (void);
+		void M_Menu_WeaponWheel_f (void);
+		void M_Menu_Calibration_f (void);
+		void M_Menu_Video_f (void);
+	void M_Menu_Graphics_f (void);
+		void M_Menu_Sky_f (void);
+			void M_Menu_Skywind_f (void);
+	void M_Menu_Sound_f (void);
+		void M_Menu_Voip_f (void);
+	void M_Menu_Game_f (void);
+		void M_Menu_PlayerXray_f (void);
+		void M_Menu_HUD_f (void);
+			void M_Menu_Crosshair_f (void);
+		void M_Menu_Console_f (void);
+		void M_Menu_Startup_f (void);
+		void M_Menu_DemoOptions_f (void);
+		void M_Menu_PakLoading_f (void);
+		void M_Menu_ColorPicker_f (void);
+		void M_Menu_Extras_f (void);
+		void M_Menu_Version_f (void);
+		void M_Menu_ResetConfig_f(void); // woods #resetconfig
+	void M_Menu_Mods_f(void); // woods #modsmenu (iw)
+	void M_Menu_Demos_f (void); // woods #demosmenu
+	void M_Menu_Help_f (void);
+	void M_Menu_Quit_f (void);
+
+void M_Main_Draw (void);
+	void M_SinglePlayer_Draw (void);
+		void M_Load_Draw (void);
+		void M_Save_Draw (void);
+		void M_Maps_Draw(void); // woods #modsmenu (iw)
+		void M_DownloadMaps_Draw(void);
+		void M_Skill_Draw (void);
+	void M_MultiPlayer_Draw (void);
+		void M_Setup_Draw (void);
+		void M_NameMaker_Draw(void); // woods #namemaker
+		void M_Net_Draw (void);
+		void M_LanConfig_Draw (void);
+		void M_GameOptions_Draw (void);
+		void M_Search_Draw (void);
+		void M_ServerList_Draw (void);
+		void M_History_Draw(void); // woods #historymenu
+		void M_Bookmarks_Draw(void); // woods #bookmarksmenu
+		void M_Bookmarks_Edit_Draw(void); // woods #bookmarksmenu
+	void M_Options_Draw (void);
+		void M_Keys_Draw (void);
+		void M_Mouse_Draw (void);
+		void M_Controller_Draw (void);
+		void M_Controller_Test_Draw (void);
+		void M_WeaponWheel_Draw (void);
+		void M_Calibration_Draw (void);
+		void M_Video_Draw (void);
+	void M_Graphics_Draw (void);
+		void M_Sky_Draw (void);
+			void M_Skywind_Draw (void);
+	void M_Sound_Draw (void);
+		void M_Voip_Draw (void);
+	void M_Game_Draw (void);
+		void M_PlayerXray_Draw (void);
+	void M_HUD_Draw (void);
+		void M_Startup_Draw (void);
+		void M_DemoOptions_Draw (void);
+		void M_PakLoading_Draw (void);
+		void M_ColorPicker_Draw (void);
+		void M_Extras_Draw (void);
+		void M_Version_Draw (void);
+		void M_ResetConfig_Draw(void); // woods #resetconfig
+			void M_Crosshair_Draw (void);
+		void M_Console_Draw (void);
+	void M_Mods_Draw(void); // woods #modsmenu (iw)
+	void M_Demos_Draw (void); // woods #demosmenu
+	void M_Help_Draw (void);
+	void M_Quit_Draw (void);
+
+void M_Main_Key (int key);
+	void M_SinglePlayer_Key (int key);
+		void M_Load_Key (int key);
+		void M_Save_Key (int key);
+		void M_Maps_Key(int key);
+		void M_DownloadMaps_Key(int key);
+		void M_Skill_Key(int key);
+	void M_MultiPlayer_Key (int key);
+		void M_Setup_Key (int key);
+		void M_Net_Key (int key);
+		void M_LanConfig_Key (int key);
+		void M_GameOptions_Key (int key);
+		void M_Search_Key (int key);
+		void M_ServerList_Key (int key);
+		void M_History_Key(int key); // woods #historymenu
+		void M_Bookmarks_Key(int key); // woods #bookmarksmenu
+		void M_Bookmarks_Edit_Key(int key); // woods #bookmarksmenu
+	void M_Options_Key (int key);
+		void M_Keys_Key (int key);
+		void M_Mouse_Key (int key);
+		void M_Controller_Key (int key);
+		void M_Controller_Test_Key (int key);
+		void M_WeaponWheel_Key (int key);
+		void M_Calibration_Key (int key);
+		void M_Video_Key (int key);
+	void M_Graphics_Key (int key);
+		void M_Sky_Key (int key);
+		void M_Sky_Char (int key);
+		qboolean M_Sky_TextEntry (void);
+			void M_Skywind_Key (int key);
+	void M_Sound_Key (int key);
+		void M_Voip_Key (int key);
+	void M_Game_Key (int key);
+		void M_PlayerXray_Key (int key);
+	void M_HUD_Key (int key);
+		void M_Startup_Key (int key);
+		void M_DemoOptions_Key (int key);
+		void M_PakLoading_Key (int key);
+		void M_ColorPicker_Key (int key);
+		void M_Extras_Key (int key);
+		void M_Version_Key (int key);
+		void M_ResetConfig_Key(int key); // woods #resetconfig
+			void M_Crosshair_Key (int key);
+		void M_Console_Key (int key);
+	void M_Mods_Key (int key);
+	void M_Demos_Key (int key);
+	void M_Demos_Char (int key);
+	qboolean M_Demos_TextEntry (void);
+	void M_Help_Key (int key);
+	void M_Quit_Key (int key);
+	void M_NameMaker_Key(int key); // woods #namemaker
+
+	// woods #mousemenu
+	
+	void M_Main_Mousemove(int cx, int cy);
+	void M_SinglePlayer_Mousemove(int cx, int cy);
+		void M_Load_Mousemove(int cx, int cy);
+		void M_Save_Mousemove(int cx, int cy);
+		void M_Maps_Mousemove(int cx, int cy);
+		void M_DownloadMaps_Mousemove(int cx, int cy);
+			void M_Skill_Mousemove(int cx, int cy);
+	void M_MultiPlayer_Mousemove(int cx, int cy);
+		void M_Setup_Mousemove(int cx, int cy);
+		void M_NameMaker_Mousemove(int cx, int cy);
+		void M_Net_Mousemove(int cx, int cy);
+		void M_LanConfig_Mousemove(int cx, int cy);
+		void M_GameOptions_Mousemove(int cx, int cy);
+		//void M_Search_Mousemove (int cx, int cy);
+		void M_ServerList_Mousemove(int cx, int cy);
+		void M_History_Mousemove(int cx, int cy); // woods #historymenu
+		void M_Bookmarks_Mousemove(int cx, int cy); // woods #bookmarksmenu
+		void M_Bookmarks_Edit_Mousemove(int cx, int cy); // woods #bookmarksmenu
+	void M_Options_Mousemove(int cx, int cy);
+		void M_Keys_Mousemove(int cx, int cy);
+		void M_Mouse_Mousemove (int cx, int cy);
+		void M_Controller_Mousemove (int cx, int cy);
+		void M_WeaponWheel_Mousemove (int cx, int cy);
+		void M_Video_Mousemove (int cx, int cy);
+		void M_Graphics_Mousemove (int cx, int cy);
+			void M_Sky_Mousemove (int cx, int cy);
+				void M_Skywind_Mousemove (int cx, int cy);
+		void M_Sound_Mousemove (int cx, int cy);
+			void M_Voip_Mousemove (int cx, int cy);
+		void M_Game_Mousemove (int cx, int cy);
+		void M_PlayerXray_Mousemove (int cx, int cy);
+		void M_HUD_Mousemove (int cx, int cy);
+			void M_Crosshair_Mousemove (int cx, int cy);
+		void M_Console_Mousemove (int cx, int cy);
+		void M_Startup_Mousemove (int cx, int cy);
+		void M_DemoOptions_Mousemove (int cx, int cy);
+		void M_PakLoading_Mousemove (int cx, int cy);
+		void M_ColorPicker_Mousemove(int cx, int cy);
+		void M_Extras_Mousemove(int cx, int cy);
+		void M_Version_Mousemove(int cx, int cy);
+		void M_ResetConfig_Mousemove(int cx, int cy); // woods #resetconfig
+	//void M_Gamepad_Mousemove (int cx, int cy);
+	void M_Mods_Mousemove(int cx, int cy);
+	void M_Demos_Mousemove(int cx, int cy);
+	//void M_Help_Mousemove (int cx, int cy);
+	//void M_Quit_Mousemove (int cx, int cy);
+
+qboolean	m_entersound;		// play after drawing a frame, so caching
+								// won't disrupt the sound
+qboolean	m_recursiveDraw;
+
+enum m_state_e	m_return_state;
+qboolean	m_return_onerror;
+char		m_return_reason [32];
+
+#define StartingGame	(m_multiplayer_cursor == 1)
+#define JoiningGame		(m_multiplayer_cursor == 0)
+//#define	IPXConfig		(m_net_cursor == 1) // woods #skipipx
+#define	TCPIPConfig		(m_net_cursor == 0)
+
+void M_ConfigureNetSubsystem(void);
+void M_SetSkillMenuMap(const char* name); // woods #skillmenu (iw)
+static void M_GameOptions_ClearTypedLevel(void);
+
+void FileList_Subtract(const char* name, filelist_item_t** list); // woods #historymenu
+
+static qboolean has_custom_progs = false; // woods #botdetect
+qboolean progs_check_done = false; // woods #botdetect
+
+/*
+================
+M_DrawCharacter
+
+Draws one solid graphics character
+================
+*/
+void M_DrawCharacter (int cx, int line, int num)
+{
+	Draw_Character (cx, line, num);
+}
+
+void M_DrawArrowCursor(int cx, int cy) // woods #skillmenu (iw)
+{
+	M_DrawCharacter(cx, cy, 12 + ((int)(realtime * 4) & 1));
+}
+
+void M_Print (int cx, int cy, const char *str)
+{
+	while (*str)
+	{
+		M_DrawCharacter (cx, cy, (*str)+128);
+		str++;
+		cx += 8;
+	}
+}
+
+void M_DrawCharacterRGBA (int cx, int line, int num, plcolour_t c, float alpha) // woods
+{
+	Draw_CharacterRGBA (cx, line, num, c, alpha);
+}
+
+void M_PrintRGBA (int cx, int cy, const char* str, plcolour_t c, float alpha, qboolean mask) // woods
+{
+	while (*str)
+	{
+		if (mask)
+			M_DrawCharacterRGBA(cx, cy, (*str) + 128, c, alpha);  // Add 128 for masked version
+		else
+			M_DrawCharacterRGBA(cx, cy, (*str), c, alpha);
+		str++;
+		cx += 8;
+	}
+}
+
+void M_Print2 (int cx, int cy, const char* str) // woods #speed yellow/gold numbers
+{
+	while (*str)
+	{
+		M_DrawCharacter(cx, cy, (*str) -30);
+		str++;
+		cx += 8;
+	}
+}
+
+void M_PrintWhite (int cx, int cy, const char *str)
+{
+	while (*str)
+	{
+		M_DrawCharacter (cx, cy, *str);
+		str++;
+		cx += 8;
+	}
+}
+
+void M_DrawTransPic (int x, int y, qpic_t *pic)
+{
+	Draw_Pic (x, y, pic); //johnfitz -- simplified becuase centering is handled elsewhere
+}
+
+void M_DrawPic (int x, int y, qpic_t *pic)
+{
+	Draw_Pic (x, y, pic); //johnfitz -- simplified becuase centering is handled elsewhere
+}
+
+void M_DrawSubpic (int x, int y, qpic_t* pic, int left, int top, int width, int height) // woods #modsmenu (iw)
+{
+	float s1 = left / (float)pic->width;
+	float t1 = top / (float)pic->height;
+	float s2 = width / (float)pic->width;
+	float t2 = height / (float)pic->height;
+	Draw_SubPic (x, y, width, height, pic, s1, t1, s2, t2);
+}
+
+void M_DrawTransPicTranslate (int x, int y, qpic_t *pic, plcolour_t top, plcolour_t bottom) //johnfitz -- more parameters
+{
+	Draw_TransPicTranslate (x, y, pic, top, bottom); //johnfitz -- simplified becuase centering is handled elsewhere
+}
+
+void M_DrawTextBox (int x, int y, int width, int lines)
+{
+	qpic_t	*p;
+	int		cx, cy;
+	int		n;
+
+	// draw left side
+	cx = x;
+	cy = y;
+	p = Draw_CachePic ("gfx/box_tl.lmp");
+	M_DrawTransPic (cx, cy, p);
+	p = Draw_CachePic ("gfx/box_ml.lmp");
+	for (n = 0; n < lines; n++)
+	{
+		cy += 8;
+		M_DrawTransPic (cx, cy, p);
+	}
+	p = Draw_CachePic ("gfx/box_bl.lmp");
+	M_DrawTransPic (cx, cy+8, p);
+
+	// draw middle
+	cx += 8;
+	while (width > 0)
+	{
+		cy = y;
+		p = Draw_CachePic ("gfx/box_tm.lmp");
+		M_DrawTransPic (cx, cy, p);
+		p = Draw_CachePic ("gfx/box_mm.lmp");
+		for (n = 0; n < lines; n++)
+		{
+			cy += 8;
+			if (n == 1)
+				p = Draw_CachePic ("gfx/box_mm2.lmp");
+			M_DrawTransPic (cx, cy, p);
+		}
+		p = Draw_CachePic ("gfx/box_bm.lmp");
+		M_DrawTransPic (cx, cy+8, p);
+		width -= 2;
+		cx += 16;
+	}
+
+	// draw right side
+	cy = y;
+	p = Draw_CachePic ("gfx/box_tr.lmp");
+	M_DrawTransPic (cx, cy, p);
+	p = Draw_CachePic ("gfx/box_mr.lmp");
+	for (n = 0; n < lines; n++)
+	{
+		cy += 8;
+		M_DrawTransPic (cx, cy, p);
+	}
+	p = Draw_CachePic ("gfx/box_br.lmp");
+	M_DrawTransPic (cx, cy+8, p);
+}
+
+void M_DrawTextBox_WithAlpha (int x, int y, int width, int lines, float alpha) // woods #centerprintbg (iw)
+{
+	qpic_t* p;
+	int cx, cy;
+	int n;
+	float outlineThickness = 0.0f;
+	plcolour_t imageColor = CL_PLColours_Parse("0xffffff");
+
+	// draw left side
+	cx = x;
+	cy = y;
+	p = Draw_CachePic("gfx/box_tl.lmp");
+	Draw_Pic_RGBA_Outline(cx, cy, p, imageColor, alpha, outlineThickness);
+
+	p = Draw_CachePic("gfx/box_ml.lmp");
+	for (n = 0; n < lines; n++)
+	{
+		cy += 8;
+		Draw_Pic_RGBA_Outline(cx, cy, p, imageColor, alpha, outlineThickness);
+	}
+	p = Draw_CachePic("gfx/box_bl.lmp");
+	Draw_Pic_RGBA_Outline(cx, cy + 8, p, imageColor, alpha, outlineThickness);
+
+	// draw middle
+	cx += 8;
+	while (width > 0)
+	{
+		cy = y;
+		p = Draw_CachePic("gfx/box_tm.lmp");
+		Draw_Pic_RGBA_Outline(cx, cy, p, imageColor, alpha, outlineThickness);
+
+		p = Draw_CachePic("gfx/box_mm.lmp");
+		for (n = 0; n < lines; n++)
+		{
+			cy += 8;
+			if (n == 1)
+				p = Draw_CachePic("gfx/box_mm2.lmp");
+			Draw_Pic_RGBA_Outline(cx, cy, p, imageColor, alpha, outlineThickness);
+		}
+		p = Draw_CachePic("gfx/box_bm.lmp");
+		Draw_Pic_RGBA_Outline(cx, cy + 8, p, imageColor, alpha, outlineThickness);
+		width -= 2;
+		cx += 16;
+	}
+
+	// draw right side
+	cy = y;
+	p = Draw_CachePic("gfx/box_tr.lmp");
+	Draw_Pic_RGBA_Outline(cx, cy, p, imageColor, alpha, outlineThickness);
+
+	p = Draw_CachePic("gfx/box_mr.lmp");
+	for (n = 0; n < lines; n++)
+	{
+		cy += 8;
+		Draw_Pic_RGBA_Outline(cx, cy, p, imageColor, alpha, outlineThickness);
+	}
+	p = Draw_CachePic("gfx/box_br.lmp");
+	Draw_Pic_RGBA_Outline(cx, cy + 8, p, imageColor, alpha, outlineThickness);
+}
+
+void M_DrawQuakeCursor(int cx, int cy) // woods #skillmenu (iw)
+{
+	qpic_t* pic = Draw_CachePic(va("gfx/menudot%i.lmp", (int)(realtime * 10) % 6 + 1));
+	M_DrawTransPic(cx, cy, pic);
+}
+
+
+void M_DrawQuakeBar(int x, int y, int cols) // woods #modsmenu (iw)
+{
+	M_DrawCharacter(x, y, '\35');
+	x += 8;
+	cols -= 2;
+	while (cols-- > 0)
+	{
+		M_DrawCharacter(x, y, '\36');
+		x += 8;
+	}
+	M_DrawCharacter(x, y, '\37');
+}
+
+void M_DrawEllipsisBar(int x, int y, int cols) // woods #modsmenu (iw)
+{
+	while (cols > 0)
+	{
+		M_DrawCharacter(x, y, '.' | 128);
+		cols -= 2;
+		x += 16;
+	}
+}
+
+//=============================================================================
+/* Scrolling ticker -- woods #modsmenu #demosmenu (iw)*/ 
+
+typedef struct
+{
+	double			scroll_time;
+	double			scroll_wait_time;
+} menuticker_t;
+
+static void M_Ticker_Init(menuticker_t* ticker)
+{
+	ticker->scroll_time = 0.0;
+	ticker->scroll_wait_time = 1.0;
+}
+
+static void M_Ticker_Update(menuticker_t* ticker)
+{
+	if (ticker->scroll_wait_time <= 0.0)
+		ticker->scroll_time += host_frametime;
+	else
+		ticker->scroll_wait_time = q_max(0.0, ticker->scroll_wait_time - host_frametime);
+}
+
+static qboolean M_Ticker_Key(menuticker_t* ticker, int key)
+{
+	switch (key)
+	{
+	case K_RIGHTARROW:
+		ticker->scroll_time += 0.25;
+		ticker->scroll_wait_time = 1.5;
+		S_LocalSound("misc/menu3.wav");
+		return true;
+
+	case K_LEFTARROW:
+		ticker->scroll_time -= 0.25;
+		ticker->scroll_wait_time = 1.5;
+		S_LocalSound("misc/menu3.wav");
+		return true;
+
+	default:
+		return false;
+	}
+}
+
+void M_PrintHighlight(int x, int y, const char* str, const char* search, int searchlen)
+{
+	if (!searchlen)
+	{
+		M_Print(x, y, str);
+		return;
+	}
+
+	const char* match = q_strcasestr(str, search);
+	if (!match)
+	{
+		M_Print(x, y, str);
+		return;
+	}
+
+	// Print part before match
+	int pos = match - str;
+	int i;
+	for (i = 0; i < pos; i++)
+		M_DrawCharacter(x + i * 8, y, str[i] ^ 128);
+
+	for (i = 0; i < searchlen && match[i]; i++) // Print matching part highlighted
+		M_DrawCharacter(x + (pos + i) * 8, y, match[i]);
+
+	for (i = 0; match[i + searchlen]; i++) // Print rest normally
+		M_DrawCharacter(x + (pos + searchlen + i) * 8, y, match[i + searchlen] ^ 128);
+}
+
+// TODO: smooth scrolling
+void M_PrintScroll(int x, int y, int maxwidth, const char* str, double time, qboolean color) // woods #modsmenu (iw)
+{
+	const int charwidth = 8;
+	const int gap_len = 5;
+	const int scrollspeed = 30; // pixels per second, matches Sbar_DrawScrollString
+	int maxchars = maxwidth / charwidth;
+	int len = strlen(str);
+	char mask = color ? 128 : 0;
+
+	if (len <= maxchars)
+	{
+		if (color)
+			M_Print(x, y, str);
+		else
+			M_PrintWhite(x, y, str);
+		return;
+	}
+
+	if (!len)
+		return;
+
+	int total_chars = len + gap_len;
+	int cycle_pixels = total_chars * charwidth;
+	int pixel_offset = ((int)(time * scrollspeed)) % cycle_pixels;
+	if (pixel_offset < 0)
+		pixel_offset += cycle_pixels;
+
+	for (int pass = 0; pass < 2; ++pass)
+	{
+		int base_x = x - pixel_offset + pass * cycle_pixels;
+		for (int pos = 0; pos < total_chars; ++pos)
+		{
+			int char_x = base_x + pos * charwidth;
+
+			if (char_x + charwidth <= x)
+				continue;
+			if (char_x >= x + maxwidth)
+				break;
+
+			int ch;
+			if (pos < len)
+				ch = (unsigned char)str[pos];
+			else
+				ch = (unsigned char)" /// "[pos - len];
+
+			M_DrawCharacter(char_x, y, ch ^ mask);
+	}
+}
+}
+
+void M_PrintScroll2(int x, int y, int maxwidth, const char* str, const char* str2, double time, qboolean name_red)
+{
+	int maxchars = maxwidth / 8;
+	int len_str = (int)strlen(str);
+
+	// Determine effective name length based on scroll state
+	int effective_len_str = (time != 0.0) ? len_str : q_min(len_str, 12);
+
+	// Create masked version of name
+	char masked_str[MAX_QPATH];
+	char mask = name_red ? 128 : 0;
+	for (int i = 0; i < effective_len_str; i++)
+		masked_str[i] = (char)(str[i] ^ mask);
+	masked_str[effective_len_str] = '\0';
+
+	// Calculate padding width (capped at 13)
+	int padding_width = q_min(max_word_length + 1, 13);
+
+	// Build combined string
+	char combined[MAX_CHAT_SIZE_EX];
+	if (time != 0.0 && len_str > 12)
+		q_snprintf(combined, sizeof(combined), "%-*s %s", padding_width, masked_str, str2);
+	else
+		q_snprintf(combined, sizeof(combined), "%-*s%s", padding_width, masked_str, str2);
+
+	int combined_len = (int)strlen(combined);
+
+	// Non-scrolling display if text fits
+	if (combined_len <= maxchars) {
+		M_PrintWhite(x, y, combined);
+		return;
+	}
+
+	const int charwidth = 8;
+	const int gap_len = 5;
+	const int scrollspeed = 30; // pixels per second, matches Sbar_DrawScrollString
+	int total_chars = combined_len + gap_len;
+	int cycle_pixels = total_chars * charwidth;
+	int pixel_offset = cycle_pixels ? ((int)(time * scrollspeed)) % cycle_pixels : 0;
+	if (pixel_offset < 0)
+		pixel_offset += cycle_pixels;
+
+	for (int pass = 0; pass < 2; ++pass)
+	{
+		int base_x = x - pixel_offset + pass * cycle_pixels;
+		for (int pos = 0; pos < total_chars; ++pos)
+		{
+			int char_x = base_x + pos * charwidth;
+
+			if (char_x + charwidth <= x)
+				continue;
+			if (char_x >= x + maxwidth)
+				break;
+
+		char c;
+			if (pos < combined_len)
+				c = combined[pos];
+		else
+				c = " /// "[pos - combined_len];
+
+			M_DrawCharacter(char_x, y, c);
+	}
+}
+}
+
+void M_PrintHighlightScroll2(int x, int y, int maxwidth,
+	const char* str, const char* str2,
+	const char* highlight, double time)
+{
+	// How many visible characters fit on one line
+	int maxchars = maxwidth / 8;
+
+	// Safe string handling for name portion
+	char name_str[256];
+	int len_str = (int)strlen(str);
+	int effective_len_str = (time != 0.0) ? len_str : (len_str > 12 ? 12 : len_str);
+
+	// Safely copy the name portion
+	q_strlcpy(name_str, str, sizeof(name_str));
+	if (effective_len_str < len_str)
+		name_str[effective_len_str] = '\0';
+
+	// Build the name portion with proper padding
+	char name_portion[256];
+	if (time != 0.0 && len_str > 12)
+		q_snprintf(name_portion, sizeof(name_portion), "%s ", name_str);
+	else {
+		int padding_width = max_word_length + 1;
+		if (padding_width > 13)
+			padding_width = 13;
+		q_snprintf(name_portion, sizeof(name_portion), "%-*s", padding_width, name_str);
+	}
+
+	// Build combined string
+	char combined[1024];
+	q_snprintf(combined, sizeof(combined), "%s%s", name_portion, str2);
+
+	int actual_name_len = (int)strlen(name_portion);
+	int combined_len = (int)strlen(combined);
+	int name_end = actual_name_len;
+
+	// Find highlight positions
+	int name_highlight_start = -1, name_highlight_end = -1;
+	if (highlight && highlight[0]) {
+		const char* nm = q_strcasestr(name_str, highlight);
+		if (nm) {
+			name_highlight_start = (int)(nm - name_str);
+			name_highlight_end = name_highlight_start + (int)strlen(highlight);
+			if (name_highlight_end > effective_len_str)
+				name_highlight_end = effective_len_str;
+		}
+	}
+
+	int desc_highlight_start = -1, desc_highlight_end = -1;
+	if (highlight && highlight[0]) {
+		const char* dm = q_strcasestr(str2, highlight);
+		if (dm) {
+			desc_highlight_start = (int)(dm - str2);
+			desc_highlight_end = desc_highlight_start + (int)strlen(highlight);
+			if (desc_highlight_end > (int)strlen(str2))
+				desc_highlight_end = (int)strlen(str2);
+		}
+	}
+
+	// Non-scrolling display if text fits
+	if (combined_len <= maxchars) {
+		// Draw name portion
+		for (int i = 0; i < actual_name_len; i++) {
+			char ch = combined[i];
+			qboolean is_highlighted = (i < effective_len_str &&
+				name_highlight_start != -1 &&
+				i >= name_highlight_start &&
+				i < name_highlight_end);
+			qboolean is_bronzed = (i < effective_len_str) || (time == 0.0);
+
+			M_DrawCharacter(x + i * 8, y, ch | (is_highlighted ? 0 : (is_bronzed ? 128 : 0)));
+		}
+
+		// Draw description portion
+		int desc_x = x + actual_name_len * 8;
+		for (int i = 0; i < (int)strlen(str2); i++) {
+			char ch = str2[i];
+			qboolean is_highlighted = (desc_highlight_start != -1 &&
+				i >= desc_highlight_start &&
+				i < desc_highlight_end);
+
+			M_DrawCharacter(desc_x + i * 8, y, ch | (is_highlighted ? 128 : 0));
+		}
+		return;
+	}
+
+	// Scrolling display
+	const int charwidth = 8;
+	const int gap_len = 5;
+	const int scrollspeed = 30; // pixels per second, matches Sbar_DrawScrollString
+	int total_chars = combined_len + gap_len;
+	int cycle_pixels = total_chars * charwidth;
+	int pixel_offset = cycle_pixels ? ((int)(time * scrollspeed)) % cycle_pixels : 0;
+	if (pixel_offset < 0)
+		pixel_offset += cycle_pixels;
+
+	for (int pass = 0; pass < 2; ++pass)
+	{
+		int base_x = x - pixel_offset + pass * cycle_pixels;
+		for (int pos = 0; pos < total_chars; ++pos)
+		{
+			int char_x = base_x + pos * charwidth;
+
+			if (char_x + charwidth <= x)
+			continue;
+			if (char_x >= x + maxwidth)
+				break;
+
+			int drawch;
+			if (pos < combined_len)
+			{
+		char ch = combined[pos];
+		qboolean is_highlighted = false;
+		qboolean is_bronzed = false;
+
+				if (pos < name_end)
+				{
+					if (pos < effective_len_str)
+					{
+				is_highlighted = (name_highlight_start != -1 &&
+					pos >= name_highlight_start &&
+					pos < name_highlight_end);
+				is_bronzed = !is_highlighted;
+			}
+					else
+					{
+				is_bronzed = true;
+			}
+		}
+				else
+				{
+			int desc_pos = pos - name_end;
+			is_highlighted = (desc_highlight_start != -1 &&
+				desc_pos >= desc_highlight_start &&
+				desc_pos < desc_highlight_end);
+		}
+
+				drawch = ch | (is_highlighted ? 0 : (is_bronzed ? 128 : 0));
+	}
+			else
+			{
+				drawch = ' ' | 128; // Gap
+}
+
+			M_DrawCharacter(char_x, y, drawch);
+		}
+	}
+}
+
+void M_PrintHighlightScroll(int x, int y, int maxwidth, const char* str, const char* highlight, double time)
+{
+    int len_str = strlen(str);
+
+    // Copy the original string without masking
+    char name_str[MAX_CHAT_SIZE_EX];
+    strncpy(name_str, str, sizeof(name_str) - 1);
+    name_str[sizeof(name_str) - 1] = '\0';
+
+    // Compute highlight positions in the name
+    int name_highlight_start = -1, name_highlight_end = -1;
+    if (highlight && highlight[0])
+    {
+        const char* name_match = q_strcasestr(name_str, highlight);
+        if (name_match)
+        {
+            name_highlight_start = name_match - name_str;
+            name_highlight_end = name_highlight_start + strlen(highlight);
+            if (name_highlight_end > len_str)
+                name_highlight_end = len_str;
+        }
+    }
+
+	const int charwidth = 8;
+	const int gap_len = 5;
+	const int scrollspeed = 30; // pixels per second, matches Sbar_DrawScrollString
+	int total_chars = len_str + gap_len;
+	int cycle_pixels = total_chars * charwidth;
+	int pixel_offset = cycle_pixels ? ((int)(time * scrollspeed)) % cycle_pixels : 0;
+	if (pixel_offset < 0)
+		pixel_offset += cycle_pixels;
+
+	for (int pass = 0; pass < 2; ++pass)
+    {
+		int base_x = x - pixel_offset + pass * cycle_pixels;
+		for (int pos = 0; pos < total_chars; ++pos)
+		{
+			int char_x = base_x + pos * charwidth;
+
+			if (char_x + charwidth <= x)
+				continue;
+			if (char_x >= x + maxwidth)
+				break;
+
+			int drawch;
+			if (pos < len_str)
+        {
+				char ch = name_str[pos];
+				qboolean is_highlighted = (name_highlight_start != -1 &&
+					pos >= name_highlight_start &&
+					pos < name_highlight_end);
+
+				if (is_highlighted)
+					drawch = ch & 127; // Draw character in normal color (highlighted)
+				else
+					drawch = ch | 128; // Apply bronze effect for non-highlighted text
+            }
+        else
+        {
+				drawch = ' ' | 128; // Gap
+        }
+
+			M_DrawCharacter(char_x, y, drawch);
+		}
+    }
+}
+
+//=============================================================================
+/* Mouse helpers */
+
+// woods #mousemenu
+
+void M_ForceMousemove(void)
+{
+	int x, y;
+	SDL_GetMouseState(&x, &y);
+	M_Mousemove(x, y);
+}
+
+void M_UpdateCursor(int mousey, int starty, int itemheight, int numitems, int* cursor)
+{
+	int pos = (mousey - starty) / itemheight;
+	if (pos > numitems - 1)
+		pos = numitems - 1;
+	if (pos < 0)
+		pos = 0;
+	*cursor = pos;
+}
+
+void M_UpdateCursorXY(int mousex, int mousey, int startx, int starty, int itemwidth, int itemheight, int numitems, int* cursorX, int* cursorY)
+{
+	int posx = (mousex - startx) / itemwidth;
+	int posy = (mousey - starty) / itemheight;
+
+	// Calculate the total number of rows based on the number of items and columns
+	//int numrows = (numitems + numcolumns - 1) / numcolumns; // Ceiling division to ensure full coverage of items
+
+	// Clamping posx to the range [0, numcolumns - 1]
+	if (posx > numitems - 1)
+		posx = numitems - 1;
+	if (posx < 0)
+		posx = 0;
+
+	// Clamping posy to the range [0, numrows - 1]
+	if (posy > numitems - 1)
+		posy = numitems - 1;
+	if (posy < 0)
+		posy = 0;
+
+	// Updating the cursor position
+	*cursorX = posx;
+	*cursorY = posy;
+}
+
+
+void M_UpdateCursorWithTable(int mousey, const int* table, int numitems, int* cursor)
+{
+	int i, dy;
+	for (i = 0; i < numitems; i++)
+	{
+		dy = mousey - table[i];
+		if (dy >= 0 && dy < 8)
+		{
+			*cursor = i;
+			break;
+		}
+	}
+}
+
+
+// woods iw menu functions #modsmenu #skillmenu #mapsmenu #mousemenu
+
+/* Listbox */
+
+qboolean mapshint; // woods
+qboolean maps_from_gameoptions = false;
+
+typedef struct
+{
+	int				len;
+	int				maxlen;
+	qboolean(*match_fn) (int index);
+	double			timeout;
+	double			errtimeout;
+	double			backspacecooldown;
+	char			text[256];
+} listsearch_t;
+
+typedef struct
+{
+	int			cursor;
+	int			numitems;
+	int			viewsize;
+	int			scroll;
+	listsearch_t search;
+	qboolean(*isactive_fn) (int index);
+} menulist_t;
+
+void M_List_CheckIntegrity(const menulist_t* list)
+{
+	SDL_assert(list->numitems >= 0);
+	SDL_assert(list->cursor >= 0);
+	SDL_assert(list->cursor < list->numitems);
+	SDL_assert(list->scroll >= 0);
+	SDL_assert(list->scroll < list->numitems);
+	SDL_assert(list->viewsize > 0);
+}
+
+static menu_textfield_t	*textfield_drag_field = NULL;
+static int				textfield_drag_text_x = 0;
+static qboolean		textfield_mouse_dragging = false;
+static double			textfield_mouseclick_time = 0.0;
+static int				textfield_mouseclicks = 0; /* 1: char, 2: word, >=3: whole field */
+static menu_textfield_t	*textfield_click_field = NULL;
+static int				textfield_click_pos = -1;
+static const double		TEXTFIELD_DOUBLECLICK_TIME = 0.5;
+extern qpic_t *pic_ins;
+
+static qboolean M_TextField_HasShortcutModifier(void)
+{
+#if defined(PLATFORM_OSX) || defined(PLATFORM_MAC)
+	return keydown[K_COMMAND] || keydown[K_CTRL];
+#else
+	return keydown[K_CTRL];
+#endif
+}
+
+static qboolean M_TextField_HasWordMoveModifier(void)
+{
+#if defined(PLATFORM_OSX) || defined(PLATFORM_MAC)
+	return keydown[K_COMMAND];
+#else
+	return keydown[K_CTRL];
+#endif
+}
+
+static qboolean M_TextField_HasWordDeleteModifier(void)
+{
+	return keydown[K_CTRL];
+}
+
+void M_TextField_ClampCursor(menu_textfield_t *tf)
+{
+	int len = (int)strlen(tf->text);
+
+	if (tf->cursor < 0)
+		tf->cursor = 0;
+	if (tf->cursor > len)
+		tf->cursor = len;
+	if (tf->cursor > tf->max_len)
+		tf->cursor = tf->max_len;
+	if (tf->sel_start > len)
+		tf->sel_start = len;
+	if (tf->sel_start > tf->max_len)
+		tf->sel_start = tf->max_len;
+}
+
+void M_TextField_Init(menu_textfield_t *tf, char *buffer, int max_len, qboolean digits_only)
+{
+	tf->text = buffer;
+	tf->max_len = max_len;
+	tf->cursor = (int)strlen(buffer);
+	tf->sel_start = -1;
+	tf->digits_only = digits_only;
+	M_TextField_ClampCursor(tf);
+}
+
+void M_TextField_ClearSelection(menu_textfield_t *tf)
+{
+	tf->sel_start = -1;
+}
+
+static qboolean M_TextField_GetSelection(const menu_textfield_t *tf, int *out_start, int *out_end)
+{
+	if (tf->sel_start < 0)
+		return false;
+	if (tf->sel_start <= tf->cursor)
+	{
+		*out_start = tf->sel_start;
+		*out_end = tf->cursor;
+	}
+	else
+	{
+		*out_start = tf->cursor;
+		*out_end = tf->sel_start;
+	}
+	return *out_start != *out_end;
+}
+
+static int M_TextField_IntSign(int value)
+{
+	return (value < 0) ? -1 : ((value > 0) ? 1 : 0);
+}
+
+static int M_TextField_TestWordBoundary(int pos, const char *text, int len)
+{
+	if (pos <= 0)
+		return 1;
+	if (pos >= len)
+		return -1;
+	return q_isspace((unsigned char)text[pos - 1]) - q_isspace((unsigned char)text[pos]);
+}
+
+static void M_TextField_ApplyMouseSelection(menu_textfield_t *tf)
+{
+	int len = (int)strlen(tf->text);
+	int anchor;
+	int caret;
+	int begin;
+	int end;
+
+	anchor = CLAMP(0, tf->sel_start, len);
+	caret = CLAMP(0, tf->cursor, len);
+
+	if (textfield_mouseclicks <= 1)
+	{
+		tf->sel_start = anchor;
+		tf->cursor = caret;
+		return;
+	}
+
+	if (textfield_mouseclicks >= 3)
+	{
+		tf->sel_start = 0;
+		tf->cursor = len;
+		return;
+	}
+
+	/* Double-click mode: expand to whole-word boundaries like the console. */
+	{
+		int boundary = M_TextField_IntSign(M_TextField_TestWordBoundary(anchor, tf->text, len));
+		int dir = M_TextField_IntSign(caret - anchor);
+		if (boundary && boundary != dir)
+			anchor += boundary;
+	}
+
+	begin = q_min(anchor, caret);
+	end = q_max(anchor, caret);
+
+	while (!M_TextField_TestWordBoundary(begin, tf->text, len))
+		--begin;
+	while (!M_TextField_TestWordBoundary(end, tf->text, len))
+		++end;
+
+	if (anchor <= caret)
+	{
+		tf->sel_start = begin;
+		tf->cursor = end;
+	}
+	else
+	{
+		tf->sel_start = end;
+		tf->cursor = begin;
+	}
+}
+
+static int M_TextField_FindWordBoundary(const menu_textfield_t *tf, int dir)
+{
+	const char *text = tf->text;
+	int len = (int)strlen(text);
+	int pos = tf->cursor;
+
+	if (dir < 0)
+	{
+		while (pos > 0 && q_isspace(text[pos - 1]))
+			--pos;
+		while (pos > 0 && !q_isspace(text[pos - 1]))
+			--pos;
+	}
+	else
+	{
+		while (pos < len && q_isspace(text[pos]))
+			++pos;
+		while (pos < len && !q_isspace(text[pos]))
+			++pos;
+	}
+
+	return pos;
+}
+
+static void M_TextField_MoveCursor(menu_textfield_t *tf, int cursor, qboolean extend_selection)
+{
+	if (cursor < 0)
+		cursor = 0;
+	if (cursor > tf->max_len)
+		cursor = tf->max_len;
+
+	if (extend_selection)
+	{
+		if (tf->sel_start < 0)
+			tf->sel_start = tf->cursor;
+	}
+	else
+	{
+		tf->sel_start = -1;
+	}
+
+	tf->cursor = cursor;
+	M_TextField_ClampCursor(tf);
+}
+
+static qboolean M_TextField_DeleteRange(menu_textfield_t *tf, int start, int end)
+{
+	int len = (int)strlen(tf->text);
+
+	start = CLAMP(0, start, len);
+	end = CLAMP(0, end, len);
+	if (start >= end)
+		return false;
+
+	memmove(tf->text + start, tf->text + end, (size_t)(len - end + 1));
+	tf->cursor = start;
+	tf->sel_start = -1;
+	return true;
+}
+
+static qboolean M_TextField_DeleteSelection(menu_textfield_t *tf)
+{
+	int sel_begin, sel_end;
+
+	if (!M_TextField_GetSelection(tf, &sel_begin, &sel_end))
+		return false;
+
+	return M_TextField_DeleteRange(tf, sel_begin, sel_end);
+}
+
+static qboolean M_TextField_Insert(menu_textfield_t *tf, const char *src)
+{
+	int cur_len;
+	int space;
+
+	if (!src || !*src)
+		return false;
+
+	if (tf->sel_start >= 0)
+		M_TextField_DeleteSelection(tf);
+
+	cur_len = (int)strlen(tf->text);
+	space = tf->max_len - cur_len;
+	if (space <= 0)
+		return false;
+
+	if (tf->digits_only)
+	{
+		int i;
+		int inserted = 0;
+		for (i = 0; src[i] && space > 0; ++i)
+		{
+			if (src[i] >= '0' && src[i] <= '9')
+			{
+				memmove(tf->text + tf->cursor + 1, tf->text + tf->cursor, (size_t)(cur_len - tf->cursor + 1));
+				tf->text[tf->cursor] = src[i];
+				++tf->cursor;
+				++cur_len;
+				--space;
+				++inserted;
+			}
+		}
+		tf->sel_start = -1;
+		return inserted > 0;
+	}
+	else
+	{
+		int i;
+		int inserted = 0;
+		for (i = 0; src[i] && space > 0; ++i)
+		{
+			unsigned char c = (unsigned char)src[i];
+			if (c < 32 || c > 126)
+				continue;
+
+			memmove(tf->text + tf->cursor + 1, tf->text + tf->cursor, (size_t)(cur_len - tf->cursor + 1));
+			tf->text[tf->cursor] = (char)c;
+			++tf->cursor;
+			++cur_len;
+			--space;
+			++inserted;
+		}
+		tf->sel_start = -1;
+		return inserted > 0;
+	}
+}
+
+static void M_TextField_PlayCopySound(void)
+{
+	const char* sound_file = COM_FileExists("sound/qssm/copy.wav", NULL) ? "qssm/copy.wav" : "player/tornoff2.wav";
+	S_LocalSound(sound_file);
+}
+
+static qboolean M_TextField_CopySelection(menu_textfield_t *tf)
+{
+	int sel_begin, sel_end;
+	int copy_len;
+	char *copy;
+
+	if (!M_TextField_GetSelection(tf, &sel_begin, &sel_end))
+		return false;
+
+	copy_len = sel_end - sel_begin;
+	copy = (char *)SDL_malloc((size_t)copy_len + 1);
+	if (!copy)
+		return false;
+
+	memcpy(copy, tf->text + sel_begin, (size_t)copy_len);
+	copy[copy_len] = 0;
+	SDL_SetClipboardText(copy);
+	SDL_free(copy);
+
+	M_TextField_PlayCopySound();
+	return true;
+}
+
+qboolean M_TextField_Key(menu_textfield_t *tf, int key)
+{
+	int len = (int)strlen(tf->text);
+	int target;
+
+	switch (key)
+	{
+	case K_LEFTARROW:
+	case K_KP_LEFTARROW:
+		target = tf->cursor;
+		if (M_TextField_HasWordMoveModifier())
+			target = M_TextField_FindWordBoundary(tf, -1);
+		else if (target > 0)
+			--target;
+		M_TextField_MoveCursor(tf, target, keydown[K_SHIFT]);
+		return true;
+
+	case K_RIGHTARROW:
+	case K_KP_RIGHTARROW:
+		target = tf->cursor;
+		if (M_TextField_HasWordMoveModifier())
+			target = M_TextField_FindWordBoundary(tf, +1);
+		else if (target < len)
+			++target;
+		M_TextField_MoveCursor(tf, target, keydown[K_SHIFT]);
+		return true;
+
+	case K_HOME:
+		M_TextField_MoveCursor(tf, 0, keydown[K_SHIFT]);
+		return true;
+
+	case K_END:
+		M_TextField_MoveCursor(tf, len, keydown[K_SHIFT]);
+		return true;
+
+	case K_BACKSPACE:
+		if (M_TextField_DeleteSelection(tf))
+			return true;
+		if (M_TextField_HasWordDeleteModifier())
+			return M_TextField_DeleteRange(tf, M_TextField_FindWordBoundary(tf, -1), tf->cursor);
+		return M_TextField_DeleteRange(tf, tf->cursor - 1, tf->cursor);
+
+	case K_DEL:
+		if (M_TextField_DeleteSelection(tf))
+			return true;
+		if (M_TextField_HasWordDeleteModifier())
+			return M_TextField_DeleteRange(tf, tf->cursor, M_TextField_FindWordBoundary(tf, +1));
+		return M_TextField_DeleteRange(tf, tf->cursor, tf->cursor + 1);
+
+	case 'a':
+	case 'A':
+		if (M_TextField_HasShortcutModifier())
+		{
+			tf->sel_start = 0;
+			tf->cursor = len;
+			return true;
+		}
+		break;
+
+	case 'c':
+	case 'C':
+		if (M_TextField_HasShortcutModifier())
+			return M_TextField_CopySelection(tf);
+		break;
+
+	case 'x':
+	case 'X':
+		if (M_TextField_HasShortcutModifier())
+		{
+			if (!M_TextField_CopySelection(tf))
+				return false;
+			M_TextField_DeleteSelection(tf);
+			return true;
+		}
+		break;
+
+	case 'v':
+	case 'V':
+		if (M_TextField_HasShortcutModifier())
+		{
+			char *clipboard = SDL_GetClipboardText();
+			if (clipboard)
+			{
+				M_TextField_Insert(tf, clipboard);
+				SDL_free(clipboard);
+			}
+			return true;
+		}
+		break;
+
+	case 'u':
+	case 'U':
+		if (M_TextField_HasShortcutModifier())
+		{
+			tf->text[0] = 0;
+			tf->cursor = 0;
+			tf->sel_start = -1;
+			return true;
+		}
+		break;
+	}
+
+	return false;
+}
+
+qboolean M_TextField_Char(menu_textfield_t *tf, int key)
+{
+	char text[2];
+	char c;
+
+	if (key < 32 || key > 126)
+		return false;
+
+	c = (char)key;
+	if (tf->digits_only && (c < '0' || c > '9'))
+		return false;
+
+	text[0] = c;
+	text[1] = 0;
+	return M_TextField_Insert(tf, text);
+}
+
+static int M_TextField_MouseToCursor(menu_textfield_t *tf, int mouse_x, int text_x)
+{
+	int len = (int)strlen(tf->text);
+	int pos;
+
+	if (mouse_x < text_x)
+		return 0;
+
+	pos = (mouse_x - text_x + 4) / 8;
+	if (pos < 0)
+		pos = 0;
+	if (pos > len)
+		pos = len;
+	if (pos > tf->max_len)
+		pos = tf->max_len;
+	return pos;
+}
+
+void M_TextField_DrawHighlight(menu_textfield_t *tf, int x, int y)
+{
+	int sel_begin, sel_end;
+
+	if (M_TextField_GetSelection(tf, &sel_begin, &sel_end))
+		Draw_Fill(x + sel_begin * 8, y, (sel_end - sel_begin) * 8, 8, 170, 0.4f);
+}
+
+void M_TextField_DrawCursor(menu_textfield_t *tf, int x, int y)
+{
+	if (((int)(realtime * 4) & 1))
+		return;
+
+	if (pic_ins)
+		Draw_PicRGBA(x + 8 * tf->cursor, y, pic_ins, Draw_GetConcharsCursorColorByIndex(0), 1.0f);
+	else
+		M_DrawCharacter(x + 8 * tf->cursor, y, 10 + ((int)(realtime * 4) & 1));
+}
+
+void M_TextField_MouseClick(menu_textfield_t *tf, int mouse_x, int text_x)
+{
+	int cursor = M_TextField_MouseToCursor(tf, mouse_x, text_x);
+
+	if (keydown[K_SHIFT])
+	{
+		textfield_mouseclicks = 1;
+	}
+	else
+	{
+		if (textfield_click_field != tf ||
+			textfield_click_pos != cursor ||
+			(realtime - textfield_mouseclick_time) >= TEXTFIELD_DOUBLECLICK_TIME)
+		{
+			textfield_mouseclicks = 1;
+		}
+		else
+		{
+			++textfield_mouseclicks;
+		}
+
+		textfield_click_field = tf;
+		textfield_click_pos = cursor;
+		textfield_mouseclick_time = realtime;
+	}
+
+	if (keydown[K_SHIFT])
+	{
+		if (tf->sel_start < 0)
+			tf->sel_start = tf->cursor;
+	}
+	else
+	{
+		/* Anchor selection for drag; click-without-drag gets cleared on release. */
+		tf->sel_start = cursor;
+	}
+
+	tf->cursor = cursor;
+	M_TextField_ApplyMouseSelection(tf);
+	textfield_drag_field = tf;
+	textfield_drag_text_x = text_x;
+	textfield_mouse_dragging = true;
+}
+
+void M_TextField_MouseDrag(int mouse_x)
+{
+	if (textfield_mouse_dragging && textfield_drag_field)
+	{
+		int cursor = M_TextField_MouseToCursor(textfield_drag_field, mouse_x, textfield_drag_text_x);
+		textfield_drag_field->cursor = cursor;
+		M_TextField_ApplyMouseSelection(textfield_drag_field);
+	}
+}
+
+void M_TextField_CheckMouseRelease(void)
+{
+	if (textfield_mouse_dragging && !keydown[K_MOUSE1])
+	{
+		if (textfield_drag_field && textfield_drag_field->sel_start == textfield_drag_field->cursor)
+			textfield_drag_field->sel_start = -1;
+		textfield_drag_field = NULL;
+		textfield_mouse_dragging = false;
+	}
+}
+
+static qboolean M_TextField_MouseInRow(int mouse_y, int row_y)
+{
+	return (mouse_y >= row_y - 4 && mouse_y <= row_y + 12);
+}
+
+qboolean M_TextField_IsDraggingField(const menu_textfield_t *tf)
+{
+	return textfield_mouse_dragging && textfield_drag_field == tf;
+}
+
+qboolean M_TextField_IsDraggingAny(void)
+{
+	return textfield_mouse_dragging;
+}
+
+void M_List_AutoScroll(menulist_t* list)
+{
+	if (list->numitems <= list->viewsize)
+		return;
+	if (list->cursor < list->scroll)
+	{
+		list->scroll = list->cursor;
+		if (list->isactive_fn)
+		{
+			while (list->scroll > 0 &&
+				list->scroll > list->cursor - list->viewsize + 1 &&
+				!list->isactive_fn(list->scroll - 1))
+			{
+				--list->scroll;
+			}
+		}
+	}
+	else if (list->cursor >= list->scroll + list->viewsize)
+		list->scroll = list->cursor - list->viewsize + 1;
+}
+
+void M_List_CenterCursor(menulist_t* list)
+{
+	if (list->cursor >= list->viewsize)
+	{
+		if (list->cursor + list->viewsize >= list->numitems)
+			list->scroll = list->numitems - list->viewsize; // last page, scroll to the end
+		else
+			list->scroll = list->cursor - list->viewsize / 2; // keep centered
+		list->scroll = CLAMP(0, list->scroll, list->numitems - list->viewsize);
+	}
+	else
+		list->scroll = 0;
+}
+
+int M_List_GetOverflow(const menulist_t* list)
+{
+	return list->numitems - list->viewsize;
+}
+
+// Note: y is in pixels, height is in chars!
+qboolean M_List_GetScrollbar(const menulist_t* list, int* y, int* height)
+{
+	if (list->numitems <= list->viewsize)
+	{
+		*y = *height = 0;
+		return false;
+	}
+
+	*height = (int)(list->viewsize * list->viewsize / (float)list->numitems + 0.5f);
+	*height = q_max(*height, 2);
+	*y = (int)(list->scroll * 8 / (float)(list->numitems - list->viewsize) * (list->viewsize - *height) + 0.5f);
+
+	return true;
+}
+
+void M_List_DrawScrollbar(const menulist_t* list, int cx, int cy)
+{
+	int y, h;
+	if (!M_List_GetScrollbar(list, &y, &h))
+		return;
+	M_DrawTextBox(cx - 4, cy + y - 4, 0, h - 1);
+}
+
+qboolean M_List_UseScrollbar(menulist_t* list, int yrel)
+{
+	int scrolly, scrollh, range;
+	if (!M_List_GetScrollbar(list, &scrolly, &scrollh))
+		return false;
+
+	yrel -= scrollh * 4; // half the thumb height, in pixels
+	range = (list->viewsize - scrollh) * 8;
+	list->scroll = (int)(yrel * (float)(list->numitems - list->viewsize) / range + 0.5f);
+
+	if (list->scroll > list->numitems - list->viewsize)
+		list->scroll = list->numitems - list->viewsize;
+	if (list->scroll < 0)
+		list->scroll = 0;
+
+	return true;
+}
+
+void M_List_GetVisibleRange(const menulist_t* list, int* first, int* count)
+{
+	*first = list->scroll;
+	*count = q_min(list->scroll + list->viewsize, list->numitems) - list->scroll;
+}
+
+qboolean M_List_IsItemVisible(const menulist_t* list, int i)
+{
+	int first, count;
+	M_List_GetVisibleRange(list, &first, &count);
+	return (unsigned)(i - first) < (unsigned)count;
+}
+
+void M_List_Rescroll(menulist_t* list)
+{
+	int overflow = M_List_GetOverflow(list);
+	if (overflow < 0)
+		overflow = 0;
+	if (list->scroll > overflow)
+		list->scroll = overflow;
+	if (list->cursor >= 0 && list->cursor < list->numitems && !M_List_IsItemVisible(list, list->cursor))
+		M_List_AutoScroll(list);
+}
+
+qboolean M_List_SelectNextMatch(menulist_t* list, qboolean(*match_fn) (int idx), int start, int dir, qboolean wrap)
+{
+	int i, j;
+
+	if (list->numitems <= 0)
+		return false;
+
+	if (!wrap)
+		start = CLAMP(0, start, list->numitems - 1);
+
+	for (i = 0, j = start; i < list->numitems; i++, j += dir)
+	{
+		if (j < 0)
+		{
+			if (!wrap)
+				return false;
+			j = list->numitems - 1;
+		}
+		else if (j >= list->numitems)
+		{
+			if (!wrap)
+				return false;
+			j = 0;
+		}
+		if (!match_fn || match_fn(j))
+		{
+			list->cursor = j;
+			M_List_AutoScroll(list);
+			return true;
+		}
+	}
+
+	return false;
+}
+
+qboolean M_List_SelectNextActive(menulist_t* list, int start, int dir, qboolean wrap)
+{
+	return M_List_SelectNextMatch(list, list->isactive_fn, start, dir, wrap);
+}
+
+void M_List_UpdateMouseSelection(menulist_t* list)
+{
+	M_ForceMousemove();
+	if (list->cursor < list->scroll)
+		M_List_SelectNextActive(list, list->scroll, 1, false);
+	else if (list->cursor >= list->scroll + list->viewsize)
+		M_List_SelectNextActive(list, list->scroll + list->viewsize, -1, false);
+}
+
+
+qboolean M_List_Key(menulist_t* list, int key)
+{
+	switch (key)
+	{
+	case K_HOME:
+	case K_KP_HOME:
+		S_LocalSound("misc/menu1.wav");
+		list->cursor = 0;
+		M_List_AutoScroll(list);
+		return true;
+
+	case K_END:
+	case K_KP_END:
+		S_LocalSound("misc/menu1.wav");
+		list->cursor = list->numitems - 1;
+		M_List_AutoScroll(list);
+		return true;
+
+	case K_PGDN:
+	case K_KP_PGDN:
+		S_LocalSound("misc/menu1.wav");
+		if (list->cursor - list->scroll < list->viewsize - 1)
+			list->cursor = list->scroll + list->viewsize - 1;
+		else
+			list->cursor += list->viewsize - 1;
+		list->cursor = q_min(list->cursor, list->numitems - 1);
+		M_List_AutoScroll(list);
+		return true;
+
+	case K_PGUP:
+	case K_KP_PGUP:
+		S_LocalSound("misc/menu1.wav");
+		if (list->cursor > list->scroll)
+			list->cursor = list->scroll;
+		else
+			list->cursor -= list->viewsize - 1;
+		list->cursor = q_max(list->cursor, 0);
+		M_List_AutoScroll(list);
+		return true;
+
+	case K_UPARROW:
+	case K_KP_UPARROW:
+		if (m_maps)
+			mapshint = true; // woods
+		S_LocalSound("misc/menu1.wav");
+		if (--list->cursor < 0)
+			list->cursor = list->numitems - 1;
+		M_List_AutoScroll(list);
+		return true;
+
+
+	case K_MWHEELUP:
+		list->scroll -= 3;
+		if (list->scroll < 0)
+			list->scroll = 0;
+		M_List_UpdateMouseSelection(list);
+		return true;
+
+	case K_MWHEELDOWN:
+		list->scroll += 3;
+		if (list->scroll > list->numitems - list->viewsize)
+			list->scroll = list->numitems - list->viewsize;
+		if (list->scroll < 0)
+			list->scroll = 0;
+		M_List_UpdateMouseSelection(list);
+		return true;
+
+	case K_DOWNARROW:
+	case K_KP_DOWNARROW:
+		if (m_maps)
+			mapshint = true; // woods
+		S_LocalSound("misc/menu1.wav");
+		if (++list->cursor >= list->numitems)
+			list->cursor = 0;
+		M_List_AutoScroll(list);
+		return true;
+
+	default:
+		return false;
+	}
+}
+
+qboolean M_List_CycleMatch(menulist_t* list, int key, qboolean(*match_fn) (int idx, char c))
+{
+	int i, j, dir;
+
+	if (!(key >= 'a' && key <= 'z') &&
+		!(key >= 'A' && key <= 'Z') &&
+		!(key >= '0' && key <= '9'))
+		return false;
+
+	if (list->numitems <= 0)
+		return false;
+
+	S_LocalSound("misc/menu1.wav");
+
+	key = q_tolower(key);
+	dir = keydown[K_SHIFT] ? -1 : 1;
+
+	for (i = 1, j = list->cursor + dir; i < list->numitems; i++, j += dir)
+	{
+		j = (j + list->numitems) % list->numitems; // avoid negative mod
+		if (match_fn(j, (char)key))
+		{
+			list->cursor = j;
+			M_List_AutoScroll(list);
+			break;
+		}
+	}
+
+	return true;
+}
+
+void M_List_Mousemove(menulist_t* list, int yrel)
+{
+	int i, firstvis, numvis;
+
+	M_List_GetVisibleRange(list, &firstvis, &numvis);
+	if (!numvis || yrel < 0)
+		return;
+	i = yrel / 8;
+	if (i >= numvis)
+		return;
+
+	i += firstvis;
+	if (list->cursor == i)
+		return;
+
+	if (list->isactive_fn && !list->isactive_fn(i))
+	{
+		int before, after;
+		yrel += firstvis * 8;
+
+		for (before = i - 1; before >= firstvis; before--)
+			if (list->isactive_fn(before))
+				break;
+		for (after = i + 1; after < firstvis + numvis; after++)
+			if (list->isactive_fn(after))
+				break;
+
+		if (before >= firstvis && after < firstvis + numvis)
+		{
+			int distbefore = yrel - 4 - before * 8;
+			int distafter = after * 8 + 4 - yrel;
+			i = distbefore < distafter ? before : after;
+		}
+		else if (before >= firstvis)
+			i = before;
+		else if (after < firstvis + numvis)
+			i = after;
+		else
+			return;
+
+		if (list->cursor == i)
+			return;
+	}
+
+	list->cursor = i;
+
+	//M_MouseSound("misc/menu1.wav");
+}
+
+void M_DeletePrevWord(listsearch_t* search)
+{
+	int pos = search->len;
+
+	/* 1.  skip any trailing spaces */
+	while (pos > 0 && q_isspace(search->text[pos - 1]))
+		--pos;
+
+	/* 2.  walk backwards until we hit the previous space */
+	while (pos > 0 && !q_isspace(search->text[pos - 1]))
+		--pos;
+
+	/* 3.  shrink the string */
+	search->len = pos;
+	search->text[pos] = '\0';
+}
+
+//=============================================================================
+
+int m_save_demonum;
+
+
+/*
+==================
+Main Menu
+==================
+*/
+
+int	m_main_cursor;
+int m_main_mods; // woods #modsmenu (iw)
+int m_main_demos; // woods #modsmenu #demosmenu (iw)
+
+enum // woods #modsmenu (iw)
+{
+	MAIN_SINGLEPLAYER,
+	MAIN_MULTIPLAYER,
+	MAIN_OPTIONS,
+	MAIN_MODS,
+	MAIN_DEMOS, // woods #demosmenu
+	MAIN_HELP,
+	MAIN_QUIT,
+
+	MAIN_ITEMS,
+};
+
+
+void M_Menu_Main_f (void)
+{
+	if (key_dest != key_menu)
+	{
+		m_save_demonum = cls.demonum;
+		cls.demonum = -1;
+	}
+	key_dest = key_menu;
+	m_state = m_main;
+	m_entersound = true;
+
+	progs_check_done = false; // woods #botdetect
+
+	// woods #modsmenu (iw)
+
+	// When switching to a mod with a custom UI the 'Mods' option
+// is no longer available in the main menu, so we move the cursor
+// to 'Options' to nudge the player toward the secondary location.
+// TODO (maybe): inform the user about the missing option
+// and its alternative location?
+	if (!m_main_mods && m_main_cursor == MAIN_MODS)
+	{
+		extern int options_cursor;
+		m_main_cursor = MAIN_OPTIONS;
+		options_cursor = 3; // OPT_MODS
+	}
+
+	IN_UpdateGrabs();
+}
+
+void M_Main_Draw (void) // woods #modsmenu #demosmenu (iw)
+{
+	int cursor, f;
+	qpic_t* p;
+
+	M_DrawTransPic(16, 4, Draw_CachePic("gfx/qplaque.lmp"));
+	p = Draw_CachePic("gfx/ttl_main.lmp");
+	M_DrawPic((320 - p->width) / 2, 4, p);
+
+	p = Draw_CachePic("gfx/mainmenu.lmp");
+	int split = 60;
+	int offset = 0;
+
+	if (m_main_mods && m_main_demos) // both mods and demos
+	{
+		M_DrawSubpic(72, 32, p, 0, 0, p->width, split);
+		M_DrawTransPic(72, 32 + split, Draw_CachePic("gfx/menumods.lmp"));
+		M_DrawTransPic(72, 52 + split, Draw_CachePic("gfx/menudemos.lmp"));
+		M_DrawSubpic(72, 72 + split, p, 0, split, p->width, p->height - split);
+	}
+	
+	else if (m_main_mods && !m_main_demos) // only mods
+	{
+		M_DrawSubpic(72, 32 + offset, p, 0, 0, p->width, split);
+		M_DrawTransPic(72, 32 + offset + split, Draw_CachePic("gfx/menumods.lmp"));
+		M_DrawSubpic(72, 32 + offset + split + 20, p, 0, split, p->width, p->height - split);
+		offset += split + 20; // Adjust offset if needed for further items
+	}
+
+	else if (m_main_demos && !m_main_mods) // only demos
+	{
+		M_DrawSubpic(72, 32 + offset, p, 0, 0, p->width, split);
+		M_DrawTransPic(72, 32 + offset + split, Draw_CachePic("gfx/menudemos.lmp"));
+		M_DrawSubpic(72, 32 + offset + split + 20, p, 0, split, p->width, p->height - split);
+		offset += split + 20; // Adjust offset if needed for further items
+	}
+
+	else
+		M_DrawTransPic(72, 32, Draw_CachePic("gfx/mainmenu.lmp")); // neither mods nor demos
+
+	f = (int)(realtime * 10) % 6;
+	cursor = m_main_cursor;
+
+	// Adjust cursor position based on mods and demos activation
+	if (!m_main_mods && cursor > MAIN_MODS) cursor--;
+	if (!m_main_demos && cursor >= MAIN_DEMOS) cursor--;
+
+	M_DrawTransPic(54, 32 + cursor * 20, Draw_CachePic(va("gfx/menudot%i.lmp", f + 1)));
+}
+
+static double m_lastkey_time;
+static qboolean m_key_was_m;
+
+void M_Main_Key (int key) // woods #modsmenu #demosmenu (iw)
+{
+	double time_since_m;
+
+	switch (key)
+	{
+	case K_ESCAPE:
+	case K_BBUTTON:
+	case K_MOUSE4: // woods #mousemenu
+	case K_MOUSE2:
+		key_dest = key_game;
+		m_state = m_none;
+		cls.demonum = m_save_demonum;
+		IN_UpdateGrabs();
+		if (!cl_demoreel.value)	/* QuakeSpasm customization: */
+			break;
+		if (cl_demoreel.value >= 2 && cls.demonum == -1)
+			cls.demonum = 0;
+		if (cls.demonum != -1 && !cls.demoplayback && cls.state != ca_connected)
+			CL_NextDemo ();
+		break;
+
+	case 'm':
+	case 'M':
+		m_key_was_m = true;
+		m_lastkey_time = realtime;
+		// Just toggle between multiplayer and mods when only 'm' is pressed
+		if (m_main_mods && m_main_cursor == MAIN_MULTIPLAYER)
+			m_main_cursor = MAIN_MODS;
+		else
+			m_main_cursor = MAIN_MULTIPLAYER;
+		S_LocalSound("misc/menu1.wav");
+		break;
+
+	case 'o':
+	case 'O':
+		time_since_m = realtime - m_lastkey_time;
+		if (m_key_was_m && time_since_m < 0.5 && m_main_mods)  // 500ms window to type 'mo'
+		{
+			m_main_cursor = MAIN_MODS;  // Always go to mods when 'mo' is typed
+			S_LocalSound("misc/menu1.wav");
+		}
+		else
+		{
+			m_main_cursor = MAIN_OPTIONS;
+			S_LocalSound("misc/menu1.wav");
+		}
+		m_key_was_m = false;  // Reset the flag
+		break;
+
+	case 'u':
+	case 'U':
+		time_since_m = realtime - m_lastkey_time;
+		if (m_key_was_m && time_since_m < 0.5)  // 500ms window to type 'mu'
+		{
+			m_main_cursor = MAIN_MULTIPLAYER;  // Always go to multiplayer when 'mu' is typed
+			S_LocalSound("misc/menu1.wav");
+		}
+		m_key_was_m = false;  // Reset the flag
+		break;
+	case 's':
+	case 'S':
+		m_key_was_m = false;  // Reset m flag when other keys are pressed
+		m_main_cursor = MAIN_SINGLEPLAYER;
+		S_LocalSound("misc/menu1.wav");
+		break;
+
+	case 'd':
+	case 'D':
+		m_key_was_m = false;
+		if (m_main_demos)
+		{
+			m_main_cursor = MAIN_DEMOS;
+			S_LocalSound("misc/menu1.wav");
+		}
+		break;
+
+	case 'h':
+	case 'H':
+		m_key_was_m = false;
+		m_main_cursor = MAIN_HELP;
+		S_LocalSound("misc/menu1.wav");
+		break;
+
+	case 'q':
+	case 'Q':
+		m_key_was_m = false;
+		m_main_cursor = MAIN_QUIT;
+		S_LocalSound("misc/menu1.wav");
+		break;
+
+	case K_DOWNARROW:
+		m_key_was_m = false;  // Reset m flag when using arrows
+		S_LocalSound("misc/menu1.wav");
+		do {
+			if (++m_main_cursor >= MAIN_ITEMS)
+				m_main_cursor = 0;
+		} while ((m_main_cursor == MAIN_MODS && !m_main_mods) || (m_main_cursor == MAIN_DEMOS && !m_main_demos));
+		break;
+
+	case K_UPARROW:
+		m_key_was_m = false;  // Reset m flag when using arrows
+		S_LocalSound("misc/menu1.wav");
+		do {
+			if (--m_main_cursor < 0)
+				m_main_cursor = MAIN_ITEMS - 1;
+		} while ((m_main_cursor == MAIN_MODS && !m_main_mods) || (m_main_cursor == MAIN_DEMOS && !m_main_demos));
+		break;
+
+	case K_ENTER:
+	case K_KP_ENTER:
+	case K_ABUTTON:
+	case K_MOUSE1: // woods #mousemenu
+		m_key_was_m = false;
+		m_entersound = true;
+
+		switch (m_main_cursor)
+		{
+		case MAIN_SINGLEPLAYER:
+			M_Menu_SinglePlayer_f ();
+			break;
+
+		case MAIN_MULTIPLAYER:
+			M_Menu_MultiPlayer_f ();
+			break;
+
+		case MAIN_OPTIONS:
+			M_Menu_Options_f ();
+			break;
+
+		case MAIN_HELP:
+			M_Menu_Help_f ();
+			break;
+
+		case MAIN_MODS:
+			M_Menu_Mods_f();
+			break;
+
+		case MAIN_DEMOS: // woods #demosmenu
+			M_Menu_Demos_f ();
+			break;
+
+		case MAIN_QUIT:
+			M_Menu_Quit_f ();
+			break;
+		}
+	}
+}
+
+void M_Main_Mousemove(int cx, int cy) // woods #mousemenu
+{
+	M_UpdateCursor(cy, 32, 20, MAIN_ITEMS - !m_main_mods - !m_main_demos, &m_main_cursor);
+	if (m_main_cursor >= MAIN_MODS && !m_main_mods)
+		++m_main_cursor;
+	if (m_main_cursor >= MAIN_DEMOS && !m_main_demos)
+		++m_main_cursor;
+}
+
+/*
+==================
+Singleplayer Menu
+==================
+*/
+
+qboolean m_singleplayer_showlevels;
+int	m_singleplayer_cursor;
+#define	SINGLEPLAYER_ITEMS	(3 + m_singleplayer_showlevels)
+
+
+void M_Menu_SinglePlayer_f (void)
+{
+	if (m_singleplayer_cursor >= SINGLEPLAYER_ITEMS)
+		m_singleplayer_cursor = 0;
+	
+	key_dest = key_menu;
+	m_state = m_singleplayer;
+	m_entersound = true;
+
+	IN_UpdateGrabs();
+}
+
+
+void M_SinglePlayer_Draw (void)
+{
+	int		f;
+	qpic_t	*p;
+
+	M_DrawTransPic (16, 4, Draw_CachePic ("gfx/qplaque.lmp") );
+	p = Draw_CachePic ("gfx/ttl_sgl.lmp");
+	M_DrawPic ( (320-p->width)/2, 4, p);
+	M_DrawTransPic (72, 32, Draw_CachePic ("gfx/sp_menu.lmp") );
+	if (m_singleplayer_showlevels)
+		M_DrawTransPic(72, 92, Draw_CachePic("gfx/sp_maps.lmp"));
+
+	f = (int)(realtime * 10)%6;
+
+	M_DrawTransPic (54, 32 + m_singleplayer_cursor * 20,Draw_CachePic( va("gfx/menudot%i.lmp", f+1 ) ) );
+}
+
+static double sp_lastkey_time;  // For single player menu
+static qboolean sp_key_was_l;   // For "le"/"lo" detection
+
+void M_SinglePlayer_Key (int key)
+{
+	double time_since_l;
+
+	switch (key)
+	{
+	case K_ESCAPE:
+	case K_BBUTTON:
+	case K_MOUSE4: // woods #mousemenu
+	case K_MOUSE2:
+		M_Menu_Main_f ();
+		break;
+
+	case 'n':
+	case 'N':
+		sp_key_was_l = false;
+		m_singleplayer_cursor = 0;  // New Game
+		S_LocalSound("misc/menu1.wav");
+		break;
+
+	case 'l':
+	case 'L':
+		if (m_singleplayer_cursor == 1)  // If already on Load
+		{
+			if (m_singleplayer_showlevels)
+			{
+				m_singleplayer_cursor = 3;  // Go to Levels
+				S_LocalSound("misc/menu1.wav");
+			}
+		}
+		else
+		{
+			sp_lastkey_time = realtime;
+			sp_key_was_l = true;
+			m_singleplayer_cursor = 1;  // Load Game
+			S_LocalSound("misc/menu1.wav");
+		}
+		break;
+
+	case 'o':
+	case 'O':
+		time_since_l = realtime - sp_lastkey_time;
+		if (sp_key_was_l && time_since_l < 0.5)  // 500ms window to type 'lo'
+		{
+			m_singleplayer_cursor = 1;  // Always go to Load when 'lo' is typed
+			S_LocalSound("misc/menu1.wav");
+		}
+		sp_key_was_l = false;  // Reset the flag
+		break;
+
+	case 'e':
+	case 'E':
+		time_since_l = realtime - sp_lastkey_time;
+		if (sp_key_was_l && time_since_l < 0.5 && m_singleplayer_showlevels)  // 500ms window to type 'le'
+		{
+			m_singleplayer_cursor = 3;  // Always go to Levels when 'le' is typed
+			S_LocalSound("misc/menu1.wav");
+		}
+		sp_key_was_l = false;  // Reset the flag
+		break;
+	case 's':
+	case 'S':
+		sp_key_was_l = false;
+		m_singleplayer_cursor = 2;  // Save Game
+		S_LocalSound("misc/menu1.wav");
+		break;
+
+	case K_DOWNARROW:
+		sp_key_was_l = false;
+		S_LocalSound ("misc/menu1.wav");
+		if (++m_singleplayer_cursor >= SINGLEPLAYER_ITEMS)
+			m_singleplayer_cursor = 0;
+		break;
+
+	case K_UPARROW:
+		sp_key_was_l = false;
+		S_LocalSound ("misc/menu1.wav");
+		if (--m_singleplayer_cursor < 0)
+			m_singleplayer_cursor = SINGLEPLAYER_ITEMS - 1;
+		break;
+
+	case K_ENTER:
+	case K_KP_ENTER:
+	case K_ABUTTON:
+	case K_MOUSE1: // woods #mousemenu
+		sp_key_was_l = false;
+		m_entersound = true;
+		// SinglePlayer
+		switch (m_singleplayer_cursor)
+		{
+		case 0:
+			if (sv.active)
+				if (!SCR_ModalMessage("Are you sure you want to\nstart a new game?\n (^mn^m/^my^m)\n", 0.0f))
+					break;
+			key_dest = key_game;
+			IN_UpdateGrabs();
+			if (sv.active)
+				Cbuf_AddText ("disconnect\n");
+			Cbuf_AddText ("maxplayers 1\n");
+			Cbuf_AddText ("samelevel 0\n"); //spike -- you'd be amazed how many qw players have this setting breaking their singleplayer experience...
+			Cbuf_AddText ("deathmatch 0\n"); //johnfitz
+			Cbuf_AddText ("coop 0\n"); //johnfitz
+			//aqui SkyDeveloper
+			//Cbuf_AddText ("startmap_sp\n");  abre direto no start map
+			M_Menu_Skill_f(); // abre  a skill menu  logo depois de no 
+			
+		
+			break;
+
+		case 1:
+			M_Menu_Load_f ();
+			break;
+
+		case 2:
+			M_Menu_Save_f ();
+			break;
+		case 3:
+			Cbuf_AddText("menu_maps\n");
+			break;
+		}
+		break;
+	}
+}
+
+void M_SinglePlayer_Mousemove(int cx, int cy) // woods #mousemenu
+{
+	M_UpdateCursor(cy, 32, 20, SINGLEPLAYER_ITEMS, &m_singleplayer_cursor);
+}
+
+/*
+==================
+Load/Save Menu
+==================
+*/
+
+int		load_cursor;		// 0 < load_cursor < MAX_SAVEGAMES
+
+#define	MAX_SAVEGAMES		20	/* johnfitz -- increased from 12 */
+char	m_filenames[MAX_SAVEGAMES][SAVEGAME_COMMENT_LENGTH+1];
+int		loadable[MAX_SAVEGAMES];
+
+typedef struct {
+	char name[SAVEGAME_COMMENT_LENGTH + 1];
+	char date[32];
+	char mapname[MAX_QPATH];
+	time_t timestamp;
+	qboolean loadable;
+	int original_index;
+} save_entry_t;
+
+static save_entry_t save_entries[MAX_SAVEGAMES];
+
+static int save_compare(const void* a, const void* b) // Comparison function for qsort
+{
+	const save_entry_t* sa = (const save_entry_t*)a;
+	const save_entry_t* sb = (const save_entry_t*)b;
+
+	// Sort loadable saves first, then by timestamp (newest first)
+	if (sa->loadable != sb->loadable)
+		return sb->loadable - sa->loadable;
+	return (sb->timestamp - sa->timestamp);
+}
+
+void M_ScanSaves (void)
+{
+	int	i, j;
+	char	name[MAX_OSPATH];
+	FILE	*f;
+	int	version;
+	float time;
+	char mapname[MAX_QPATH];
+#ifdef _WIN32
+	struct _stat st;
+#else
+	struct stat st;
+#endif
+
+	for (i = 0; i < MAX_SAVEGAMES; i++)
+	{
+		save_entries[i].name[0] = 0;
+		save_entries[i].date[0] = 0;
+		save_entries[i].timestamp = 0;
+		save_entries[i].loadable = false;
+		save_entries[i].original_index = i;
+		q_strlcpy(save_entries[i].mapname, "", sizeof(save_entries[i].mapname));
+
+		q_snprintf (name, sizeof(name), "%s/saves/s%i.sav", com_gamedir, i);
+		f = fopen (name, "r");
+		if (!f)
+		{
+			q_snprintf(name, sizeof(name), "%s/s%i.sav", com_gamedir, i); // legacy
+			f = fopen(name, "r");
+		}
+
+		if (!f)
+		{
+			strcpy (save_entries[i].name, "--- UNUSED SLOT ---");
+			continue;
+		}
+
+		// Get file modification time
+#ifdef _WIN32
+		if (_stat(name, &st) == 0)
+#else
+		if (stat(name, &st) == 0)
+#endif
+		{
+			struct tm* timeinfo = localtime(&st.st_mtime);
+			if (timeinfo)
+			{
+				strftime(save_entries[i].date, sizeof(save_entries[i].date),
+					"%Y-%m-%d %H:%M", timeinfo);
+				save_entries[i].timestamp = st.st_mtime;
+			}
+		}
+
+		// Read version and name
+		if (fscanf (f, "%i\n", &version) != 1 || // woods
+			fscanf (f, "%79s\n", name) != 1)
+		{
+			fclose(f);
+			continue;
+		}
+
+		// Read spawn parms (skip them)
+		for (j = 0; j < NUM_BASIC_SPAWN_PARMS; j++)
+		{
+			if (fscanf(f, "%f\n", &time) != 1)
+			{
+				fclose(f);
+				continue;
+			}
+		}
+
+		// Read skill
+		if (fscanf(f, "%f\n", &time) != 1)
+		{
+			fclose(f);
+			continue;
+		}
+
+		// Read map name
+		if (fscanf(f, "%63s\n", mapname) == 1)
+		{
+			q_strlcpy (save_entries[i].mapname, mapname, sizeof(save_entries[i].mapname));
+		}
+
+		q_strlcpy (save_entries[i].name, name, SAVEGAME_COMMENT_LENGTH + 1);
+
+	// change _ back to space
+		for (j = 0; j < SAVEGAME_COMMENT_LENGTH; j++)
+		{
+			if (save_entries[i].name[j] == '_')
+				save_entries[i].name[j] = ' ';
+		}
+
+		// Fix the kills pattern - handle both single and double spaces after slash
+		char* kills = strstr(save_entries[i].name, "kills:");
+		if (kills)
+		{
+			char* slash = strchr(kills, '/');
+			if (slash && slash[1] == ' ')
+			{
+				if (slash[2] == ' ')  // Double space case
+					memmove(slash + 1, slash + 3, strlen(slash + 3) + 1);
+				else  // Single space case
+					memmove(slash + 1, slash + 2, strlen(slash + 2) + 1);
+	}
+}
+
+		save_entries[i].loadable = true;
+		fclose(f);
+	}
+
+	// Sort the entries
+	qsort(save_entries, MAX_SAVEGAMES - 1, sizeof(save_entry_t), save_compare);
+}
+
+void M_Menu_Load_f (void)
+{
+	m_entersound = true;
+	m_state = m_load;
+
+	key_dest = key_menu;
+	M_ScanSaves ();
+
+	IN_UpdateGrabs();
+}
+
+
+void M_Menu_Save_f (void)
+{
+	if (!sv.active)
+		return;
+	if (cl.intermission)
+		return;
+	if (svs.maxclients != 1)
+		return;
+	m_entersound = true;
+	m_state = m_save;
+
+	key_dest = key_menu;
+	IN_UpdateGrabs();
+	M_ScanSaves ();
+}
+
+
+static void M_DrawSaveSlots (const char* title_pic)
+{
+	qpic_t* p = Draw_CachePic(title_pic);
+	M_DrawPic((320 - p->width) / 2, 4, p);
+
+	for (int i = 0; i < MAX_SAVEGAMES - 1; i++)
+	{
+		M_Print(16, 32 + 8 * i, save_entries[i].name);
+	}
+
+	// Draw date info in last slot position with white text
+	if (save_entries[load_cursor].loadable)
+	{
+		char info[128];
+		M_Print(16, 32 + 8 * (MAX_SAVEGAMES - 1) + 4, "last save:");
+		q_snprintf(info, sizeof(info), "%s (%s)",
+			save_entries[load_cursor].date,
+			save_entries[load_cursor].mapname);
+		M_PrintWhite(100, 32 + 8 * (MAX_SAVEGAMES - 1) + 4, info);
+	}
+
+// line cursor
+	if (load_cursor < MAX_SAVEGAMES - 1)
+		M_DrawCharacter(8, 32 + load_cursor * 8, 12 + ((int)(realtime * 4) & 1));
+}
+
+void M_Load_Draw (void)
+{
+	M_DrawSaveSlots ("gfx/p_load.lmp");
+}
+
+void M_Save_Draw (void)
+{
+	M_DrawSaveSlots ("gfx/p_save.lmp");
+}
+
+
+void M_Load_Key (int k)
+{
+	switch (k)
+	{
+	case K_ESCAPE:
+	case K_BBUTTON:
+	case K_MOUSE4: // woods #mousemenu
+	case K_MOUSE2:
+		M_Menu_SinglePlayer_f ();
+		break;
+
+	case K_ENTER:
+	case K_KP_ENTER:
+	case K_ABUTTON:
+	case K_MOUSE1: // woods #mousemenu
+		S_LocalSound ("misc/menu2.wav");
+		if (!save_entries[load_cursor].loadable)
+			return;
+		m_state = m_none;
+		key_dest = key_game;
+		IN_UpdateGrabs();
+
+	// Host_Loadgame_f can't bring up the loading plaque because too much
+	// stack space has been used, so do it now
+		SCR_BeginLoadingPlaque ();
+
+	// issue the load command
+		Cbuf_AddText (va ("load s%i\n", save_entries[load_cursor].original_index));
+		return;
+
+	case K_DOWNARROW:
+	case K_RIGHTARROW:
+		S_LocalSound("misc/menu1.wav");
+		load_cursor++;
+		if (load_cursor >= MAX_SAVEGAMES - 1)
+			load_cursor = 0;
+		break;
+
+	case K_UPARROW:
+	case K_LEFTARROW:
+		S_LocalSound ("misc/menu1.wav");
+		load_cursor--;
+		if (load_cursor < 0)
+			load_cursor = MAX_SAVEGAMES - 2;
+		break;
+	}
+}
+
+
+void M_Save_Key (int k)
+{
+	switch (k)
+	{
+	case K_ESCAPE:
+	case K_BBUTTON:
+	case K_MOUSE4: // woods #mousemenu
+	case K_MOUSE2:
+		M_Menu_SinglePlayer_f ();
+		break;
+
+	case K_ENTER:
+	case K_KP_ENTER:
+	case K_ABUTTON:
+	case K_MOUSE1: // woods #mousemenu
+		m_state = m_none;
+		key_dest = key_game;
+		IN_UpdateGrabs();
+		Cbuf_AddText (va("save s%i\n", save_entries[load_cursor].original_index));
+		return;
+
+	case K_UPARROW:
+	case K_LEFTARROW:
+		S_LocalSound ("misc/menu1.wav");
+		load_cursor--;
+		if (load_cursor < 0)
+			load_cursor = MAX_SAVEGAMES - 2;
+		break;
+
+	case K_DOWNARROW:
+	case K_RIGHTARROW:
+		S_LocalSound ("misc/menu1.wav");
+		load_cursor++;
+		if (load_cursor >= MAX_SAVEGAMES - 1)
+			load_cursor = 0;
+		break;
+	}
+}
+
+void M_Load_Mousemove(int cx, int cy) // woods #mousemenu
+{
+	M_UpdateCursor(cy, 32, 8, MAX_SAVEGAMES-1, &load_cursor);
+}
+
+void M_Save_Mousemove(int cx, int cy) // woods #mousemenu
+{
+	M_UpdateCursor(cy, 32, 8, MAX_SAVEGAMES-1, &load_cursor);
+}
+
+/*
+==================
+Maps Menu (iw)
+==================
+*/
+
+#define MAX_VIS_MAPS			17
+#define DOWNLOAD_MAPS_LABEL		"Download"
+
+typedef struct
+{
+	const char* name;
+	const char* date;
+	qboolean	active;
+	qboolean	download_menu;
+} mapitem_t;
+
+static struct
+{
+	menulist_t			list;
+	enum m_state_e		prev;
+	int					prev_cursor;
+	qboolean			scrollbar_grab;
+	menuticker_t		ticker;
+	int					mapcount;
+	int					x, y, cols;
+	qboolean			download_available;
+	mapitem_t			*items;
+	int*                filtered_indices;
+} mapsmenu;
+
+static void M_Maps_Add(const char* name, const char* date)
+{
+	mapitem_t map;
+
+	map.name = name;
+	map.date = date ? date : "";
+	map.active = true;
+	map.download_menu = false;
+
+	VEC_PUSH(mapsmenu.items, map);
+	mapsmenu.mapcount = (int)VEC_SIZE(mapsmenu.items);
+}
+
+static void M_Maps_AddDownloadMenu(void)
+{
+	mapitem_t map;
+
+	map.name = DOWNLOAD_MAPS_LABEL;
+	map.date = "...";
+	map.active = true;
+	map.download_menu = true;
+
+	VEC_PUSH(mapsmenu.items, map);
+	mapsmenu.mapcount = (int)VEC_SIZE(mapsmenu.items);
+}
+
+static int M_Maps_DescriptionX(int x)
+{
+	return x + q_min(max_word_length + 1, 13) * 8;
+}
+
+static void M_Maps_DrawDownloadMenuPrompt(int x, int y, const char *highlight, int highlight_len)
+{
+	if (highlight_len > 0)
+		M_PrintHighlight(x, y, DOWNLOAD_MAPS_LABEL, highlight, highlight_len);
+	else
+		M_Print(x, y, DOWNLOAD_MAPS_LABEL);
+
+	M_PrintWhite(M_Maps_DescriptionX(x), y, "...");
+}
+
+static void M_Maps_UpdateViewsize(void)
+{
+	mapsmenu.list.viewsize = (mapsmenu.download_available && mapsmenu.list.search.len == 0) ?
+		MAX_VIS_MAPS - 1 : MAX_VIS_MAPS;
+}
+
+static void M_Maps_Refilter(void)
+{
+	int i;
+
+	M_Maps_UpdateViewsize();
+	VEC_CLEAR(mapsmenu.filtered_indices);
+
+	for (i = 0; i < mapsmenu.mapcount; i++)
+	{
+		if (mapsmenu.list.search.len == 0 ||
+			q_strcasestr(mapsmenu.items[i].name, mapsmenu.list.search.text) ||
+			(mapsmenu.items[i].date && q_strcasestr(mapsmenu.items[i].date, mapsmenu.list.search.text)))
+		{
+			VEC_PUSH(mapsmenu.filtered_indices, i);
+		}
+	}
+
+	mapsmenu.list.numitems = (int)VEC_SIZE(mapsmenu.filtered_indices);
+
+	if (mapsmenu.list.cursor >= mapsmenu.list.numitems)
+		mapsmenu.list.cursor = mapsmenu.list.numitems - 1;
+
+	if (mapsmenu.list.cursor < 0 && mapsmenu.list.numitems > 0)
+		mapsmenu.list.cursor = 0;
+
+	M_List_CenterCursor(&mapsmenu.list);
+}
+
+static void M_Maps_Init(void)
+{
+	filelist_item_t* item;
+
+	mapsmenu.scrollbar_grab = false;
+	mapsmenu.download_available = CL_QWMapListDownloadsAvailable();
+	mapsmenu.prev_cursor = -2;
+	mapsmenu.list.cursor = -1;
+	mapsmenu.list.scroll = 0;
+	mapsmenu.list.numitems = 0;
+	mapsmenu.mapcount = 0;
+	VEC_CLEAR(mapsmenu.items);
+	VEC_CLEAR(mapsmenu.filtered_indices);
+
+	memset(&mapsmenu.list.search, 0, sizeof(mapsmenu.list.search));
+	mapsmenu.list.search.maxlen = 32;
+	M_Maps_UpdateViewsize();
+
+	M_Ticker_Init(&mapsmenu.ticker);
+	// remover UI Menu  AddDownloadMen
+	/*if (mapsmenu.download_available)
+		M_Maps_AddDownloadMenu();*/
+
+	if (!descriptionsParsed)
+		ExtraMaps_ParseDescriptions();
+
+	for (item = extralevels; item; item = item->next)
+		M_Maps_Add(item->name, item->data);
+
+	M_Maps_Refilter();
+
+	if (mapsmenu.list.cursor == -1)
+		mapsmenu.list.cursor = 0;
+
+	M_List_CenterCursor(&mapsmenu.list);
+}
+
+void M_Menu_Maps_f(void)
+{
+	key_dest = key_menu;
+	mapsmenu.prev = m_state;
+	m_state = m_maps;
+	m_entersound = true;
+	M_Maps_Init();
+}
+
+static qboolean M_DownloadMaps_ActiveMapName(char *display_name, size_t display_size)
+{
+	const char *current;
+
+	if (display_size > 0)
+		display_name[0] = '\0';
+
+	if (!cls.download.active || !cls.download.current[0])
+		return false;
+
+	if (q_strcasecmp(COM_FileGetExtension(cls.download.current), "bsp"))
+		return false;
+
+	current = COM_SkipPath(cls.download.current);
+	COM_StripExtension(current, display_name, display_size);
+	return display_name[0] != '\0';
+}
+
+static qboolean M_DownloadMaps_NameIsActive(const char *name)
+{
+	char active_name[MAX_QPATH];
+	char display_name[MAX_QPATH];
+
+	if (!name || !M_DownloadMaps_ActiveMapName(active_name, sizeof(active_name)))
+		return false;
+
+	COM_StripExtension(COM_SkipPath(name), display_name, sizeof(display_name));
+	return !q_strcasecmp(active_name, display_name);
+}
+
+static void M_DownloadMaps_DrawProgressPercent(int x, int y, int progress)
+{
+	char digits[8];
+
+	q_snprintf(digits, sizeof(digits), "%d", progress);
+	M_Print2(x, y, digits);
+	M_Print(x + (int)strlen(digits) * 8, y, "%");
+}
+
+static void M_DownloadMaps_DrawActiveDownload(int x, int y, int maxwidth, const char *display_name)
+{
+	char visible_name[MAX_QPATH];
+	int maxchars, namechars, progress = -1, progresschars = 0;
+
+	if (!display_name || !display_name[0])
+		return;
+
+	if (cls.download.percent >= 0.0f)
+	{
+		progress = (int)(cls.download.percent + 0.5f);
+		if (progress < 0)
+			progress = 0;
+		else if (progress > 100)
+			progress = 100;
+		progresschars = (progress >= 100) ? 4 : (progress >= 10 ? 3 : 2);
+	}
+
+	maxchars = maxwidth / 8;
+	if (maxchars <= 0)
+		return;
+
+	namechars = maxchars;
+	if (progress >= 0 && maxchars > progresschars + 1)
+		namechars = maxchars - progresschars - 1;
+
+	q_strlcpy(visible_name, display_name, sizeof(visible_name));
+	if (namechars < (int)sizeof(visible_name))
+		visible_name[namechars] = '\0';
+
+	Draw_StringGradientSweep(x, y, visible_name, 96.0f, 48.0f, 1.0f, true);
+
+	if (progress >= 0)
+	{
+		int namelen = (int)strlen(visible_name);
+		int progress_x = x + namelen * 8 + (namelen > 0 ? 8 : 0);
+
+		if (progress_x + progresschars * 8 <= x + maxwidth)
+			M_DownloadMaps_DrawProgressPercent(progress_x, y, progress);
+	}
+}
+
+static void M_DownloadMaps_DrawInstalledMap(int x, int y, int maxwidth, const char *display_name, double time)
+{
+	const int charwidth = 8;
+	const int gap_len = 5;
+	const int scrollspeed = 30;
+	plcolour_t white = CL_PLColours_Parse("0xffffff");
+	int maxchars, len, total_chars, cycle_pixels, pixel_offset, pass;
+
+	if (!display_name || !display_name[0])
+		return;
+
+	maxchars = maxwidth / charwidth;
+	len = (int)strlen(display_name);
+
+	if (len <= maxchars)
+	{
+		int i;
+		for (i = 0; i < len; i++)
+			M_DrawCharacterRGBA(x + i * charwidth, y, (unsigned char)display_name[i], white, 0.5f);
+		return;
+	}
+
+	total_chars = len + gap_len;
+	cycle_pixels = total_chars * charwidth;
+	pixel_offset = cycle_pixels ? ((int)(time * scrollspeed)) % cycle_pixels : 0;
+	if (pixel_offset < 0)
+		pixel_offset += cycle_pixels;
+
+	for (pass = 0; pass < 2; pass++)
+	{
+		int base_x = x - pixel_offset + pass * cycle_pixels;
+		int pos;
+		for (pos = 0; pos < total_chars; pos++)
+		{
+			int char_x = base_x + pos * charwidth;
+			int ch;
+
+			if (char_x + charwidth <= x)
+				continue;
+			if (char_x >= x + maxwidth)
+				break;
+
+			ch = (pos < len) ? (unsigned char)display_name[pos] : (unsigned char)" /// "[pos - len];
+			M_DrawCharacterRGBA(char_x, y, ch, white, 0.5f);
+		}
+	}
+}
+
+static qboolean M_Maps_HasDownloadGap(void)
+{
+	return mapsmenu.list.search.len == 0 &&
+		mapsmenu.list.scroll == 0 &&
+		mapsmenu.list.numitems > 1 &&
+		mapsmenu.items[mapsmenu.filtered_indices[0]].download_menu;
+}
+
+static qboolean M_Maps_MouseYInDownloadGap(int yrel)
+{
+	return M_Maps_HasDownloadGap() && yrel >= 8 && yrel < 16;
+}
+
+void M_Maps_Draw(void)
+{
+	int x, y, i, cols;
+	int firstvis, numvis;
+
+	x = 16;
+	y = 32;
+	cols = 36;
+
+	mapsmenu.x = x;
+	mapsmenu.y = y;
+	mapsmenu.cols = cols;
+
+	if (!keydown[K_MOUSE1])
+		mapsmenu.scrollbar_grab = false;
+
+	if (mapsmenu.download_available != CL_QWMapListDownloadsAvailable())
+	{
+		M_Maps_Init();
+		return;
+	}
+
+	if (mapsmenu.prev_cursor != mapsmenu.list.cursor)
+	{
+		mapsmenu.prev_cursor = mapsmenu.list.cursor;
+		M_Ticker_Init(&mapsmenu.ticker);
+	}
+	else
+		M_Ticker_Update(&mapsmenu.ticker);
+
+	Draw_String(x, y - 28, "Maps");
+	M_DrawQuakeBar(x - 8, y - 16, cols + 2);
+
+	M_List_GetVisibleRange(&mapsmenu.list, &firstvis, &numvis);
+	for (i = 0; i < numvis; i++)
+	{
+		int idx = i + firstvis;
+		int map_idx = mapsmenu.filtered_indices[idx];
+		mapitem_t* map_item = &mapsmenu.items[map_idx];
+		qboolean selected = (idx == mapsmenu.list.cursor);
+		int row = i;
+		int item_y;
+
+		if (M_Maps_HasDownloadGap() && i > 0)
+			row++;
+		item_y = y + row * 8;
+
+		if (mapsmenu.list.search.len > 0)
+		{
+			if (map_item->download_menu)
+			{
+				char active_download[MAX_QPATH];
+				if (M_DownloadMaps_ActiveMapName(active_download, sizeof(active_download)))
+					M_DownloadMaps_DrawActiveDownload(x, item_y, (cols - 2) * 8, active_download);
+				else
+					M_Maps_DrawDownloadMenuPrompt(x, item_y,
+						mapsmenu.list.search.text,
+						mapsmenu.list.search.len);
+			}
+			else
+			{
+				M_PrintHighlightScroll2(x, item_y, (cols - 2) * 8,
+					map_item->name,
+					map_item->date,
+					mapsmenu.list.search.text,
+					selected ? mapsmenu.ticker.scroll_time : 0.0);
+			}
+		}
+		else
+		{
+			if (map_item->download_menu)
+			{
+				char active_download[MAX_QPATH];
+				if (M_DownloadMaps_ActiveMapName(active_download, sizeof(active_download)))
+					M_DownloadMaps_DrawActiveDownload(x, item_y, (cols - 2) * 8, active_download);
+				else
+					M_Maps_DrawDownloadMenuPrompt(x, item_y, NULL, 0);
+			}
+			else
+				M_PrintScroll2(x, item_y, (cols - 2) * 8,
+					map_item->name,
+					map_item->date,
+					selected ? mapsmenu.ticker.scroll_time : 0.0,
+					true);
+		}
+
+		if (selected)
+			M_DrawCharacter(x - 8, item_y, 12 + ((int)(realtime * 4) & 1));
+	}
+
+	if (M_List_GetOverflow(&mapsmenu.list) > 0)
+	{
+		M_List_DrawScrollbar(&mapsmenu.list, x + cols * 8 - 8, y);
+
+		if (mapsmenu.list.scroll > 0)
+			M_DrawEllipsisBar(x, y - 8, cols);
+		if (mapsmenu.list.scroll + mapsmenu.list.viewsize < mapsmenu.list.numitems)
+			M_DrawEllipsisBar(x, y + (mapsmenu.list.viewsize + (M_Maps_HasDownloadGap() ? 1 : 0)) * 8, cols);
+	}
+
+	if (mapsmenu.list.search.len > 0) // Draw search box if search is active
+	{
+		int cursor_x = 24 + 8 * mapsmenu.list.search.len; // Start position + character width * text length
+
+		M_DrawTextBox(16, 176, 32, 1);
+		M_PrintHighlight(24, 184, mapsmenu.list.search.text,
+			mapsmenu.list.search.text,
+			mapsmenu.list.search.len);
+		if (mapsmenu.list.numitems == 0)
+			M_DrawCharacter(cursor_x, 184, 11 ^ 128);
+		else
+			M_DrawCharacter(cursor_x, 184, 10 + ((int)(realtime * 4) & 1));
+	}
+}
+
+qboolean M_Maps_Match(int index, char initial)
+{
+	int map_idx = mapsmenu.filtered_indices[index];
+
+	return q_tolower(mapsmenu.items[map_idx].name[0]) == initial;
+}
+
+void M_Maps_Key(int key)
+{
+	int x, y;
+
+	if (keydown[K_CTRL])
+	{
+		if ((key == 'u' || key == 'U') && mapsmenu.list.search.len > 0)
+		{
+			mapsmenu.list.search.len = 0;
+			mapsmenu.list.search.text[0] = 0;
+			M_Maps_Refilter();
+			return;
+		}
+		else if (key == K_BACKSPACE && mapsmenu.list.search.len > 0)
+		{
+			M_DeletePrevWord(&mapsmenu.list.search);
+			M_Maps_Refilter();
+			return;
+		}
+	}
+	if (key >= 32 && key < 127) // Handle search input first, printable characters
+	{
+		if (mapsmenu.list.search.len < mapsmenu.list.search.maxlen)
+		{
+			mapsmenu.list.search.text[mapsmenu.list.search.len++] = key;
+			mapsmenu.list.search.text[mapsmenu.list.search.len] = 0;
+			M_Maps_Refilter();
+			return;
+		}
+	}
+
+	if (mapsmenu.scrollbar_grab)
+	{
+		switch (key)
+		{
+		case K_ESCAPE:
+		case K_BBUTTON:
+		case K_MOUSE4:
+		case K_MOUSE2:
+			mapsmenu.scrollbar_grab = false;
+			break;
+		}
+		return;
+	}
+
+	if (M_List_Key(&mapsmenu.list, key))
+		return;
+
+	if (M_List_CycleMatch(&mapsmenu.list, key, M_Maps_Match))
+		return;
+
+	if (M_Ticker_Key(&mapsmenu.ticker, key))
+		return;
+
+	switch (key)
+	{
+	case K_ESCAPE:
+		if (mapsmenu.list.search.len > 0) // Clear search but stay in menu
+		{
+			mapsmenu.list.search.len = 0;
+			mapsmenu.list.search.text[0] = 0;
+			M_Maps_Refilter();
+			return;
+		}
+		/* fall through */
+	case K_BBUTTON:
+	case K_MOUSE4:
+	case K_MOUSE2:
+		if (maps_from_gameoptions)
+		{
+			maps_from_gameoptions = false;
+			M_Menu_GameOptions_f();
+		}
+		else
+		{
+			M_Menu_SinglePlayer_f();
+		}
+		break;
+
+	case K_BACKSPACE:
+		if (mapsmenu.list.search.len > 0)
+		{
+			mapsmenu.list.search.text[--mapsmenu.list.search.len] = 0;
+			M_Maps_Refilter();
+			return;
+		}
+		break;
+
+	case K_ENTER:
+	case K_KP_ENTER:
+	case K_ABUTTON:
+	enter:
+		if (mapsmenu.list.numitems > 0 && mapsmenu.items[mapsmenu.filtered_indices[mapsmenu.list.cursor]].name[0])
+		{
+			mapitem_t *map_item = &mapsmenu.items[mapsmenu.filtered_indices[mapsmenu.list.cursor]];
+			if (map_item->download_menu)
+			{
+				M_Menu_DownloadMaps_f();
+				break;
+			}
+
+			if (maps_from_gameoptions)
+			{
+				// Set the map and return to game options
+				M_SetSkillMenuMap(map_item->name);
+				maps_from_gameoptions = false;
+				M_GameOptions_ClearTypedLevel();
+				M_Menu_GameOptions_f();
+			}
+			else
+			{
+				// Original behavior - go to skill menu
+				M_SetSkillMenuMap(map_item->name);
+				M_Menu_Skill_f();
+			}
+		}
+		else
+			S_LocalSound ("misc/menu3.wav");
+		break;
+
+	case K_MOUSE1:
+		x = m_mousex - mapsmenu.x - (mapsmenu.cols - 1) * 8;
+		y = m_mousey - mapsmenu.y;
+		if (x < -8 || !M_List_UseScrollbar(&mapsmenu.list, y))
+		{
+			if (M_Maps_MouseYInDownloadGap(y))
+			{
+				S_LocalSound ("misc/menu3.wav");
+				break;
+			}
+			goto enter;
+		}
+		mapsmenu.scrollbar_grab = true;
+		M_Maps_Mousemove(m_mousex, m_mousey);
+		break;
+
+	default:
+		break;
+	}
+}
+
+
+void M_Maps_Mousemove(int cx, int cy)
+{
+	cy -= mapsmenu.y;
+
+	if (mapsmenu.scrollbar_grab)
+	{
+		if (!keydown[K_MOUSE1])
+		{
+			mapsmenu.scrollbar_grab = false;
+			return;
+		}
+		M_List_UseScrollbar(&mapsmenu.list, cy);
+		// Note: no return, we also update the cursor
+	}
+
+	if (M_Maps_MouseYInDownloadGap(cy))
+		return;
+	if (M_Maps_HasDownloadGap() && cy >= 16)
+		cy -= 8;
+
+	M_List_Mousemove(&mapsmenu.list, cy);
+}
+
+/*
+==================
+Download Maps Menu
+==================
+*/
+
+typedef struct
+{
+	char name[MAX_QPATH];
+} downloadmaps_recent_t;
+
+static struct
+{
+	menulist_t			list;
+	enum m_state_e		prev;
+	int					prev_cursor;
+	qboolean			scrollbar_grab;
+	menuticker_t		ticker;
+	int					mapcount;
+	int					x, y, cols;
+	char				message[64];
+	double				message_time;
+	char				pending_download[MAX_QPATH];
+	downloadmaps_recent_t *recent_downloads;
+	int*				filtered_indices;
+} downloadmapsmenu;
+
+static const char *M_DownloadMaps_SelectedName(void);
+
+static void M_DownloadMaps_SetMessage(const char *message)
+{
+	q_strlcpy(downloadmapsmenu.message, message, sizeof(downloadmapsmenu.message));
+	downloadmapsmenu.message_time = realtime;
+}
+
+static const char *M_DownloadMaps_DisplayName(const char *name, char *buffer, size_t buffer_size)
+{
+	if (!name)
+	{
+		if (buffer_size > 0)
+			buffer[0] = '\0';
+		return buffer;
+	}
+
+	COM_StripExtension(name, buffer, buffer_size);
+	return buffer;
+}
+
+static qboolean M_DownloadMaps_LocalPath(const char *name, char *path, size_t path_size)
+{
+	if (!name || !*name || path_size == 0)
+		return false;
+
+	if (!q_strncasecmp(name, "maps/", 5))
+		return q_strlcpy(path, name, path_size) < path_size;
+
+	return (size_t)q_snprintf(path, path_size, "maps/%s", name) < path_size;
+}
+
+static qboolean M_DownloadMaps_AlreadyHave(const char *name)
+{
+	char path[MAX_QPATH];
+
+	if (!M_DownloadMaps_LocalPath(name, path, sizeof(path)))
+		return false;
+
+	return COM_FileExists(path, NULL);
+}
+
+static qboolean M_DownloadMaps_NameMatches(const char *a, const char *b)
+{
+	return a && b && !q_strcasecmp(a, b);
+}
+
+static qboolean M_DownloadMaps_RecentDownloadActive(const char *name)
+{
+	int i;
+
+	if (!name)
+		return false;
+
+	for (i = 0; i < (int)VEC_SIZE(downloadmapsmenu.recent_downloads); i++)
+		if (M_DownloadMaps_NameMatches(name, downloadmapsmenu.recent_downloads[i].name))
+			return true;
+
+	return false;
+}
+
+static void M_DownloadMaps_AddRecentDownload(const char *name)
+{
+	downloadmaps_recent_t recent;
+
+	if (!name || !*name || M_DownloadMaps_RecentDownloadActive(name))
+		return;
+
+	q_strlcpy(recent.name, name, sizeof(recent.name));
+	VEC_PUSH(downloadmapsmenu.recent_downloads, recent);
+}
+
+static void M_DownloadMaps_UpdateCompletionState(void)
+{
+	if (!downloadmapsmenu.pending_download[0])
+		return;
+
+	if (M_DownloadMaps_NameIsActive(downloadmapsmenu.pending_download))
+		return;
+
+	if (!M_DownloadMaps_AlreadyHave(downloadmapsmenu.pending_download))
+		return;
+
+	M_DownloadMaps_AddRecentDownload(downloadmapsmenu.pending_download);
+	downloadmapsmenu.pending_download[0] = '\0';
+	downloadmapsmenu.message[0] = '\0';
+}
+
+static void M_DownloadMaps_Refilter(void)
+{
+	int i;
+
+	VEC_CLEAR(downloadmapsmenu.filtered_indices);
+
+	for (i = 0; i < downloadmapsmenu.mapcount; i++)
+	{
+		const char *name = QWMapList_NameAt(i);
+		char display_name[MAX_QPATH];
+
+		if (!name)
+			continue;
+
+		M_DownloadMaps_DisplayName(name, display_name, sizeof(display_name));
+
+		if (downloadmapsmenu.list.search.len == 0 ||
+			q_strcasestr(display_name, downloadmapsmenu.list.search.text))
+		{
+			VEC_PUSH(downloadmapsmenu.filtered_indices, i);
+		}
+	}
+
+	downloadmapsmenu.list.numitems = (int)VEC_SIZE(downloadmapsmenu.filtered_indices);
+
+	if (downloadmapsmenu.list.cursor >= downloadmapsmenu.list.numitems)
+		downloadmapsmenu.list.cursor = downloadmapsmenu.list.numitems - 1;
+
+	if (downloadmapsmenu.list.cursor < 0 && downloadmapsmenu.list.numitems > 0)
+		downloadmapsmenu.list.cursor = 0;
+
+	M_List_CenterCursor(&downloadmapsmenu.list);
+}
+
+static void M_DownloadMaps_Init(void)
+{
+	downloadmapsmenu.scrollbar_grab = false;
+	downloadmapsmenu.prev_cursor = -2;
+	downloadmapsmenu.list.viewsize = MAX_VIS_MAPS;
+	downloadmapsmenu.list.cursor = -1;
+	downloadmapsmenu.list.scroll = 0;
+	downloadmapsmenu.list.numitems = 0;
+	downloadmapsmenu.mapcount = 0;
+	downloadmapsmenu.message[0] = '\0';
+	downloadmapsmenu.message_time = 0.0;
+	downloadmapsmenu.pending_download[0] = '\0';
+	VEC_CLEAR(downloadmapsmenu.recent_downloads);
+	VEC_CLEAR(downloadmapsmenu.filtered_indices);
+
+	memset(&downloadmapsmenu.list.search, 0, sizeof(downloadmapsmenu.list.search));
+	downloadmapsmenu.list.search.maxlen = 32;
+
+	M_Ticker_Init(&downloadmapsmenu.ticker);
+
+	if (QWMapList_LoadOnce())
+		downloadmapsmenu.mapcount = QWMapList_Count();
+
+	M_DownloadMaps_Refilter();
+
+	if (downloadmapsmenu.list.cursor == -1)
+		downloadmapsmenu.list.cursor = 0;
+
+	M_List_CenterCursor(&downloadmapsmenu.list);
+}
+
+void M_Menu_DownloadMaps_f(void)
+{
+	if (!CL_QWMapListDownloadsAvailable())
+	{
+		S_LocalSound ("misc/menu3.wav");
+		return;
+	}
+
+	key_dest = key_menu;
+	downloadmapsmenu.prev = m_state;
+	m_state = m_downloadmaps;
+	m_entersound = true;
+	//M_DownloadMaps_Init();
+}
+
+void M_DownloadMaps_Draw(void)
+{
+	int x, y, i, cols;
+	int firstvis, numvis;
+	const char *selected_name;
+	qboolean selected_already_have = false;
+	qboolean message_active = false;
+
+	if (!CL_QWMapListDownloadsAvailable())
+	{
+		M_Menu_Maps_f();
+		return;
+	}
+
+	x = 16;
+	y = 32;
+	cols = 36;
+
+	downloadmapsmenu.x = x;
+	downloadmapsmenu.y = y;
+	downloadmapsmenu.cols = cols;
+
+	if (!keydown[K_MOUSE1])
+		downloadmapsmenu.scrollbar_grab = false;
+
+	if (downloadmapsmenu.mapcount <= 0 && QWMapList_LoadOnce())
+	{
+		int count = QWMapList_Count();
+		if (count > 0)
+		{
+			downloadmapsmenu.mapcount = count;
+			M_DownloadMaps_Refilter();
+			if (downloadmapsmenu.list.cursor < 0)
+				downloadmapsmenu.list.cursor = 0;
+			M_List_CenterCursor(&downloadmapsmenu.list);
+		}
+	}
+
+	M_DownloadMaps_UpdateCompletionState();
+	selected_name = M_DownloadMaps_SelectedName();
+	selected_already_have = M_DownloadMaps_AlreadyHave(selected_name);
+
+	if (downloadmapsmenu.prev_cursor != downloadmapsmenu.list.cursor)
+	{
+		downloadmapsmenu.prev_cursor = downloadmapsmenu.list.cursor;
+		M_Ticker_Init(&downloadmapsmenu.ticker);
+	}
+	else
+		M_Ticker_Update(&downloadmapsmenu.ticker);
+
+	Draw_String(x, y - 28, DOWNLOAD_MAPS_LABEL);
+	if (downloadmapsmenu.message[0])
+	{
+		if (realtime - downloadmapsmenu.message_time < 2.5)
+			message_active = true;
+		else
+			downloadmapsmenu.message[0] = '\0';
+	}
+	M_DrawQuakeBar(x - 8, y - 16, cols + 2);
+
+	if (downloadmapsmenu.mapcount <= 0)
+	{
+		if (QWMapList_IsRefreshing())
+		{
+			char buf[64];
+			int dots = (int)(realtime * 2) % 4;
+			q_snprintf(buf, sizeof(buf), "Fetching map list%.*s", dots, "...");
+			M_Print(x, y, buf);
+		}
+		else if (QWMapList_State() == QW_MAPLIST_FAILED)
+			M_Print(x, y, "qw_maps.txt not available");
+		else
+			M_Print(x, y, "No download maps");
+	}
+
+	M_List_GetVisibleRange(&downloadmapsmenu.list, &firstvis, &numvis);
+	for (i = 0; i < numvis; i++)
+	{
+		int idx = i + firstvis;
+		int map_idx = downloadmapsmenu.filtered_indices[idx];
+		const char *name = QWMapList_NameAt(map_idx);
+		char display_name[MAX_QPATH];
+		qboolean selected = (idx == downloadmapsmenu.list.cursor);
+		qboolean already_have;
+
+		if (!name)
+			continue;
+
+		M_DownloadMaps_DisplayName(name, display_name, sizeof(display_name));
+		already_have = M_DownloadMaps_AlreadyHave(name);
+
+		if (M_DownloadMaps_NameIsActive(name))
+		{
+			M_DownloadMaps_DrawActiveDownload(x, y + i * 8, (cols - 2) * 8, display_name);
+		}
+		else if (already_have)
+		{
+			M_DownloadMaps_DrawInstalledMap(x, y + i * 8, (cols - 2) * 8,
+				display_name,
+				selected ? downloadmapsmenu.ticker.scroll_time : 0.0);
+		}
+		else if (downloadmapsmenu.list.search.len > 0)
+		{
+			M_PrintHighlightScroll(x, y + i * 8, (cols - 2) * 8,
+				display_name,
+				downloadmapsmenu.list.search.text,
+				selected ? downloadmapsmenu.ticker.scroll_time : 0.0);
+		}
+		else
+		{
+			M_PrintScroll(x, y + i * 8, (cols - 2) * 8,
+				display_name,
+				selected ? downloadmapsmenu.ticker.scroll_time : 0.0,
+				true);
+		}
+
+		if (selected)
+			M_DrawCharacter(x - 8, y + i * 8, 12 + ((int)(realtime * 4) & 1));
+	}
+
+	if (M_List_GetOverflow(&downloadmapsmenu.list) > 0)
+	{
+		M_List_DrawScrollbar(&downloadmapsmenu.list, x + cols * 8 - 8, y);
+
+		if (downloadmapsmenu.list.scroll > 0)
+			M_DrawEllipsisBar(x, y - 8, cols);
+		if (downloadmapsmenu.list.scroll + downloadmapsmenu.list.viewsize < downloadmapsmenu.list.numitems)
+			M_DrawEllipsisBar(x, y + downloadmapsmenu.list.viewsize * 8, cols);
+	}
+
+	if (downloadmapsmenu.list.search.len == 0)
+	{
+		const char *tooltip = NULL;
+
+		if (M_DownloadMaps_RecentDownloadActive(selected_name))
+			tooltip = "successfully downloaded";
+		else if (selected_already_have)
+			tooltip = "already installed";
+		else if (message_active)
+			tooltip = downloadmapsmenu.message;
+
+		if (tooltip)
+			M_PrintWhite(x, y + downloadmapsmenu.list.viewsize * 8 + 16, tooltip);
+	}
+
+	if (downloadmapsmenu.list.search.len > 0)
+	{
+		M_DrawTextBox(16, 176, 32, 1);
+		M_PrintHighlight(24, 184, downloadmapsmenu.list.search.text,
+			downloadmapsmenu.list.search.text,
+			downloadmapsmenu.list.search.len);
+		{
+			int cursor_x = 24 + 8 * downloadmapsmenu.list.search.len;
+			if (downloadmapsmenu.list.numitems == 0)
+				M_DrawCharacter(cursor_x, 184, 11 ^ 128);
+			else
+				M_DrawCharacter(cursor_x, 184, 10 + ((int)(realtime * 4) & 1));
+		}
+	}
+}
+
+qboolean M_DownloadMaps_Match(int index, char initial)
+{
+	int map_idx = downloadmapsmenu.filtered_indices[index];
+	const char *name = QWMapList_NameAt(map_idx);
+	char display_name[MAX_QPATH];
+
+	if (!name)
+		return false;
+
+	M_DownloadMaps_DisplayName(name, display_name, sizeof(display_name));
+	return display_name[0] && q_tolower(display_name[0]) == initial;
+}
+
+static const char *M_DownloadMaps_SelectedName(void)
+{
+	if (downloadmapsmenu.list.numitems <= 0 ||
+		downloadmapsmenu.list.cursor < 0 ||
+		downloadmapsmenu.list.cursor >= downloadmapsmenu.list.numitems)
+		return NULL;
+
+	return QWMapList_NameAt(downloadmapsmenu.filtered_indices[downloadmapsmenu.list.cursor]);
+}
+
+void M_DownloadMaps_Key(int key)
+{
+	int x, y;
+
+	if (keydown[K_CTRL])
+	{
+		if ((key == 'u' || key == 'U') && downloadmapsmenu.list.search.len > 0)
+		{
+			downloadmapsmenu.list.search.len = 0;
+			downloadmapsmenu.list.search.text[0] = 0;
+			M_DownloadMaps_Refilter();
+			return;
+		}
+		else if (key == K_BACKSPACE && downloadmapsmenu.list.search.len > 0)
+		{
+			M_DeletePrevWord(&downloadmapsmenu.list.search);
+			M_DownloadMaps_Refilter();
+			return;
+		}
+	}
+
+	if (key >= 32 && key < 127)
+	{
+		if (downloadmapsmenu.list.search.len < downloadmapsmenu.list.search.maxlen)
+		{
+			downloadmapsmenu.list.search.text[downloadmapsmenu.list.search.len++] = key;
+			downloadmapsmenu.list.search.text[downloadmapsmenu.list.search.len] = 0;
+			M_DownloadMaps_Refilter();
+			return;
+		}
+	}
+
+	if (downloadmapsmenu.scrollbar_grab)
+	{
+		switch (key)
+		{
+		case K_ESCAPE:
+		case K_BBUTTON:
+		case K_MOUSE4:
+		case K_MOUSE2:
+			downloadmapsmenu.scrollbar_grab = false;
+			break;
+		}
+		return;
+	}
+
+	if (M_List_Key(&downloadmapsmenu.list, key))
+		return;
+
+	if (M_List_CycleMatch(&downloadmapsmenu.list, key, M_DownloadMaps_Match))
+		return;
+
+	if (M_Ticker_Key(&downloadmapsmenu.ticker, key))
+		return;
+
+	switch (key)
+	{
+	case K_ESCAPE:
+		if (downloadmapsmenu.list.search.len > 0)
+		{
+			downloadmapsmenu.list.search.len = 0;
+			downloadmapsmenu.list.search.text[0] = 0;
+			M_DownloadMaps_Refilter();
+			return;
+		}
+		/* fall through */
+	case K_BBUTTON:
+	case K_MOUSE4:
+	case K_MOUSE2:
+		M_Menu_Maps_f();
+		break;
+
+	case K_BACKSPACE:
+		if (downloadmapsmenu.list.search.len > 0)
+		{
+			downloadmapsmenu.list.search.text[--downloadmapsmenu.list.search.len] = 0;
+			M_DownloadMaps_Refilter();
+			return;
+		}
+		break;
+
+	case K_ENTER:
+	case K_KP_ENTER:
+	case K_ABUTTON:
+	enter:
+		{
+			const char *name = M_DownloadMaps_SelectedName();
+			if (!CL_QWMapListDownloadsAvailable())
+			{
+				S_LocalSound("misc/menu3.wav");
+				M_Menu_Maps_f();
+			}
+			else if (name && *name)
+			{
+				if (M_DownloadMaps_AlreadyHave(name))
+				{
+					char display_name[MAX_QPATH];
+					M_DownloadMaps_DisplayName(name, display_name, sizeof(display_name));
+					S_LocalSound("misc/menu3.wav");
+					downloadmapsmenu.message[0] = '\0';
+					Con_Printf("Map already downloaded: %s\n", display_name);
+				}
+				else
+				{
+					q_strlcpy(downloadmapsmenu.pending_download, name,
+						sizeof(downloadmapsmenu.pending_download));
+					Cbuf_AddText(va("download \"%s\"\n", name));
+					M_DownloadMaps_SetMessage("Downloading...");
+				}
+			}
+			else
+			{
+				S_LocalSound("misc/menu3.wav");
+			}
+		}
+		break;
+
+	case K_MOUSE1:
+		x = m_mousex - downloadmapsmenu.x - (downloadmapsmenu.cols - 1) * 8;
+		y = m_mousey - downloadmapsmenu.y;
+		if (x < -8 || !M_List_UseScrollbar(&downloadmapsmenu.list, y))
+			goto enter;
+		downloadmapsmenu.scrollbar_grab = true;
+		M_DownloadMaps_Mousemove(m_mousex, m_mousey);
+		break;
+
+	default:
+		break;
+	}
+}
+
+void M_DownloadMaps_Mousemove(int cx, int cy)
+{
+	cy -= downloadmapsmenu.y;
+
+	if (downloadmapsmenu.scrollbar_grab)
+	{
+		if (!keydown[K_MOUSE1])
+		{
+			downloadmapsmenu.scrollbar_grab = false;
+			return;
+		}
+		M_List_UseScrollbar(&downloadmapsmenu.list, cy);
+	}
+
+	M_List_Mousemove(&downloadmapsmenu.list, cy);
+}
+
+/*
+==================
+Skill Menu (iw)
+==================
+*/
+
+int				m_skill_cursor;
+qboolean		m_skill_usegfx;
+qboolean		m_skill_usecustomtitle;
+int				m_skill_numoptions;
+char			m_skill_mapname[MAX_QPATH];
+char			m_skill_maptitle[1024];
+menuticker_t	m_skill_ticker;
+
+enum m_state_e m_skill_prevmenu;
+
+void M_SetSkillMenuMap(const char* name)
+{
+	q_strlcpy(m_skill_mapname, name, sizeof(m_skill_mapname));
+	if (!Mod_LoadMapDescription(m_skill_maptitle, sizeof(m_skill_maptitle), name) || !m_skill_maptitle[0])
+		q_strlcpy(m_skill_maptitle, name, sizeof(m_skill_maptitle));
+}
+
+void M_Menu_Skill_f(void)
+{
+	key_dest = key_menu;
+	m_skill_prevmenu = m_state;
+	m_state = m_skill;
+	m_entersound = true;
+	M_Ticker_Init(&m_skill_ticker);
+
+
+		// Select current skill level initially if there's no autosave
+		m_skill_cursor = (int)skill.value;
+		m_skill_cursor = CLAMP(0, m_skill_cursor, 3);
+	
+	m_skill_numoptions = 4;
+}
+
+void M_Skill_Draw(void)
+{
+	int		x, y, f;
+	qpic_t* p;
+
+	M_DrawTransPic(16, 4, Draw_CachePic("gfx/qplaque.lmp"));
+	p = Draw_CachePic(m_skill_usecustomtitle ? "gfx/p_skill.lmp" : "gfx/ttl_sgl.lmp");
+	M_DrawPic((320 - p->width) / 2, 4, p);
+
+	x = 72;
+	y = 32;
+
+	M_Ticker_Update(&m_skill_ticker);
+	M_PrintScroll(x, 32, 30 * 8, m_skill_maptitle, m_skill_ticker.scroll_time, false);
+
+	y += 16;
+
+	if (m_skill_usegfx)
+	{
+		M_DrawTransPic(x, y, Draw_CachePic("gfx/skillmenu.lmp"));
+		if (m_skill_cursor < 4)
+			M_DrawQuakeCursor(x - 18, y + m_skill_cursor * 20);
+		y += 4 * 20;
+	}
+	else
+	{
+		static const char* const skills[] =
+		{
+			"EASY",
+			"NORMAL",
+			"HARD",
+			"NIGHTMARE",
+		};
+
+		for (f = 0; f < 4; f++)
+			M_Print(x, y + f * 16 + 2, skills[f]);
+		if (m_skill_cursor < 4)
+			M_DrawArrowCursor(x - 16, y + m_skill_cursor * 16 + 4);
+		y += 4 * 16;
+	}
+}
+
+static double skill_last_key_time = 0.0; // Tracks last key time for 'ni' combo
+static qboolean skill_was_n = false;    // Tracks if the last key was 'n'
+
+void M_Skill_Key(int key)
+{
+	if (M_Ticker_Key(&m_skill_ticker, key))
+		return;
+
+	switch (key)
+	{
+	case K_ESCAPE:
+	case K_BBUTTON:
+	case K_MOUSE4:
+	case K_MOUSE2:
+		m_state = m_skill_prevmenu;
+		m_entersound = true;
+		break;
+
+	case K_DOWNARROW:
+		S_LocalSound ("misc/menu1.wav");
+		if (++m_skill_cursor > m_skill_numoptions - 1)
+			m_skill_cursor = 0;
+		break;
+
+	case K_UPARROW:
+		S_LocalSound ("misc/menu1.wav");
+		if (--m_skill_cursor < 0)
+			m_skill_cursor = m_skill_numoptions - 1;
+		break;
+
+	case 'e': // Shortcut for Easy
+	case 'E':
+		m_skill_cursor = 0;
+		S_LocalSound("misc/menu1.wav");
+		skill_was_n = false; // Reset the flag
+		break;
+
+	case 'n': // Shortcut for Normal and cycling behavior
+	case 'N':
+		if (m_skill_cursor == 1) // Already on Normal
+		{
+			skill_last_key_time = 0.0; // Reset time to avoid combo with 'i'
+			skill_was_n = false;
+			m_skill_cursor = 3; // Move to Nightmare
+			S_LocalSound("misc/menu1.wav");
+		}
+		else
+		{
+			skill_last_key_time = realtime; // Record time for 'ni' combo
+			skill_was_n = true;
+			m_skill_cursor = 1; // Move to Normal
+			S_LocalSound("misc/menu1.wav");
+		}
+		break;
+
+	case 'h': // Shortcut for Hard
+	case 'H':
+		m_skill_cursor = 2;
+		S_LocalSound("misc/menu1.wav");
+		skill_was_n = false; // Reset the flag
+		break;
+
+	case 'i': // Shortcut for Nightmare (only if preceded by 'n')
+	case 'I':
+		if (skill_was_n && (realtime - skill_last_key_time) < 0.5) // 500ms window for 'ni'
+		{
+			m_skill_cursor = 3; // Nightmare
+			S_LocalSound("misc/menu1.wav");
+		}
+		skill_was_n = false; // Reset the flag
+		break;
+
+	case K_ENTER:
+	case K_KP_ENTER:
+	case K_ABUTTON:
+	case K_MOUSE1:
+		key_dest = key_game;
+		if (sv.active)
+			Cbuf_AddText("disconnect\n");
+		// Fresh start
+		Cbuf_AddText(va("skill %d\n", m_skill_cursor));
+		Cbuf_AddText("maxplayers 1\n");
+		Cbuf_AddText("deathmatch 0\n"); //johnfitz
+		Cbuf_AddText("coop 0\n"); //johnfitz
+		Cbuf_AddText(va("map \"%s\"\n", m_skill_mapname));
+		break;
+	}
+}
+
+void M_Skill_Mousemove(int cx, int cy)
+{
+	int ybase = 48;
+	int itemheight = m_skill_usegfx ? 20 : 16;
+
+	M_UpdateCursor(cy, ybase, itemheight, 4, &m_skill_cursor);
+
+}
+
+/*
+==================
+Multiplayer Menu
+==================
+*/
+
+int	m_multiplayer_cursor;
+#define	MULTIPLAYER_BASE_ITEMS	3
+#define	MAX_PINNED_BOOKMARKS	5
+#define	MULTIPLAYER_PINNED_OFFSET_Y	6
+#define	MULTIPLAYER_PINNED_SPACING	10
+extern cvar_t scr_shownet; // woods
+
+#define	BOOKMARK_ALIAS_LENGTH	BOOKMARK_DATA_LENGTH
+
+typedef struct pinnedbookmark_s {
+	char	name[MAX_QPATH];
+	char	alias[BOOKMARK_ALIAS_LENGTH];
+} pinnedbookmark_t;
+
+// Forward declarations for pinned bookmark helpers
+static int M_Bookmarks_CountPinned(void);
+static int M_Bookmarks_GetPinned(pinnedbookmark_t* out, int max_pins);
+static int M_MultiPlayer_TotalItems(void);
+
+static int M_Bookmarks_CountPinned(void)
+{
+	int count = 0;
+	for (filelist_item_t* item = bookmarkslist; item; item = item->next)
+	{
+		char alias[BOOKMARK_ALIAS_LENGTH];
+		qboolean pinned = false;
+		BookmarkData_Parse(item->data, alias, sizeof(alias), &pinned);
+		if (pinned && alias[0])
+			count++;
+	}
+	return count;
+}
+
+static int PinnedBookmarkCompare(const void* a, const void* b)
+{
+	const pinnedbookmark_t* itemA = (const pinnedbookmark_t*)a;
+	const pinnedbookmark_t* itemB = (const pinnedbookmark_t*)b;
+	return q_strcasecmp(itemA->alias, itemB->alias);
+}
+
+static int M_Bookmarks_GetPinned(pinnedbookmark_t* out, int max_pins)
+{
+	int count = 0;
+
+	if (!out || max_pins <= 0)
+		return 0;
+
+	for (filelist_item_t* item = bookmarkslist; item && count < max_pins; item = item->next)
+	{
+		pinnedbookmark_t entry;
+		qboolean pinned = false;
+
+		BookmarkData_Parse(item->data, entry.alias, sizeof(entry.alias), &pinned);
+		if (!pinned || !entry.alias[0])
+			continue;
+
+		q_strlcpy(entry.name, item->name, sizeof(entry.name));
+		out[count++] = entry;
+	}
+
+	if (count > 1)
+		qsort(out, count, sizeof(*out), PinnedBookmarkCompare);
+
+	return count;
+}
+
+static int M_MultiPlayer_TotalItems(void)
+{
+	int total = MULTIPLAYER_BASE_ITEMS;
+	pinnedbookmark_t pinned[MAX_PINNED_BOOKMARKS];
+	int pinned_count = M_Bookmarks_GetPinned(pinned, MAX_PINNED_BOOKMARKS);
+
+	return total + pinned_count;
+}
+
+static int M_MultiPlayer_FirstPinnedY(void)
+{
+	return 32 + MULTIPLAYER_BASE_ITEMS * 20 + MULTIPLAYER_PINNED_OFFSET_Y;
+}
+
+void M_Menu_MultiPlayer_f (void)
+{
+	key_dest = key_menu;
+	m_state = m_multiplayer;
+	m_entersound = true;
+	IN_UpdateGrabs();
+}
+
+extern char	lastmphost[NET_NAMELEN]; // woods - connected server address
+
+void M_MultiPlayer_Draw (void)
+{
+	int		f, i; // woods
+	qpic_t	*p;
+	pinnedbookmark_t pinned[MAX_PINNED_BOOKMARKS];
+	int pinned_count = M_Bookmarks_GetPinned(pinned, MAX_PINNED_BOOKMARKS);
+	int total_items = M_MultiPlayer_TotalItems();
+
+	if (total_items <= 0)
+		total_items = MULTIPLAYER_BASE_ITEMS;
+
+	if (m_multiplayer_cursor >= total_items)
+		m_multiplayer_cursor = total_items - 1;
+
+	M_DrawTransPic (16, 4, Draw_CachePic ("gfx/qplaque.lmp") );
+	p = Draw_CachePic ("gfx/p_multi.lmp");
+	M_DrawPic ( (320-p->width)/2, 4, p);
+	M_DrawTransPic (72, 32, Draw_CachePic ("gfx/mp_menu.lmp") );
+
+	f = (int)(realtime * 10)%6;
+	i = 24;
+	if (strlen(lastmphost) > i)
+		i = (strlen(lastmphost));
+
+	// Draw cursor - use rotating Q for base items, rotated arrow for pinned items
+	if (m_multiplayer_cursor < MULTIPLAYER_BASE_ITEMS)
+		M_DrawTransPic (54, 32 + m_multiplayer_cursor * 20,Draw_CachePic( va("gfx/menudot%i.lmp", f+1 ) ) );
+
+	// Draw pinned bookmarks below base items
+	for (i = 0; i < pinned_count && i < MAX_PINNED_BOOKMARKS; ++i)
+	{
+		int row = MULTIPLAYER_BASE_ITEMS + i;
+		int y = M_MultiPlayer_FirstPinnedY() + i * MULTIPLAYER_PINNED_SPACING;
+		qboolean selected = (m_multiplayer_cursor == row);
+
+		// Show arrow at 0  when selected (pointing right), 90  when not (pointing down)
+		Draw_Character_Rotation(80, y, 141, selected ? 0 : 90);
+		if (selected)
+			M_PrintWhite(96, y, pinned[i].alias);
+		else
+			M_Print(96, y, pinned[i].alias);
+	}
+
+        // Draw "currently connected to" below pinned bookmarks
+        if (cl.maxclients > 1 && cls.state == ca_connected && !cls.demoplayback)
+        {
+                int conn_y = M_MultiPlayer_FirstPinnedY() + pinned_count * MULTIPLAYER_PINNED_SPACING + MULTIPLAYER_PINNED_OFFSET_Y;
+                int box_width = strlen(lastmphost);
+                if (box_width < 24)
+                        box_width = 24;
+                f = (320 - 26 * 8) / 2;
+                M_DrawTextBox(f, conn_y, box_width, 2);
+                f += 8;
+                M_Print(f, conn_y + 8, "currently connected to:");
+
+                if (realtime - cl.last_received_message > scr_shownet.value)
+                        M_PrintRGBA(f, conn_y + 16, lastmphost, CL_PLColours_Parse("0xffffff"), 0.2f, false);
+                else
+                        M_PrintWhite(f, conn_y + 16, lastmphost);
+        }
+
+	if (ipxAvailable || ipv4Available || ipv6Available)
+		return;
+	M_PrintWhite ((320/2) - ((27*8)/2), 148, "No Communications Available");
+}
+
+
+void M_MultiPlayer_Key (int key)
+{
+	switch (key)
+	{
+	case K_ESCAPE:
+	case K_BBUTTON:
+	case K_MOUSE4: // woods #mousemenu
+	case K_MOUSE2: // woods #mousemenu
+		M_Menu_Main_f ();
+		break;
+
+	case 'j':
+	case 'J':
+		m_multiplayer_cursor = 0;  // Join Game
+		S_LocalSound ("misc/menu1.wav");
+		break;
+
+	case 'n':
+	case 'N':
+		m_multiplayer_cursor = 1;  // New Game
+		S_LocalSound ("misc/menu1.wav");
+		break;
+
+	case 's':
+	case 'S':
+		m_multiplayer_cursor = 2;  // Setup
+		S_LocalSound ("misc/menu1.wav");
+		break;
+
+	case K_DOWNARROW:
+		S_LocalSound ("misc/menu1.wav");
+		if (++m_multiplayer_cursor >= M_MultiPlayer_TotalItems())
+			m_multiplayer_cursor = 0;
+		break;
+
+	case K_UPARROW:
+		S_LocalSound ("misc/menu1.wav");
+		if (--m_multiplayer_cursor < 0)
+			m_multiplayer_cursor = M_MultiPlayer_TotalItems() - 1;
+		break;
+
+	case K_ENTER:
+	case K_KP_ENTER:
+	case K_ABUTTON:
+	case K_MOUSE1: // woods #mousemenu
+		m_entersound = true;
+		switch (m_multiplayer_cursor)
+		{
+		case 0:
+			if (ipxAvailable || ipv4Available || ipv6Available)
+				M_Menu_LanConfig_f (); // woods #skipipx
+			break;
+
+		case 1:
+			if (ipxAvailable || ipv4Available || ipv6Available)
+				M_Menu_LanConfig_f (); // woods #skipipx
+			break;
+
+		case 2:
+			M_Menu_Setup_f ();
+			break;
+
+		default:
+			// Handle pinned bookmarks
+			if (m_multiplayer_cursor >= MULTIPLAYER_BASE_ITEMS)
+			{
+				int index = m_multiplayer_cursor - MULTIPLAYER_BASE_ITEMS;
+				pinnedbookmark_t pinned[MAX_PINNED_BOOKMARKS];
+				int count = M_Bookmarks_GetPinned(pinned, MAX_PINNED_BOOKMARKS);
+				if (index < count)
+				{
+						m_return_state = m_state;
+						m_return_onerror = true;
+						key_dest = key_game;
+						m_state = m_none;
+						IN_UpdateGrabs();
+						CL_MarkNextConnectFromMenu();
+						Cbuf_AddText(va("connect \"%s\"\n", pinned[index].name));
+					}
+				}
+				break;
+		}
+	}
+}
+
+void M_MultiPlayer_Mousemove(int cx, int cy) // woods #mousemenu
+{
+	pinnedbookmark_t pinned[MAX_PINNED_BOOKMARKS];
+	int pinned_count = M_Bookmarks_GetPinned(pinned, MAX_PINNED_BOOKMARKS);
+	int first_pinned_y = M_MultiPlayer_FirstPinnedY();
+
+	(void)cx;
+
+	if (pinned_count > 0 && cy >= first_pinned_y)
+	{
+		M_UpdateCursor(cy, first_pinned_y, MULTIPLAYER_PINNED_SPACING, pinned_count, &m_multiplayer_cursor);
+		m_multiplayer_cursor += MULTIPLAYER_BASE_ITEMS;
+		return;
+	}
+
+	M_UpdateCursor(cy, 32, 20, MULTIPLAYER_BASE_ITEMS, &m_multiplayer_cursor);
+}
+
+/*
+==================
+Setup Menu
+==================
+*/
+
+static qboolean M_Menu_TabCompleteNameHistory(menu_textfield_t *field,
+	char *buffer, size_t buffer_size,
+	char *tab_partial, size_t tab_partial_size); // woods #namehistory
+
+static int		setup_cursor = 6; // woods 4 to 5 #
+
+static int		setup_cursor_table[] = {40, 56, 72, 88, 104, 128, 158}; // woods add value, change position #namemaker #colorbar
+
+static void (*colorpicker_return_fn)(void);
+
+char	namemaker_name[16]; // woods #namemaker
+qboolean namemaker_shortcut = false; // woods #namemaker
+qboolean from_namemaker = false; // woods #namemaker
+
+static menu_textfield_t namemaker_name_field;
+static qboolean namemaker_edit_active = false;
+static char	namemaker_name_tabpartial[16]; // woods #namehistory
+static char	namemaker_name_hint[16]; // woods #namehistory
+static char	setup_hostname[16];
+static char	setup_myname[16];
+static menu_textfield_t setup_hostname_field;
+static menu_textfield_t setup_myname_field;
+static char	setup_myname_tabpartial[16]; // woods #namehistory
+static char	setup_myname_hint[16]; // woods #namehistory
+static plcolour_t	setup_oldtop;
+static plcolour_t	setup_oldbottom;
+static plcolour_t	setup_top;
+static plcolour_t	setup_bottom;
+extern qboolean	keydown[];
+
+
+//http://axonflux.com/handy-rgb-to-hsl-and-rgb-to-hsv-color-model-c
+static void rgbtohsv(byte *rgb, vec3_t result)
+{	//helper for the setup menu
+	int r = rgb[0], g = rgb[1], b = rgb[2];
+	float maxc = q_max(r, q_max(g, b)), minc = q_min(r, q_min(g, b));
+    float h, s, l = (maxc + minc) / 2;
+
+	float d = maxc - minc;
+	if (maxc)
+		s = d / maxc;
+	else
+		s = 0;
+
+	if(maxc == minc)
+	{
+		h = 0; // achromatic
+	}
+	else
+	{
+		if (maxc == r)
+			h = (g - b) / d + ((g < b) ? 6 : 0);
+		else if (maxc == g)
+			h = (b - r) / d + 2;
+		else
+			h = (r - g) / d + 4;
+		h /= 6;
+    }
+
+	result[0] = h;
+	result[1] = s;
+	result[2] = l;
+};
+//http://axonflux.com/handy-rgb-to-hsl-and-rgb-to-hsv-color-model-c
+static void hsvtorgb(float inh, float s, float v, byte *out)
+{	//helper for the setup menu
+	int r, g, b;
+	float h = inh - (int)floor(inh);
+	int i = h * 6;
+	float f = h * 6 - i;
+	float p = v * (1 - s);
+	float q = v * (1 - f * s);
+	float t = v * (1 - (1 - f) * s);
+	switch(i)
+	{
+	default:
+	case 0: r = v*0xff, g = t*0xff, b = p*0xff; break;
+	case 1: r = q*0xff, g = v*0xff, b = p*0xff; break;
+	case 2: r = p*0xff, g = v*0xff, b = t*0xff; break;
+	case 3: r = p*0xff, g = q*0xff, b = v*0xff; break;
+	case 4: r = t*0xff, g = p*0xff, b = v*0xff; break;
+	case 5: r = v*0xff, g = p*0xff, b = q*0xff; break;
+	}
+
+	out[0] = r;
+	out[1] = g;
+	out[2] = b;
+};
+
+qboolean rgbactive; // woods
+qboolean colordelta; // woods
+
+void M_AdjustColour(plcolour_t *tr, int dir)
+{
+	if (keydown[K_SHIFT])
+	{
+		rgbactive = true; // woods
+		vec3_t hsv;
+		rgbtohsv(CL_PLColours_ToRGB(tr), hsv);
+
+		hsv[0] += dir/128.0;
+		hsv[1] = 1;
+		hsv[2] = 1;	//make these consistent and not inherited from any legacy colours. we're persisting in rgb with small hue changes so we can't actually handle greys, so whack the saturation and brightness right up.
+		tr->type = 2;	//rgb...
+		tr->basic = 0;	//no longer relevant.
+		hsvtorgb(hsv[0], hsv[1], hsv[2], tr->rgb);
+	}
+	else
+	{
+		tr->type = 1;
+		if (tr->basic+dir < 0)
+			tr->basic = 13;
+		else if (tr->basic+dir > 13)
+			tr->basic = 0;
+		else
+			tr->basic += dir;
+	}
+}
+
+static menu_textfield_t *M_Setup_GetFieldForCursor(void)
+{
+	if (setup_cursor == 0)
+		return &setup_hostname_field;
+	if (setup_cursor == 1)
+		return &setup_myname_field;
+	return NULL;
+}
+
+static void M_Setup_ClearTextSelections(void)
+{
+	M_TextField_ClearSelection(&setup_hostname_field);
+	M_TextField_ClearSelection(&setup_myname_field);
+}
+
+static void M_Menu_UpdateNameHistoryHint(const char *name, char *hint, size_t hint_size) // woods #namehistory
+{
+	extern char unfun[129];
+	filelist_item_t *item;
+	int len = (int)strlen(name);
+	char unfun_prefix[MAXCMDLINE];
+	char unfun_name[32];
+	int i;
+
+	if (!hint_size)
+		return;
+
+	hint[0] = '\0';
+
+	if (len <= 0)
+		return;
+
+	for (i = 0; i < len && i < (int)sizeof(unfun_prefix) - 1; i++)
+		unfun_prefix[i] = unfun[name[i] & 127];
+	unfun_prefix[i] = '\0';
+
+	for (item = namehistorylist; item; item = item->next)
+	{
+		for (i = 0; item->name[i] && i < (int)sizeof(unfun_name) - 1; i++)
+			unfun_name[i] = unfun[item->name[i] & 127];
+		unfun_name[i] = '\0';
+
+		if (!q_strncasecmp(unfun_name, unfun_prefix, len))
+		{
+			q_strlcpy(hint, item->name + len, hint_size);
+			return;
+		}
+	}
+}
+
+static void M_Setup_UpdateNameHint(void) // woods #namehistory
+{
+	M_Menu_UpdateNameHistoryHint(setup_myname, setup_myname_hint, sizeof(setup_myname_hint));
+}
+
+#define	NUM_SETUP_CMDS	7 // woods 5 to 6 #namemaker
+void M_Menu_Setup_f (void)
+{
+	key_dest = key_menu;
+	m_state = m_setup;
+	m_entersound = true;
+	if (from_namemaker) // woods #namemaker
+		from_namemaker = !from_namemaker;
+	else
+		Q_strcpy(setup_myname, cl_name.string);
+	Q_strcpy(setup_hostname, hostname.string);
+	setup_top = setup_oldtop = CL_PLColours_Parse(cl_topcolor.string);
+	setup_bottom = setup_oldbottom = CL_PLColours_Parse(cl_bottomcolor.string);
+	M_TextField_Init(&setup_hostname_field, setup_hostname, 15, false);
+	M_TextField_Init(&setup_myname_field, setup_myname, 15, false);
+	setup_myname_tabpartial[0] = '\0'; // woods #namehistory
+	M_Setup_UpdateNameHint(); // woods #namehistory
+
+	IN_UpdateGrabs();
+}
+
+qboolean chasewasnotactive; // woods #3rdperson
+qboolean flyme; // woods #3rdperson
+
+void M_DrawColorBar_Top (int x, int y, int highlight) // woods #colorbar -- mh
+{
+	int i;
+	int intense = highlight * 16 + (highlight < 8 ? 11 : 4);
+
+	if (setup_top.type == 2)
+	{
+		Draw_FillPlayer (x, y + 4, 8, 8, setup_top, 1);
+	}
+	else
+	{
+		// position correctly
+		x = 64;
+
+		for (i = 0; i < 14; i++)
+		{
+			// take the approximate midpoint colour (handle backward ranges)
+			int c = i * 16 + (i < 8 ? 8 : 7);
+
+			// braw baseline colour (offset downwards a little so that it fits correctly
+			Draw_Fill(x + i * 8, y + 4, 8, 8, c, 1);
+		}
+
+		// draw the highlight rectangle
+		Draw_Fill(x - 1 + highlight * 8, y + 3, 10, 10, 15, 1);
+
+		// redraw the highlighted color at brighter intensity
+		Draw_Fill(x + highlight * 8, y + 4, 8, 8, intense, 1);
+	}
+}
+
+void M_DrawColorBar_Bot (int x, int y, int highlight) // woods #colorbar -- mh
+{
+	int i;
+	int intense = highlight * 16 + (highlight < 8 ? 11 : 4);
+
+	if (setup_bottom.type == 2)
+	{
+		Draw_FillPlayer (x, y + 4, 8, 8, setup_bottom, 1);
+	}
+	else
+	{
+		// position correctly
+		x = 64;
+
+		for (i = 0; i < 14; i++)
+		{
+			// take the approximate midpoint colour (handle backward ranges)
+			int c = i * 16 + (i < 8 ? 8 : 7);
+
+			// braw baseline colour (offset downwards a little so that it fits correctly
+			Draw_Fill(x + i * 8, y + 4, 8, 8, c, 1);
+		}
+
+		// draw the highlight rectangle
+		Draw_Fill(x - 1 + highlight * 8, y + 3, 10, 10, 15, 1);
+
+		// redraw the highlighted color at brighter intensity
+		Draw_Fill(x + highlight * 8, y + 4, 8, 8, intense, 1);
+	}
+}
+
+void M_Setup_Draw (void)
+{
+	qpic_t	*p;
+
+	M_TextField_CheckMouseRelease();
+
+	if (cls.state == ca_connected)
+	{
+		char buf[15];
+		char buf2[15];
+		const char* obs;
+		const char* star_obs;
+		const char *userinfo = CL_GetSafeRealViewEntityUserinfo();
+		obs = Info_GetKey(userinfo, "observer", buf, sizeof(buf));
+		star_obs = Info_GetKey(userinfo, "*observer", buf2, sizeof(buf2));
+
+		if (!strcmp(obs, "fly") || !strcmp(star_obs, "fly")) // woods #3rdperson
+			flyme = true;
+		else
+			flyme = false;
+	}
+
+	if (!chase_active.value && !cls.demoplayback&& host_initialized && !flyme && cls.state == ca_connected && cl.modtype != 6) // woods #3rdperson
+	{
+		chasewasnotactive = true;
+		Cbuf_AddText("chase_active 1\n");
+	}
+
+	M_DrawTransPic (16, 4, Draw_CachePic ("gfx/qplaque.lmp") );
+	p = Draw_CachePic ("gfx/p_multi.lmp");
+	M_DrawPic ( (320-p->width)/2, 4, p);
+
+	M_Print (64, 40, "Hostname");
+	M_DrawTextBox (160, 32, 16, 1);
+	M_TextField_DrawHighlight(&setup_hostname_field, 168, 40);
+	M_Print (168, 40, setup_hostname);
+
+	M_Print (64, 56, "Your name");
+	M_DrawTextBox (160, 48, 16, 1);
+	M_TextField_DrawHighlight(&setup_myname_field, 168, 56);
+	M_PrintWhite (168, 56, setup_myname); // woods change to white #namemaker
+	if (setup_cursor == 1 && // woods #namehistory
+		setup_myname_hint[0] &&
+		setup_myname_field.cursor == (int)strlen(setup_myname))
+	{
+		int hint_x = 168 + (int)strlen(setup_myname) * 8;
+		M_PrintRGBA(hint_x, 56, setup_myname_hint, CL_PLColours_Parse("0xffffff"), 0.5f, false);
+	}
+
+	M_Print(64, 72, "Name Maker"); // woods #namemaker
+
+	M_Print(64, 88, "Color Picker");
+
+	M_Print (64, 104, "Shirt -"); // woods 80 to 104 #namemaker #showcolornum
+	M_PrintWhite (126, 104, CL_PLColours_ToString (setup_top)); // woods #showcolornum
+	M_DrawColorBar_Top (64, 110, atoi(CL_PLColours_ToString (setup_top))); // woods #colorbar
+	M_Print (64, 128, "Pants -"); // woods 104 to 128 #namemaker #showcolornum
+	M_PrintWhite (126, 128, CL_PLColours_ToString (setup_bottom)); // woods #showcolornum
+	M_DrawColorBar_Bot (64, 134, atoi(CL_PLColours_ToString (setup_bottom))); // woods #colorbar
+
+	if (!rgbactive && (setup_cursor == 4 || setup_cursor == 5)) // woods
+		M_PrintRGBA (64, 178, "+shift for RGB colors", CL_PLColours_Parse ("0xffffff"), 0.6f, false); // woods
+
+	M_DrawTextBox (64, 150, 14, 1);  // woods 140 to 152 #namemaker
+	M_Print (72, 158, "Accept Changes"); // woods #colorbar
+
+	p = Draw_CachePic ("gfx/bigbox.lmp");
+	M_DrawTransPic (196, 77, p); // woods #colorbar
+
+	// woods #spinnymodel
+
+	qpic_t* menup = Draw_CachePic("gfx/menuplyr.lmp");
+
+	// Normalize setup colors to a canonical form
+	setup_top = CL_PLColours_Parse(CL_PLColours_ToString(setup_top));
+	setup_bottom = CL_PLColours_Parse(CL_PLColours_ToString(setup_bottom));
+
+	// If RGB colours are used, provide true RGB to preview; else use legacy indices
+	if (setup_top.type == 2 || setup_bottom.type == 2)
+	{
+		PR_SetMenuPreviewRGBColors(
+			setup_top.rgb[0], setup_top.rgb[1], setup_top.rgb[2],
+			setup_bottom.rgb[0], setup_bottom.rgb[1], setup_bottom.rgb[2]);
+	}
+	else
+	{
+		int top_legacy = setup_top.basic;
+		int bot_legacy = setup_bottom.basic;
+		PR_SetMenuPreviewLegacyColors(top_legacy, bot_legacy);
+	}
+
+	// Draw spinning player model aligned to CANVAS_MENU pixels
+	int boxw = menup ? menup->width : 96;
+	int boxh = menup ? menup->height : 96;
+	vrect_t bounds, vp;
+	Draw_GetMenuTransform(&bounds, &vp);
+	// Convert menu virtual coords (640x200) to absolute pixels via viewport
+	float s = (float)vp.width / (float)bounds.width;
+	float px = vp.x + 208 * s;
+	float py = vp.y + 80 * s;
+	float pw = boxw * s;
+	float ph = boxh * s;
+	DrawSpinningModelToMenuPixels("progs/player.mdl",
+		px, py, pw, ph,
+		25.0f,
+		0.0f,
+		0, 0, 0, 0);
+
+	// Restore menu 2D canvas to keep coordinates/cursor aligned
+	GL_SetCanvas(CANVAS_MENU);
+	glDisable(GL_BLEND);
+	glEnable(GL_ALPHA_TEST);
+	glTexEnvf(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_REPLACE);
+
+	// Clear the overrides so other draws are unaffected
+	PR_SetMenuPreviewLegacyColors(-1, -1);
+	PR_SetMenuPreviewRGBColors(-1, -1, -1, -1, -1, -1);
+
+	M_DrawCharacter (56, setup_cursor_table [setup_cursor], 12+((int)(realtime*4)&1));
+
+	if (setup_cursor == 0)
+		M_TextField_DrawCursor(&setup_hostname_field, 168, setup_cursor_table[setup_cursor]);
+
+	if (setup_cursor == 1)
+		M_TextField_DrawCursor(&setup_myname_field, 168, setup_cursor_table[setup_cursor]);
+}
+
+char lastColorSelected[10]; // woods
+
+void M_Setup_Key (int k)
+{
+	menu_textfield_t *active_field = M_Setup_GetFieldForCursor();
+	if (active_field && M_TextField_Key(active_field, k))
+	{
+		if (active_field == &setup_myname_field)
+		{
+			setup_myname_tabpartial[0] = '\0'; // woods #namehistory
+			M_Setup_UpdateNameHint();
+		}
+		return;
+	}
+
+	if (k == K_TAB && setup_cursor == 1) // woods #namehistory
+	{
+		if (M_Menu_TabCompleteNameHistory(&setup_myname_field, setup_myname,
+			sizeof(setup_myname), setup_myname_tabpartial, sizeof(setup_myname_tabpartial)))
+			S_LocalSound("misc/menu2.wav");
+		M_Setup_UpdateNameHint();
+		return;
+	}
+
+	switch (k)
+	{
+	case K_ESCAPE:
+	case K_BBUTTON:
+	case K_MOUSE4: // woods #mousemenu
+	case K_MOUSE2: // woods #mousemenu
+		if (chasewasnotactive && !cls.demoplayback && host_initialized && !flyme) // woods #3rdperson
+		{
+			chasewasnotactive = false;
+			Cbuf_AddText("chase_active 0\n");
+		}
+		if (colordelta)
+		{
+			colordelta = false;
+			Cbuf_AddText(va("color %s %s\n", CL_PLColours_ToString(setup_oldtop), CL_PLColours_ToString(setup_oldbottom)));
+		}
+		M_Menu_MultiPlayer_f ();
+		break;
+
+	case K_UPARROW:
+		S_LocalSound ("misc/menu1.wav");
+		M_Setup_ClearTextSelections();
+		setup_myname_tabpartial[0] = '\0'; // woods #namehistory
+		setup_cursor--;
+		if (setup_cursor < 0)
+			setup_cursor = NUM_SETUP_CMDS-1;
+		break;
+
+	case K_DOWNARROW:
+		S_LocalSound ("misc/menu1.wav");
+		M_Setup_ClearTextSelections();
+		setup_myname_tabpartial[0] = '\0'; // woods #namehistory
+		setup_cursor++;
+		if (setup_cursor >= NUM_SETUP_CMDS)
+			setup_cursor = 0;
+		break;
+
+	case K_MWHEELDOWN:
+	case K_LEFTARROW:
+		if (setup_cursor < 2)
+			return;
+		S_LocalSound ("misc/menu3.wav");
+		if (setup_cursor == 4) // 2 to 3 woods #namemaker
+		{
+			M_AdjustColour(&setup_top, -1);
+			q_strlcpy (lastColorSelected, CL_PLColours_ToString(setup_top), sizeof(lastColorSelected));
+			if (chase_active.value && !cls.demoplayback && host_initialized && !flyme) // woods #3rdperson
+				if (!CL_PLColours_Equals(setup_top, setup_oldtop) || !CL_PLColours_Equals(setup_bottom, setup_oldbottom))
+				{
+					Cbuf_AddText(va("color %s %s\n", CL_PLColours_ToString(setup_top), CL_PLColours_ToString(setup_bottom)));
+					colordelta = true;
+				}
+		}
+		if (setup_cursor == 5) // 3 to 4 woods #namemaker
+		{
+			M_AdjustColour(&setup_bottom, -1);
+			q_strlcpy (lastColorSelected, CL_PLColours_ToString(setup_bottom), sizeof(lastColorSelected));
+			if (chase_active.value && !cls.demoplayback && host_initialized && !flyme) // woods #3rdperson
+				if (!CL_PLColours_Equals(setup_top, setup_oldtop) || !CL_PLColours_Equals(setup_bottom, setup_oldbottom))
+				{
+					Cbuf_AddText(va("color %s %s\n", CL_PLColours_ToString(setup_top), CL_PLColours_ToString(setup_bottom)));
+					colordelta = true;
+				}
+		}
+		break;
+	case K_MWHEELUP:
+	case K_RIGHTARROW:
+		if (setup_cursor < 2)
+			return;
+forward:
+		S_LocalSound ("misc/menu3.wav");
+		if (setup_cursor == 4) // 2 to 3 woods #namemaker
+		{
+			M_AdjustColour(&setup_top, +1);
+			q_strlcpy (lastColorSelected, CL_PLColours_ToString(setup_top), sizeof(lastColorSelected));
+			if (chase_active.value && !cls.demoplayback && host_initialized && !flyme) // woods #3rdperson
+				if (!CL_PLColours_Equals(setup_top, setup_oldtop) || !CL_PLColours_Equals(setup_bottom, setup_oldbottom))
+				{
+					Cbuf_AddText(va("color %s %s\n", CL_PLColours_ToString(setup_top), CL_PLColours_ToString(setup_bottom)));
+					colordelta = true;
+				}
+		}
+		if (setup_cursor == 5) // 3 to 4 woods #namemaker
+		{
+			M_AdjustColour(&setup_bottom, +1);
+			q_strlcpy (lastColorSelected, CL_PLColours_ToString(setup_bottom), sizeof(lastColorSelected));
+			if (chase_active.value && !cls.demoplayback && host_initialized && !flyme) // woods #3rdperson
+				if (!CL_PLColours_Equals(setup_top, setup_oldtop) || !CL_PLColours_Equals(setup_bottom, setup_oldbottom))
+				{
+					Cbuf_AddText(va("color %s %s\n", CL_PLColours_ToString(setup_top), CL_PLColours_ToString(setup_bottom)));
+					colordelta = true;
+				}
+		}
+		break;
+
+	case K_ENTER:
+	case K_KP_ENTER:
+	case K_ABUTTON:
+	case K_MOUSE1: // woods #mousemenu
+		if (k == K_MOUSE1 && setup_cursor == 0)
+		{
+			if (M_TextField_MouseInRow(m_mousey, setup_cursor_table[0]))
+				M_TextField_MouseClick(&setup_hostname_field, m_mousex, 168);
+			return;
+		}
+
+		if (k == K_MOUSE1 && setup_cursor == 1)
+		{
+			if (M_TextField_MouseInRow(m_mousey, setup_cursor_table[1]))
+			{
+				setup_myname_tabpartial[0] = '\0'; // woods #namehistory
+				M_TextField_MouseClick(&setup_myname_field, m_mousex, 168);
+			}
+			return;
+		}
+
+		if (setup_cursor == 0 || setup_cursor == 1)
+			return;
+
+		if (setup_cursor == 4 || setup_cursor == 5) // inc 1 both woods #namemaker
+		{
+			// Handle direct click on color bar boxes
+			// Color bar is drawn at y+4 offset: shirt at 114, pants at 138 (8 pixels tall each)
+			// Color bar starts at x=64, each box is 8 pixels wide, 14 colors (0-13)
+			if (k == K_MOUSE1)
+			{
+				int colorbar_x = 70; // Adjusted for visual offset (boxes appear ~6px right of mouse coords)
+				int colorbar_y = (setup_cursor == 4) ? 110 : 134; // Menu item Y position
+				
+				// Check if click is within the color bar area
+				if (m_mousex >= colorbar_x && m_mousex < colorbar_x + 14 * 8 &&
+					m_mousey >= colorbar_y && m_mousey < colorbar_y + 20)
+				{
+					int clicked_color = (m_mousex - colorbar_x) / 8;
+					if (clicked_color >= 0 && clicked_color <= 13)
+					{
+						plcolour_t *target = (setup_cursor == 4) ? &setup_top : &setup_bottom;
+						target->type = 1;
+						target->basic = clicked_color;
+						S_LocalSound("misc/menu3.wav");
+						q_strlcpy(lastColorSelected, CL_PLColours_ToString(*target), sizeof(lastColorSelected));
+						if (chase_active.value && !cls.demoplayback && host_initialized && !flyme)
+						{
+							if (!CL_PLColours_Equals(setup_top, setup_oldtop) || !CL_PLColours_Equals(setup_bottom, setup_oldbottom))
+							{
+								Cbuf_AddText(va("color %s %s\n", CL_PLColours_ToString(setup_top), CL_PLColours_ToString(setup_bottom)));
+								colordelta = true;
+							}
+						}
+						return;
+					}
+				}
+			}
+			// If click was outside color bar, fall through to cycle behavior
+			goto forward;
+		}
+
+
+
+		if (setup_cursor == 3)
+		{
+			m_entersound = true;
+			colorpicker_return_fn = M_Menu_Setup_f;
+			M_Menu_ColorPicker_f();
+			break;
+		}
+
+		if (setup_cursor == 2) // woods #namemaker
+		{
+			m_entersound = true;
+			M_Menu_NameMaker_f();
+			break;
+		}
+
+		// setup_cursor == 6 (OK)
+		if (Q_strcmp(cl_name.string, setup_myname) != 0)
+			Cbuf_AddText ( va ("name \"%s\"\n", setup_myname) );
+		if (Q_strcmp(hostname.string, setup_hostname) != 0)
+			Cvar_Set("hostname", setup_hostname);
+		if (!CL_PLColours_Equals(setup_top, setup_oldtop) || !CL_PLColours_Equals(setup_bottom, setup_oldbottom))
+			Cbuf_AddText( va ("color %s %s\n", CL_PLColours_ToString(setup_top), CL_PLColours_ToString(setup_bottom)) );
+		m_entersound = true;
+
+		if (chasewasnotactive && !cls.demoplayback && host_initialized && !flyme) // woods #3rdperson
+		{
+			chasewasnotactive = false;
+			Cbuf_AddText("chase_active 0\n");
+		}
+
+			M_Menu_MultiPlayer_f ();
+			break;
+
+	case 'c': // woods, copy color
+	case 'C':
+		if (M_TextField_HasShortcutModifier())
+		{
+			if (lastColorSelected[0] != '\0')
+				SDL_SetClipboardText (lastColorSelected);
+			else
+				SDL_SetClipboardText (CL_PLColours_ToString (setup_bottom));
+			M_TextField_PlayCopySound();
+		}
+		break;
+	}
+}
+
+
+void M_Setup_Char (int k)
+{
+	menu_textfield_t *active_field = M_Setup_GetFieldForCursor();
+	if (active_field)
+	{
+		if (M_TextField_Char(active_field, k) && active_field == &setup_myname_field)
+		{
+			setup_myname_tabpartial[0] = '\0'; // woods #namehistory
+			M_Setup_UpdateNameHint();
+		}
+	}
+}
+
+
+qboolean M_Setup_TextEntry (void)
+{
+	return (setup_cursor == 0 || setup_cursor == 1);
+}
+
+void M_Setup_Mousemove(int cx, int cy) // woods #mousemenu
+{
+	int old_cursor;
+
+	if (textfield_mouse_dragging &&
+		(textfield_drag_field == &setup_hostname_field || textfield_drag_field == &setup_myname_field))
+	{
+		M_TextField_MouseDrag(cx);
+		return;
+	}
+
+	old_cursor = setup_cursor;
+	M_UpdateCursorWithTable(cy, setup_cursor_table, NUM_SETUP_CMDS, &setup_cursor);
+	if (setup_cursor != old_cursor)
+	{
+		M_Setup_ClearTextSelections();
+		setup_myname_tabpartial[0] = '\0'; // woods #namehistory
+	}
+}
+
+/*
+=============================================================
+Name Maker Menu #namemaker from joequake, qrack
+=============================================================
+*/
+
+int	namemaker_cursor_x, namemaker_cursor_y;
+#define	NAMEMAKER_TABLE_SIZE	16
+#define NAMEMAKER_TOTAL_ROWS (NAMEMAKER_TABLE_SIZE + 1) // Added to include the new row
+
+//extern int key_special_dest;
+
+static void M_NameMaker_UpdateNameHint(void) // woods #namehistory
+{
+	M_Menu_UpdateNameHistoryHint(namemaker_name, namemaker_name_hint, sizeof(namemaker_name_hint));
+}
+
+static void M_NameMaker_NameChanged(void) // woods #namehistory
+{
+	namemaker_name_tabpartial[0] = '\0';
+	M_NameMaker_UpdateNameHint();
+}
+
+static qboolean M_NameMaker_TextFieldKey(int k)
+{
+	if (M_TextField_Key(&namemaker_name_field, k))
+	{
+		M_NameMaker_NameChanged();
+		return true;
+	}
+
+	if (M_TextField_HasShortcutModifier())
+	{
+		switch (k)
+		{
+		case 'a':
+		case 'A':
+		case 'c':
+		case 'C':
+		case 'x':
+		case 'X':
+		case 'v':
+		case 'V':
+		case 'u':
+		case 'U':
+			return true;
+		}
+	}
+
+	return (k == K_BACKSPACE || k == K_DEL);
+}
+
+void M_Menu_NameMaker_f (void)
+{
+	key_dest = key_menu;
+	//key_special_dest = 1;
+	m_state = m_namemaker;
+	m_entersound = true;
+	q_strlcpy(namemaker_name, setup_myname, sizeof(namemaker_name));
+	M_TextField_Init(&namemaker_name_field, namemaker_name, 15, false);
+	namemaker_name_tabpartial[0] = '\0'; // woods #namehistory
+	M_NameMaker_UpdateNameHint(); // woods #namehistory
+	namemaker_edit_active = true;
+}
+
+void M_Shortcut_NameMaker_f (void)
+{
+	// Baker: our little shortcut into the name maker
+	namemaker_shortcut = true;
+	q_strlcpy(setup_myname, cl_name.string, sizeof(setup_myname));//R00k
+	namemaker_cursor_x = 0;
+	namemaker_cursor_y = 0;
+	M_Menu_NameMaker_f();
+}
+
+void M_NameMaker_Draw (void)
+{
+	int	x, y;
+
+	M_TextField_CheckMouseRelease();
+
+	M_Print(48, 16, "Your name");
+	M_DrawTextBox(120, 8, 16, 1);
+	M_TextField_DrawHighlight(&namemaker_name_field, 128, 16);
+	M_PrintWhite(128, 16, namemaker_name);
+	if (namemaker_edit_active && // woods #namehistory
+		namemaker_name_hint[0] &&
+		namemaker_name_field.cursor == (int)strlen(namemaker_name))
+	{
+		int hint_x = 128 + (int)strlen(namemaker_name) * 8;
+		M_PrintRGBA(hint_x, 16, namemaker_name_hint, CL_PLColours_Parse("0xffffff"), 0.5f, false);
+	}
+	if (namemaker_edit_active)
+		M_TextField_DrawCursor(&namemaker_name_field, 128, 16);
+
+	for (y = 0; y < NAMEMAKER_TABLE_SIZE; y++)
+		for (x = 0; x < NAMEMAKER_TABLE_SIZE; x++)
+			M_DrawCharacter(32 + (16 * x), 40 + (8 * y), NAMEMAKER_TABLE_SIZE * y + x);
+
+	M_PrintWhite(32, 48 + 8 * NAMEMAKER_TABLE_SIZE, "Web Name Maker");
+
+	if (namemaker_cursor_y == NAMEMAKER_TABLE_SIZE)
+		M_DrawCharacter(24, 48 + 8 * NAMEMAKER_TABLE_SIZE, 12 + ((int)(realtime * 4) & 1));
+	else // Cursor within the character table
+		M_DrawCharacter(24 + 16 * namemaker_cursor_x, 40 + 8 * namemaker_cursor_y, 12 + ((int)(realtime * 4) & 1));
+
+	//	M_DrawTextBox (136, 176, 2, 1);
+	//M_Print(56, 184, "press");
+	//M_PrintWhite(103, 184, "ESC");
+	//M_Print(133, 184, "to save changes");
+}
+
+void M_NameMaker_Key (int k)
+{
+	int	l;
+
+	if (k == K_TAB) // woods #namehistory
+	{
+		if (M_Menu_TabCompleteNameHistory(&namemaker_name_field, namemaker_name,
+			sizeof(namemaker_name), namemaker_name_tabpartial, sizeof(namemaker_name_tabpartial)))
+			S_LocalSound("misc/menu2.wav");
+		M_NameMaker_UpdateNameHint();
+		namemaker_edit_active = true;
+		return;
+	}
+
+	if (namemaker_edit_active && M_NameMaker_TextFieldKey(k))
+		return;
+
+	if (namemaker_edit_active && k >= 32 && k <= 127)
+	{
+		if (M_TextField_HasShortcutModifier())
+			return;
+
+		Key_Extra(&k);
+		if (M_TextField_Char(&namemaker_name_field, k))
+			M_NameMaker_NameChanged();
+		return;
+	}
+
+	switch (k)
+	{
+	case K_ESCAPE:
+	case K_BBUTTON:
+	case K_MOUSE4: // woods #mousemenu
+	case K_MOUSE2:
+		//key_special_dest = false;
+
+		if (namemaker_shortcut)
+		{// Allow quick exit for namemaker command
+			key_dest = key_game;
+			m_state = m_none;
+
+			//Save the name
+			if (strcmp(namemaker_name, cl_name.string))
+			{
+				Cbuf_AddText(va("name \"%s\"\n", namemaker_name));
+				Con_Printf("name changed to %s\n", namemaker_name);
+			}
+			namemaker_shortcut = false;
+			from_namemaker = false;
+		}
+		else
+		{
+			from_namemaker = true;
+			q_strlcpy(setup_myname, namemaker_name, sizeof(setup_myname));//R00k
+			M_Menu_Setup_f();
+		}
+
+		break;
+
+	case K_UPARROW:
+	case K_KP_UPARROW:
+		S_LocalSound("misc/menu1.wav");
+		namemaker_edit_active = false;
+		namemaker_cursor_y--;
+		if (namemaker_cursor_y < 0)
+			namemaker_cursor_y = NAMEMAKER_TOTAL_ROWS - 1;
+		break;
+
+	case K_DOWNARROW:
+	case K_KP_DOWNARROW:
+		S_LocalSound("misc/menu1.wav");
+		namemaker_edit_active = false;
+		namemaker_cursor_y++;
+		if (namemaker_cursor_y >= NAMEMAKER_TOTAL_ROWS)
+			namemaker_cursor_y = 0;
+		break;
+
+	case K_PGUP:
+		S_LocalSound("misc/menu1.wav");
+		namemaker_edit_active = false;
+		namemaker_cursor_y = 0;
+		break;
+
+	case K_PGDN:
+		S_LocalSound("misc/menu1.wav");
+		namemaker_edit_active = false;
+		namemaker_cursor_y = NAMEMAKER_TABLE_SIZE - 1;
+		break;
+
+	case K_LEFTARROW:
+	case K_KP_LEFTARROW:
+		if (namemaker_cursor_y < NAMEMAKER_TABLE_SIZE) // Only move left if within table
+		{
+			S_LocalSound("misc/menu1.wav");
+			namemaker_cursor_x--;
+			if (namemaker_cursor_x < 0)
+				namemaker_cursor_x = NAMEMAKER_TABLE_SIZE - 1;
+		}
+		break;
+
+	case K_RIGHTARROW:
+	case K_KP_RIGHTARROW:
+		if (namemaker_cursor_y < NAMEMAKER_TABLE_SIZE) // Only move right if within table
+		{
+			S_LocalSound("misc/menu1.wav");
+			namemaker_cursor_x++;
+			if (namemaker_cursor_x >= NAMEMAKER_TABLE_SIZE)
+				namemaker_cursor_x = 0;
+		}
+		break;
+
+	case K_HOME:
+		S_LocalSound("misc/menu1.wav");
+		namemaker_edit_active = false;
+		namemaker_cursor_x = 0;
+		break;
+
+	case K_END:
+		S_LocalSound("misc/menu1.wav");
+		namemaker_edit_active = false;
+		namemaker_cursor_x = NAMEMAKER_TABLE_SIZE - 1;
+		break;
+
+	case K_BACKSPACE:
+		if (keydown[K_CTRL])
+		{
+			listsearch_t temp;
+			temp.len = strlen(namemaker_name);
+			Q_strcpy(temp.text, namemaker_name);
+			M_DeletePrevWord(&temp);
+			Q_strcpy(namemaker_name, temp.text);
+		}
+		else if ((l = strlen(namemaker_name)))
+		{
+			namemaker_name[l - 1] = 0;
+		}
+		M_TextField_ClampCursor(&namemaker_name_field);
+		M_TextField_ClearSelection(&namemaker_name_field);
+		M_NameMaker_NameChanged(); // woods #namehistory
+		break;
+
+	case 'u':
+	case 'U':
+		if (keydown[K_CTRL])
+		{
+			namemaker_name[0] = 0;
+			M_TextField_ClampCursor(&namemaker_name_field);
+			M_TextField_ClearSelection(&namemaker_name_field);
+			M_NameMaker_NameChanged(); // woods #namehistory
+		}
+		break;
+
+	// If we reached this point, we are simulating ENTER
+
+	case K_SPACE:
+	case K_ENTER:
+	case K_KP_ENTER:
+	case K_ABUTTON:
+	case K_MOUSE1: // woods #mousemenu
+		if (k == K_MOUSE1 &&
+			m_mousex >= 120 && m_mousex <= 120 + 18 * 8 &&
+			M_TextField_MouseInRow(m_mousey, 16))
+		{
+			M_TextField_MouseClick(&namemaker_name_field, m_mousex, 128);
+			M_NameMaker_NameChanged(); // woods #namehistory
+			namemaker_edit_active = true;
+			return;
+		}
+
+		namemaker_edit_active = false;
+		if (namemaker_cursor_y < NAMEMAKER_TABLE_SIZE)
+		{
+			unsigned char grid_ch = (unsigned char)(NAMEMAKER_TABLE_SIZE * namemaker_cursor_y + namemaker_cursor_x);
+			M_TextField_ClampCursor(&namemaker_name_field);
+			if (namemaker_name_field.sel_start >= 0 && namemaker_name_field.sel_start != namemaker_name_field.cursor)
+				M_TextField_DeleteSelection(&namemaker_name_field);
+
+			l = strlen(namemaker_name);
+			if (l < 15)
+			{
+				memmove(namemaker_name + namemaker_name_field.cursor + 1,
+				        namemaker_name + namemaker_name_field.cursor,
+				        l - namemaker_name_field.cursor + 1);
+				namemaker_name[namemaker_name_field.cursor] = grid_ch;
+				namemaker_name_field.cursor++;
+				M_TextField_ClampCursor(&namemaker_name_field);
+				M_TextField_ClearSelection(&namemaker_name_field);
+				M_NameMaker_NameChanged(); // woods #namehistory
+			}
+		}
+		else if (namemaker_cursor_y == NAMEMAKER_TABLE_SIZE)
+		{
+			// Open the web name maker
+		SCR_ModalMessage("web name maker webpage has been opened\nin your ^mweb browser^m\n\nminimize QSS-M to view", 3.5f); // woods
+			SDL_OpenURL("https://q1tools.github.io/namemaker/");
+		}
+		break;
+
+	default:
+		if (k < 32 || k > 127)
+			break;
+
+		Key_Extra (&k);
+		if (M_TextField_Char(&namemaker_name_field, k))
+		{
+			M_NameMaker_NameChanged(); // woods #namehistory
+			namemaker_edit_active = true;
+		}
+		break;
+	}
+}
+
+qboolean M_NameMaker_TextEntry(void)
+{
+	return namemaker_edit_active;
+}
+
+void M_NameMaker_Mousemove(int cx, int cy) // woods #mousemenu
+{
+	int x_origin = 28;
+	int y_origin = 36;
+	int x_spacing = 16;
+	int y_spacing = 8;
+	int num_rows = NAMEMAKER_TOTAL_ROWS;
+	int max_columns;
+	int temp_cursor_x, temp_cursor_y;
+
+	if (textfield_mouse_dragging && textfield_drag_field == &namemaker_name_field)
+	{
+		M_TextField_MouseDrag(cx);
+		return;
+	}
+
+	temp_cursor_x = (cx - 8 - x_origin + x_spacing / 2) / x_spacing; // Calculate tentative cursor positions
+	temp_cursor_y = (cy - 8 - y_origin + y_spacing / 2) / y_spacing;
+
+	if (temp_cursor_y < 0) // Clamp cursor_y between 0 and num_rows - 1
+		temp_cursor_y = 0;
+	if (temp_cursor_y >= num_rows)
+		temp_cursor_y = num_rows - 1;
+
+	if (temp_cursor_y < NAMEMAKER_TABLE_SIZE) // Determine the number of columns in the current row
+		max_columns = NAMEMAKER_TABLE_SIZE; // Regular character table rows
+	else
+		max_columns = 1; // Last row with "Web Name Maker"
+
+	if (temp_cursor_x < 0) // Clamp cursor_x between 0 and max_columns - 1
+		temp_cursor_x = 0;
+	if (temp_cursor_x >= max_columns)
+		temp_cursor_x = max_columns - 1;
+
+	namemaker_cursor_x = temp_cursor_x; // Update cursor positions
+	namemaker_cursor_y = temp_cursor_y;
+}
+
+/*
+==================
+Net Menu
+==================
+*/
+
+int	m_net_cursor;
+int m_net_items;
+
+const char *net_helpMessage [] =
+{
+/* .........1.........2.... */
+  " Novell network LANs    ",
+  " or Windows 95 DOS-box. ",
+  "                        ",
+  "(LAN=Local Area Network)",
+
+  " Commonly used to play  ",
+  " over the Internet, but ",
+  " also used on a Local   ",
+  " Area Network.          "
+};
+
+void M_Menu_Net_f (void)
+{
+	key_dest = key_menu;
+	m_state = m_net;
+	m_entersound = true;
+	m_net_items = 2;
+
+	IN_UpdateGrabs();
+
+	if (m_net_cursor >= m_net_items)
+		m_net_cursor = 0;
+	m_net_cursor--;
+	M_Net_Key (K_DOWNARROW);
+}
+
+
+void M_Net_Draw (void)
+{
+	int		f;
+	qpic_t	*p;
+
+	M_DrawTransPic (16, 4, Draw_CachePic ("gfx/qplaque.lmp") );
+	p = Draw_CachePic ("gfx/p_multi.lmp");
+	M_DrawPic ( (320-p->width)/2, 4, p);
+
+	f = 32;
+
+	/*if (ipxAvailable)   // woods this is not needed
+		p = Draw_CachePic ("gfx/netmen3.lmp");
+	else
+		p = Draw_CachePic ("gfx/dim_ipx.lmp");
+	M_DrawTransPic (72, f, p);*/
+
+	f += 19;
+	if (ipv4Available || ipv6Available)
+		p = Draw_CachePic ("gfx/netmen4.lmp");
+	else
+		p = Draw_CachePic ("gfx/dim_tcp.lmp");
+	M_DrawTransPic (72, f, p);
+
+	f = (320-26*8)/2;
+	M_DrawTextBox (f, 96, 24, 4);
+	f += 8;
+	M_Print (f, 104, net_helpMessage[m_net_cursor*4+0]);
+	M_Print (f, 112, net_helpMessage[m_net_cursor*4+1]);
+	M_Print (f, 120, net_helpMessage[m_net_cursor*4+2]);
+	M_Print (f, 128, net_helpMessage[m_net_cursor*4+3]);
+
+	f = (int)(realtime * 10)%6;
+	M_DrawTransPic (54, 32 + m_net_cursor * 20,Draw_CachePic( va("gfx/menudot%i.lmp", f+1 ) ) );
+}
+
+
+void M_Net_Key (int k)
+{
+again:
+	switch (k)
+	{
+	case K_ESCAPE:
+	case K_BBUTTON:
+	case K_MOUSE4: // woods #mousemenu
+	case K_MOUSE2:
+		M_Menu_MultiPlayer_f ();
+		break;
+
+	case K_DOWNARROW:
+		S_LocalSound ("misc/menu1.wav");
+		if (++m_net_cursor >= m_net_items)
+			m_net_cursor = 0;
+		break;
+
+	case K_UPARROW:
+		S_LocalSound ("misc/menu1.wav");
+		if (--m_net_cursor < 0)
+			m_net_cursor = m_net_items - 1;
+		break;
+
+	case K_ENTER:
+	case K_KP_ENTER:
+	case K_ABUTTON:
+	case K_MOUSE1: // woods #mousemenu
+		m_entersound = true;
+		M_Menu_LanConfig_f ();
+		break;
+	}
+
+	if (m_net_cursor == 0 && !ipxAvailable)
+		goto again;
+	if (m_net_cursor == 1 && !(ipv4Available || ipv6Available))
+		goto again;
+}
+
+void M_Net_Mousemove(int cx, int cy) // woods #mousemenu
+{
+	M_UpdateCursor(cy, 32, 20, m_net_items, &m_net_cursor);
+	if (m_net_cursor == 0 && !ipxAvailable)
+		m_net_cursor = 1;
+	if (m_net_cursor == 1 && !(ipv4Available || ipv6Available))
+		m_net_cursor = 0;
+}
+
+/*
+==================
+Options Menu
+==================
+*/
+
+extern cvar_t scr_menuscale;
+
+enum
+{
+	OPT_CUSTOMIZE = 0,
+	OPT_MOUSE,
+	OPT_CONTROLLER,
+	OPT_WEAPONWHEEL,
+	OPT_VIDEO,
+	OPT_GRAPHICS,
+	OPT_SOUND,
+	OPT_GAME,
+	OPT_HUD,
+	OPT_CONSOLEM,    // Moved up, before OPT_EXTRAS
+	OPT_STARTUP,
+	OPT_DEMOOPTIONS,
+	OPT_EXTRAS,
+	OPT_SPACE,       // Spacer
+	OPT_MENUSCALE,
+	OPT_CONSOLE,
+	OPT_RESETCONFIG,
+	OPTIONS_ITEMS
+};
+
+#define	SLIDER_RANGE	6
+
+int		options_cursor;
+qboolean slider_grab; // woods #mousemenu
+static float pending_scale_value;
+
+#define OPTIONS_WHEEL_REPEAT_TIME 0.12
+
+struct // woods #mousemenu
+{
+	menulist_t		list;
+	int				y;
+	int				first_item;
+	int				options_cursor;
+	int				video_cursor;
+	int* last_cursor;
+	qboolean        scrollbar_grab;
+	double          wheel_time;
+	int             wheel_dir;
+} optionsmenu;
+
+static void M_Options_Init(void)
+{
+	optionsmenu.list.viewsize = OPTIONS_ITEMS;
+	optionsmenu.list.cursor = 0;
+	optionsmenu.list.scroll = 0;
+	optionsmenu.list.numitems = OPTIONS_ITEMS;
+	optionsmenu.scrollbar_grab = false;
+	optionsmenu.wheel_time = -OPTIONS_WHEEL_REPEAT_TIME;
+	optionsmenu.wheel_dir = 0;
+
+	// Initialize search
+	memset(&optionsmenu.list.search, 0, sizeof(optionsmenu.list.search));
+	optionsmenu.list.search.maxlen = 32;
+}
+
+static qboolean M_Options_AcceptWheelMove(int dir)
+{
+	if (optionsmenu.wheel_dir != dir ||
+		realtime - optionsmenu.wheel_time >= OPTIONS_WHEEL_REPEAT_TIME)
+	{
+		optionsmenu.wheel_dir = dir;
+		optionsmenu.wheel_time = realtime;
+		return true;
+	}
+
+	return false;
+}
+
+void M_Menu_Options_f (void)
+{
+	key_dest = key_menu;
+	m_state = m_options;
+	m_entersound = true;
+	slider_grab = false; // woods #mousemenu
+	M_Options_Init();
+
+	IN_UpdateGrabs();
+}
+
+
+void M_AdjustSliders (int dir)
+{
+	float	f;
+
+	switch (options_cursor)
+	{
+	case OPT_MENUSCALE:
+		S_LocalSound ("misc/menu3.wav");
+		f = scr_menuscale.value + dir;
+		if (f > 6) f = 6;
+		else if (f < 1) f = 1;
+		Cvar_SetValue("scr_menuscale", f);
+		break;
+	}
+}
+
+void M_DrawSlider (int x, int y, float range, float value, const char* format)
+{
+	int	i;
+	char	buffer[6];
+
+	if (range < 0)
+		range = 0;
+	if (range > 1)
+		range = 1;
+	M_DrawCharacter (x-8, y, 128);
+	for (i = 0; i < SLIDER_RANGE; i++)
+		M_DrawCharacter (x + i*8, y, 129);
+	M_DrawCharacter (x+i*8, y, 130);
+	M_DrawCharacter (x + (SLIDER_RANGE-1)*8 * range, y, 131);
+
+	q_snprintf(buffer, sizeof(buffer), format, value);
+	i = x + (SLIDER_RANGE + 2) * 8;
+	M_Print(i, y, buffer);
+}
+
+#define MENU_CHECKBOX_ROW_OFFSET	4
+#define MENU_CHECKBOX_BOX_SCALE		1.375f
+#define MENU_CHECKBOX_X_SCALE		0.625f
+
+void M_DrawCheckboxBox (int x, int y, int on)
+{
+	glPushMatrix();
+	glTranslatef(x, y - MENU_CHECKBOX_ROW_OFFSET - 2, 0);
+	glScalef(MENU_CHECKBOX_BOX_SCALE, MENU_CHECKBOX_BOX_SCALE, 1.0f);
+	M_DrawTextBox(0, 0, 0, 0);
+	glPopMatrix();
+
+	if (on)
+	{
+		glPushMatrix();
+		glTranslatef(x + 8, y + 2, 0);
+		glScalef(MENU_CHECKBOX_X_SCALE, MENU_CHECKBOX_X_SCALE, 1.0f);
+		M_PrintWhite(0, 0, "X");
+		glPopMatrix();
+	}
+}
+
+void M_DrawCheckbox (int x, int y, int on)
+{
+#if 0
+	if (on)
+		M_DrawCharacter (x, y, 131);
+	else
+		M_DrawCharacter (x, y, 129);
+#endif
+	if (on)
+		M_Print (x, y, "on");
+	else
+		M_Print (x, y, "off");
+}
+
+qboolean M_SetSliderValue(int option, float f) // woods #mousemenu
+{
+	f = CLAMP(0.f, f, 1.f);
+
+	switch (option)
+	{
+	case OPT_MENUSCALE:
+		f = f * 5.0f + 1.0f;  // Convert 0-1 range to 1-6
+		f = (int)f;  // Round to nearest integer
+		Cvar_SetValue("scr_menuscale", f);
+		return true;
+	default:
+		return false;
+	}
+}
+
+float M_MouseToSliderFraction(int cx) // woods #mousemenu
+{
+	float f;
+	f = (cx - 4) / (float)((SLIDER_RANGE - 1) * 8);
+	return CLAMP(0.f, f, 1.f);
+}
+
+void M_ReleaseSliderGrab(void) // woods #mousemenu
+{
+	if (!slider_grab)
+		return;
+
+	if (options_cursor == OPT_MENUSCALE)
+	{
+		Cvar_SetValue("scr_menuscale", pending_scale_value);
+	}
+
+	slider_grab = false;
+	S_LocalSound("misc/menu1.wav");
+}
+
+qboolean M_SliderClick(int cx, int cy) // woods #mousemenu
+{
+	cx -= 220;
+	if (cx < -12 || cx > SLIDER_RANGE * 8 + 4)
+		return false;
+
+	if (options_cursor == OPT_MENUSCALE)
+	{
+		float f = M_MouseToSliderFraction(cx);
+		f = f * 5.0f + 1.0f;
+		f = (int)f;
+		pending_scale_value = f;  // Store initial value
+		slider_grab = true;
+		S_LocalSound("misc/menu3.wav");
+		return true;
+	}
+
+	slider_grab = true;
+	S_LocalSound("misc/menu3.wav");
+	return true;
+}
+
+void M_Options_Draw (void)
+{
+	float		r;
+	qpic_t  *p;
+
+	if (slider_grab && !keydown[K_MOUSE1]) // woods #mousemenu
+		M_ReleaseSliderGrab();
+
+	M_DrawTransPic (16, 4, Draw_CachePic ("gfx/qplaque.lmp") );
+	p = Draw_CachePic ("gfx/p_option.lmp");
+	M_DrawPic ( (320-p->width)/2, 4, p);
+
+	// Draw menu items with search highlighting if active
+	for (int i = 0; i < OPTIONS_ITEMS; i++)
+	{
+		const char* text = NULL;
+		int y = 32 + 8 * i;
+
+		// Get menu item text based on index
+		switch (i) {
+		case OPT_CUSTOMIZE:
+			text = "      Key/Button Setup   ...";
+			break;
+		case OPT_MOUSE:
+			text = "                 Mouse   ...";
+			break;
+		case OPT_CONTROLLER:
+			text = "            Controller   ...";
+			break;
+		case OPT_WEAPONWHEEL:
+			text = "          Weapon Wheel   ...";
+			break;
+		case OPT_VIDEO:
+			if (vid_menudrawfn)
+			text = "               Display   ...";
+			break;
+		case OPT_GRAPHICS:
+			if (vid_menudrawfn)
+			text = "              Graphics   ...";
+			break;
+		case OPT_SOUND:
+			text = "                 Sound   ...";
+			break;
+		case OPT_GAME:
+			text = "                  Game   ...";
+			break;
+		case OPT_HUD:
+			text = "                   HUD   ...";
+			break;
+		case OPT_CONSOLEM:
+			text = "               Console   ...";
+			break;
+		case OPT_STARTUP:
+			text = "               Startup   ...";
+			break;
+		case OPT_DEMOOPTIONS:
+			text = "                 Demos   ...";
+			break;
+		case OPT_EXTRAS:
+			text = "                  Misc   ...";
+			break;
+		case OPT_MENUSCALE:
+			text = "            Menu Scale";
+			if (slider_grab && options_cursor == OPT_MENUSCALE)
+			{
+				r = (pending_scale_value - 1) / 5;
+				M_DrawSlider(220, y, r, pending_scale_value, "%.0f");
+			}
+			else
+			{
+				r = (scr_menuscale.value - 1) / 5;
+				M_DrawSlider(220, y, r, scr_menuscale.value, "%.0f");
+			}
+			break;
+		case OPT_CONSOLE:
+			text = "          Goto Console";
+			break;
+		case OPT_RESETCONFIG:
+			text = "          Reset Config   ...";
+			break;
+		}
+
+		if (text) // If search is active and text matches search term
+		{
+			if (optionsmenu.list.search.len > 0 &&
+				q_strcasestr(text, optionsmenu.list.search.text))
+			{
+				M_PrintHighlight(16, y, text,
+					optionsmenu.list.search.text,
+					optionsmenu.list.search.len);
+			}
+			else
+			{
+				M_Print(16, y, text);
+			}
+		}
+	}
+	// Draw cursor
+	M_DrawCharacter(200, 32 + options_cursor * 8, 12 + ((int)(realtime * 4) & 1));
+
+	if (optionsmenu.list.search.len > 0) // Draw search box if search is active
+	{
+		M_DrawTextBox(16, 170, 32, 1);
+		M_PrintHighlight(24, 178, optionsmenu.list.search.text,
+			optionsmenu.list.search.text,
+			optionsmenu.list.search.len);
+		int cursor_x = 24 + 8 * optionsmenu.list.search.len; // Start position + character width * text length
+		if (optionsmenu.list.numitems == 0)
+			M_DrawCharacter(cursor_x, 178, 11 ^ 128);
+		else
+			M_DrawCharacter(cursor_x, 178, 10 + ((int)(realtime * 4) & 1));
+	}
+}
+
+static const char* M_Options_GetItemText(int index)
+{
+	switch (index)
+	{
+	case OPT_CUSTOMIZE:
+		return "      Key/Button Setup   ...";
+	case OPT_MOUSE:
+		return "                 Mouse   ...";
+	case OPT_CONTROLLER:
+		return "            Controller   ...";
+	case OPT_WEAPONWHEEL:
+		return "          Weapon Wheel   ...";
+	case OPT_VIDEO:
+		return "               Display   ...";
+	case OPT_GRAPHICS:
+		return "              Graphics   ...";
+	case OPT_SOUND:
+		return "                 Sound   ...";
+	case OPT_GAME:
+		return "                  Game   ...";
+	case OPT_HUD:
+		return "                   HUD   ...";
+	case OPT_CONSOLEM:
+		return "               Console   ...";
+	case OPT_STARTUP:
+		return "               Startup   ...";
+	case OPT_DEMOOPTIONS:
+		return "                 Demos   ...";
+	case OPT_EXTRAS:
+		return "                  Misc   ...";
+	case OPT_MENUSCALE:
+		return "            Menu Scale";
+	case OPT_CONSOLE:
+		return "          Goto Console";
+	case OPT_RESETCONFIG:
+		return "         Reset Config   ...";
+
+	default:
+		return "";
+	}
+}
+
+void M_Options_Key (int k)
+{
+	// Handle search functionality first
+	if (k == K_ESCAPE)
+	{
+		if (optionsmenu.list.search.len > 0)
+		{
+			// Clear search but stay in menu
+			optionsmenu.list.search.len = 0;
+			optionsmenu.list.search.text[0] = 0;
+			return;
+		}
+		// If no search active, proceed with normal menu exit
+		M_Menu_Main_f();
+		return;
+	}
+	else if (k == K_BACKSPACE)
+	{
+		if (optionsmenu.list.search.len > 0)
+		{
+			optionsmenu.list.search.text[--optionsmenu.list.search.len] = 0;
+			return;
+		}
+	}
+	else if (k >= 32 && k < 127) // Printable characters
+	{
+		if (optionsmenu.list.search.len < sizeof(optionsmenu.list.search.text) - 1)
+		{
+			optionsmenu.list.search.text[optionsmenu.list.search.len++] = k;
+			optionsmenu.list.search.text[optionsmenu.list.search.len] = 0;
+
+			// Reset item count
+			optionsmenu.list.numitems = 0;
+
+			// Search for matching items and count them
+			for (int i = 0; i < OPTIONS_ITEMS; i++)
+			{
+				const char* itemtext = M_Options_GetItemText(i);
+				if (q_strcasestr(itemtext, optionsmenu.list.search.text))
+				{
+					optionsmenu.list.numitems++;
+					// Move cursor to the first matching item
+					if (optionsmenu.list.numitems == 1)
+						options_cursor = i;
+				}
+			}
+			return;
+		}
+	}
+
+	if (!keydown[K_MOUSE1]) // woods #mousemenu
+		M_ReleaseSliderGrab();
+
+	if (slider_grab) // woods #mousemenu
+	{
+		switch (k)
+		{
+		case K_ESCAPE:
+		case K_BBUTTON:
+		case K_MOUSE4:
+		case K_MOUSE2:
+			M_ReleaseSliderGrab();
+			break;
+		}
+		return;
+	}
+	switch (k)
+	{
+	case K_ESCAPE:
+	case K_BBUTTON:
+	case K_MOUSE4:
+	case K_MOUSE2:
+		M_Menu_Main_f ();
+		break;
+
+	case K_ENTER:
+	case K_KP_ENTER:
+	case K_ABUTTON:
+	enter:
+		m_entersound = true;
+		switch (options_cursor)
+		{
+		case OPT_CUSTOMIZE:
+			M_Menu_Keys_f ();
+			break;
+		case OPT_MOUSE:
+			M_Menu_Mouse_f();
+			break;
+		case OPT_CONTROLLER:
+			M_Menu_Controller_f();
+			break;
+		case OPT_WEAPONWHEEL:
+			M_Menu_WeaponWheel_f();
+			break;
+		case OPT_VIDEO:
+			M_Menu_Video_f();
+			break;
+		case OPT_GRAPHICS:
+			M_Menu_Graphics_f();
+			break;
+		case OPT_SOUND:
+			M_Menu_Sound_f();
+			break;
+		case OPT_GAME:
+			M_Menu_Game_f();
+			break;
+		case OPT_HUD:
+			M_Menu_HUD_f();
+			break;
+		case OPT_CONSOLEM:
+			M_Menu_Console_f();
+			break;
+		case OPT_STARTUP:
+			M_Menu_Startup_f();
+			break;
+		case OPT_DEMOOPTIONS:
+			M_Menu_DemoOptions_f();
+			break;
+		case OPT_EXTRAS:
+			M_Menu_Extras_f();
+			break;
+		case OPT_CONSOLE:
+			m_state = m_none;
+			Con_ToggleConsole_f ();
+			break;
+		case OPT_RESETCONFIG:
+			M_Menu_ResetConfig_f();
+			break;
+		default:
+			M_AdjustSliders (1);
+			break;
+		}
+		return;
+
+	case K_UPARROW:
+		S_LocalSound ("misc/menu1.wav");
+		options_cursor--;
+		if (options_cursor < 0)
+			options_cursor = OPTIONS_ITEMS-1;
+		if (options_cursor == OPT_SPACE)  // Skip space when going up
+			options_cursor--;
+		break;
+
+	case K_MWHEELUP:
+		if (!M_Options_AcceptWheelMove(-1))
+			return;
+		S_LocalSound ("misc/menu1.wav");
+		options_cursor--;
+		if (options_cursor < 0)
+			options_cursor = OPTIONS_ITEMS-1;
+		if (options_cursor == OPT_SPACE)  // Skip space when going up
+			options_cursor--;
+		break;
+
+	case K_DOWNARROW:
+		S_LocalSound ("misc/menu1.wav");
+		options_cursor++;
+		if (options_cursor >= OPTIONS_ITEMS)
+			options_cursor = 0;
+		if (options_cursor == OPT_SPACE)  // Skip space when going down
+			options_cursor++;
+		break;
+
+	case K_MWHEELDOWN:
+		if (!M_Options_AcceptWheelMove(1))
+			return;
+		S_LocalSound ("misc/menu1.wav");
+		options_cursor++;
+		if (options_cursor >= OPTIONS_ITEMS)
+			options_cursor = 0;
+		if (options_cursor == OPT_SPACE)  // Skip space when going down
+			options_cursor++;
+		break;
+
+	case K_LEFTARROW:
+		M_AdjustSliders (-1);
+		break;
+
+	case K_RIGHTARROW:
+		M_AdjustSliders (1);
+		break;
+
+	case K_MOUSE1: // woods #mousemenu
+		if (options_cursor == OPT_MENUSCALE && m_mousex >= 220 && m_mousex <= 220 + SLIDER_RANGE * 8)
+		{
+			if (!M_SliderClick(m_mousex, m_mousey))
+				goto enter;
+		}
+		else
+		{
+			goto enter;
+		}
+	}
+
+	if (options_cursor == OPTIONS_ITEMS - 1 && vid_menudrawfn == NULL)
+	{
+		if (k == K_UPARROW || k == K_MWHEELUP)
+			options_cursor = OPTIONS_ITEMS - 2;
+		else
+			options_cursor = 0;
+	}
+}
+
+void M_Options_Mousemove(int cx, int cy) // woods #mousemenu
+{
+	if (slider_grab)
+	{
+		if (!keydown[K_MOUSE1])
+		{
+			M_ReleaseSliderGrab();
+			return;
+		}
+
+		if (options_cursor == OPT_MENUSCALE)
+		{
+			float f = M_MouseToSliderFraction(cx - 220);
+			f = f * 5.0f + 1.0f;  // Convert 0-1 range to 1-6
+			f = (int)f;  // Round to nearest integer
+			pending_scale_value = f;  // Store the value but don't apply it yet
+			return;
+		}
+
+		M_SetSliderValue(options_cursor, M_MouseToSliderFraction(cx - 220));
+		return;
+	}
+
+	int old_cursor = options_cursor;
+
+	M_UpdateCursor(cy, 36, 8, OPTIONS_ITEMS, &options_cursor);
+
+	if (options_cursor == OPT_SPACE)
+	{
+		// If moving down
+		if (old_cursor < OPT_SPACE)
+			options_cursor++;
+		// If moving up
+		else if (old_cursor > OPT_SPACE)
+			options_cursor--;
+	}
+}
+
+/*
+==================
+Weapon Wheel Menu
+==================
+*/
+
+#define WEAPONWHEEL_MENU_MAX	32
+#define WEAPONWHEEL_HEADER_X	16
+#define WEAPONWHEEL_HEADER_Y	32
+#define WEAPONWHEEL_HEADER_COLS	36
+#define WEAPONWHEEL_LIST_Y	32
+
+static struct
+{
+	int	items[WEAPONWHEEL_MENU_MAX];
+	int	visible_count;
+	int	total_count;
+	int	cursor;
+	qboolean mouse_down;
+	int	mouse_item;
+	qboolean mouse_dragged;
+	qboolean preview;
+	int	preview_pick;
+} weaponwheelmenu;
+
+static int M_WeaponWheel_PreviewIndex(void)
+{
+	return weaponwheelmenu.total_count;
+}
+
+static int M_WeaponWheel_MenuCount(void)
+{
+	return weaponwheelmenu.total_count > 0 ? weaponwheelmenu.total_count + 1 : 0;
+}
+
+static qboolean M_WeaponWheel_IsPreviewItem(int item)
+{
+	return weaponwheelmenu.total_count > 0 && item == M_WeaponWheel_PreviewIndex();
+}
+
+static void M_WeaponWheel_ClampCursor(void)
+{
+	int count = M_WeaponWheel_MenuCount();
+
+	if (count <= 0)
+	{
+		weaponwheelmenu.cursor = 0;
+		return;
+	}
+	if (weaponwheelmenu.cursor < 0)
+		weaponwheelmenu.cursor = count - 1;
+	else if (weaponwheelmenu.cursor >= count)
+		weaponwheelmenu.cursor = 0;
+}
+
+static qboolean M_WeaponWheel_HasHidden(void)
+{
+	return weaponwheelmenu.visible_count < weaponwheelmenu.total_count;
+}
+
+static int M_WeaponWheel_RowY(int item)
+{
+	int y = WEAPONWHEEL_LIST_Y + item * 8;
+
+	if (M_WeaponWheel_HasHidden() && item >= weaponwheelmenu.visible_count)
+		y += 8;
+	return y;
+}
+
+static int M_WeaponWheel_PreviewY(void)
+{
+	if (weaponwheelmenu.total_count <= 0)
+		return WEAPONWHEEL_LIST_Y;
+	return M_WeaponWheel_RowY(weaponwheelmenu.total_count - 1) + 16;
+}
+
+static int M_WeaponWheel_CursorY(int item)
+{
+	if (M_WeaponWheel_IsPreviewItem(item))
+		return M_WeaponWheel_PreviewY();
+	return M_WeaponWheel_RowY(item);
+}
+
+static int M_WeaponWheel_ItemAtY(int y)
+{
+	int rel = y - WEAPONWHEEL_LIST_Y;
+	int item;
+
+	if (rel < 0)
+		return -1;
+	if (M_WeaponWheel_HasHidden() && rel >= weaponwheelmenu.visible_count * 8)
+	{
+		if (rel < (weaponwheelmenu.visible_count + 1) * 8)
+			return -1;
+		rel -= 8;
+	}
+
+	item = rel / 8;
+	if (item < 0 || item >= weaponwheelmenu.total_count)
+	{
+		int preview_y = M_WeaponWheel_PreviewY();
+		if (weaponwheelmenu.total_count > 0 && y >= preview_y - 8 && y < preview_y + 16)
+			return M_WeaponWheel_PreviewIndex();
+		return -1;
+	}
+	return item;
+}
+
+static void M_WeaponWheel_LoadOrder(void)
+{
+	int visible[WEAPONWHEEL_MENU_MAX];
+	int hidden[WEAPONWHEEL_MENU_MAX];
+	int visible_count = 0, hidden_count = 0;
+	int i;
+
+	Wheel_MenuBuildOrder(visible, &visible_count, hidden, &hidden_count, WEAPONWHEEL_MENU_MAX);
+
+	weaponwheelmenu.visible_count = visible_count;
+	weaponwheelmenu.total_count = 0;
+	for (i = 0; i < visible_count && weaponwheelmenu.total_count < WEAPONWHEEL_MENU_MAX; i++)
+		weaponwheelmenu.items[weaponwheelmenu.total_count++] = visible[i];
+	for (i = 0; i < hidden_count && weaponwheelmenu.total_count < WEAPONWHEEL_MENU_MAX; i++)
+		weaponwheelmenu.items[weaponwheelmenu.total_count++] = hidden[i];
+
+	M_WeaponWheel_ClampCursor();
+}
+
+static void M_WeaponWheel_Save(void)
+{
+	Wheel_MenuSetOrder(weaponwheelmenu.items, weaponwheelmenu.visible_count);
+}
+
+static void M_WeaponWheel_ClearMouseDrag(void)
+{
+	weaponwheelmenu.mouse_down = false;
+	weaponwheelmenu.mouse_item = -1;
+	weaponwheelmenu.mouse_dragged = false;
+}
+
+static void M_WeaponWheel_ResetDefaults(void)
+{
+	Wheel_MenuResetOrder();
+	weaponwheelmenu.cursor = 0;
+	weaponwheelmenu.preview = false;
+	weaponwheelmenu.preview_pick = 0;
+	M_WeaponWheel_ClearMouseDrag();
+	M_WeaponWheel_LoadOrder();
+	S_LocalSound("misc/menu3.wav");
+}
+
+void M_Menu_WeaponWheel_f(void)
+{
+	key_dest = key_menu;
+	m_state = m_weaponwheel;
+	m_entersound = true;
+
+	weaponwheelmenu.cursor = 0;
+	weaponwheelmenu.preview = false;
+	weaponwheelmenu.preview_pick = 0;
+	M_WeaponWheel_ClearMouseDrag();
+	M_WeaponWheel_LoadOrder();
+	IN_UpdateGrabs();
+}
+
+static void M_WeaponWheel_MoveCursor(int dir)
+{
+	if (M_WeaponWheel_MenuCount() <= 0)
+		return;
+	S_LocalSound("misc/menu1.wav");
+	weaponwheelmenu.cursor += dir;
+	M_WeaponWheel_ClampCursor();
+}
+
+static void M_WeaponWheel_MoveSelected(int dir)
+{
+	int target, tmp;
+
+	if (weaponwheelmenu.cursor < 0 || weaponwheelmenu.cursor >= weaponwheelmenu.visible_count)
+	{
+		S_LocalSound("misc/menu2.wav");
+		return;
+	}
+
+	target = weaponwheelmenu.cursor + dir;
+	if (target < 0 || target >= weaponwheelmenu.visible_count)
+	{
+		S_LocalSound("misc/menu2.wav");
+		return;
+	}
+
+	tmp = weaponwheelmenu.items[weaponwheelmenu.cursor];
+	weaponwheelmenu.items[weaponwheelmenu.cursor] = weaponwheelmenu.items[target];
+	weaponwheelmenu.items[target] = tmp;
+	weaponwheelmenu.cursor = target;
+
+	S_LocalSound("misc/menu3.wav");
+	M_WeaponWheel_Save();
+}
+
+static void M_WeaponWheel_MoveItem(int from, int to)
+{
+	int weapon_index;
+
+	if (from < 0 || from >= weaponwheelmenu.visible_count ||
+		to < 0 || to >= weaponwheelmenu.visible_count ||
+		from == to)
+		return;
+
+	weapon_index = weaponwheelmenu.items[from];
+	if (from < to)
+		memmove(&weaponwheelmenu.items[from],
+			&weaponwheelmenu.items[from + 1],
+			(to - from) * sizeof(weaponwheelmenu.items[0]));
+	else
+		memmove(&weaponwheelmenu.items[to + 1],
+			&weaponwheelmenu.items[to],
+			(from - to) * sizeof(weaponwheelmenu.items[0]));
+
+	weaponwheelmenu.items[to] = weapon_index;
+	weaponwheelmenu.cursor = to;
+	weaponwheelmenu.mouse_item = to;
+	weaponwheelmenu.mouse_dragged = true;
+
+	S_LocalSound("misc/menu3.wav");
+	M_WeaponWheel_Save();
+}
+
+static void M_WeaponWheel_ToggleSelected(void)
+{
+	int weapon_index;
+
+	if (M_WeaponWheel_IsPreviewItem(weaponwheelmenu.cursor))
+	{
+		M_WeaponWheel_Save();
+		weaponwheelmenu.preview = true;
+		weaponwheelmenu.preview_pick = Wheel_MenuPreviewStart();
+		M_WeaponWheel_ClearMouseDrag();
+		S_LocalSound("misc/menu3.wav");
+		return;
+	}
+
+	if (weaponwheelmenu.cursor < 0 || weaponwheelmenu.cursor >= weaponwheelmenu.total_count)
+		return;
+
+	if (weaponwheelmenu.cursor < weaponwheelmenu.visible_count)
+	{
+		if (weaponwheelmenu.visible_count <= 1)
+			return;
+
+		weapon_index = weaponwheelmenu.items[weaponwheelmenu.cursor];
+		memmove(&weaponwheelmenu.items[weaponwheelmenu.cursor],
+			&weaponwheelmenu.items[weaponwheelmenu.cursor + 1],
+			(weaponwheelmenu.total_count - weaponwheelmenu.cursor - 1) * sizeof(weaponwheelmenu.items[0]));
+		weaponwheelmenu.items[weaponwheelmenu.total_count - 1] = weapon_index;
+		weaponwheelmenu.visible_count--;
+	}
+	else
+	{
+		int insert = weaponwheelmenu.visible_count;
+
+		weapon_index = weaponwheelmenu.items[weaponwheelmenu.cursor];
+		memmove(&weaponwheelmenu.items[weaponwheelmenu.cursor],
+			&weaponwheelmenu.items[weaponwheelmenu.cursor + 1],
+			(weaponwheelmenu.total_count - weaponwheelmenu.cursor - 1) * sizeof(weaponwheelmenu.items[0]));
+		memmove(&weaponwheelmenu.items[insert + 1],
+			&weaponwheelmenu.items[insert],
+			(weaponwheelmenu.total_count - insert - 1) * sizeof(weaponwheelmenu.items[0]));
+		weaponwheelmenu.items[insert] = weapon_index;
+		weaponwheelmenu.visible_count++;
+		weaponwheelmenu.cursor = insert;
+	}
+
+	S_LocalSound("misc/menu3.wav");
+	M_WeaponWheel_Save();
+	M_WeaponWheel_ClampCursor();
+}
+
+static void M_WeaponWheel_FinishMouseClick(void)
+{
+	int item;
+
+	if (!weaponwheelmenu.mouse_down)
+		return;
+
+	item = M_WeaponWheel_ItemAtY(m_mousey);
+	if (!weaponwheelmenu.mouse_dragged && item >= 0)
+	{
+		weaponwheelmenu.cursor = item;
+		m_entersound = true;
+		M_WeaponWheel_ToggleSelected();
+	}
+
+	M_WeaponWheel_ClearMouseDrag();
+}
+
+static void M_WeaponWheel_PrintLegendSegment(float *x, int y, const char *text, qboolean white, float scale)
+{
+	glPushMatrix();
+	glTranslatef(*x, y, 0);
+	glScalef(scale, scale, 1.0f);
+	if (white)
+		M_PrintWhite(0, 0, text);
+	else
+		M_Print(0, 0, text);
+	glPopMatrix();
+
+	*x += (float)strlen(text) * 8.0f * scale;
+}
+
+static void M_WeaponWheel_DrawTextBoxExact(int x, int y, int width, int lines)
+{
+	qpic_t *p;
+	int cx, cy;
+	int n;
+
+	cx = x;
+	cy = y;
+	p = Draw_CachePic("gfx/box_tl.lmp");
+	M_DrawTransPic(cx, cy, p);
+	p = Draw_CachePic("gfx/box_ml.lmp");
+	for (n = 0; n < lines; n++)
+	{
+		cy += 8;
+		M_DrawTransPic(cx, cy, p);
+	}
+	p = Draw_CachePic("gfx/box_bl.lmp");
+	M_DrawTransPic(cx, cy + 8, p);
+
+	cx += 8;
+	while (width >= 2)
+	{
+		cy = y;
+		p = Draw_CachePic("gfx/box_tm.lmp");
+		M_DrawTransPic(cx, cy, p);
+		p = Draw_CachePic("gfx/box_mm.lmp");
+		for (n = 0; n < lines; n++)
+		{
+			cy += 8;
+			if (n == 1)
+				p = Draw_CachePic("gfx/box_mm2.lmp");
+			M_DrawTransPic(cx, cy, p);
+		}
+		p = Draw_CachePic("gfx/box_bm.lmp");
+		M_DrawTransPic(cx, cy + 8, p);
+		width -= 2;
+		cx += 16;
+	}
+	if (width > 0)
+	{
+		cy = y;
+		p = Draw_CachePic("gfx/box_tm.lmp");
+		M_DrawSubpic(cx, cy, p, 0, 0, 8, p->height);
+		p = Draw_CachePic("gfx/box_mm.lmp");
+		for (n = 0; n < lines; n++)
+		{
+			cy += 8;
+			if (n == 1)
+				p = Draw_CachePic("gfx/box_mm2.lmp");
+			M_DrawSubpic(cx, cy, p, 0, 0, 8, p->height);
+		}
+		p = Draw_CachePic("gfx/box_bm.lmp");
+		M_DrawSubpic(cx, cy + 8, p, 0, 0, 8, p->height);
+		cx += 8;
+	}
+
+	cy = y;
+	p = Draw_CachePic("gfx/box_tr.lmp");
+	M_DrawTransPic(cx, cy, p);
+	p = Draw_CachePic("gfx/box_mr.lmp");
+	for (n = 0; n < lines; n++)
+	{
+		cy += 8;
+		M_DrawTransPic(cx, cy, p);
+	}
+	p = Draw_CachePic("gfx/box_br.lmp");
+	M_DrawTransPic(cx, cy + 8, p);
+}
+
+void M_WeaponWheel_Draw(void)
+{
+	plcolour_t white = CL_PLColours_Parse("0xffffff");
+	float legend_x;
+	float legend_width;
+	const float legend_scale = 0.75f;
+	int preview_y;
+	int i;
+
+	if (weaponwheelmenu.mouse_down && !keydown[K_MOUSE1])
+		M_WeaponWheel_FinishMouseClick();
+
+	Draw_String(WEAPONWHEEL_HEADER_X, WEAPONWHEEL_HEADER_Y - 28, "Weapon Wheel");
+	M_DrawQuakeBar(WEAPONWHEEL_HEADER_X - 8, WEAPONWHEEL_HEADER_Y - 16, WEAPONWHEEL_HEADER_COLS + 2);
+
+	if (weaponwheelmenu.preview)
+	{
+		Wheel_MenuDrawPreview(weaponwheelmenu.preview_pick);
+		return;
+	}
+
+	for (i = 0; i < weaponwheelmenu.total_count; i++)
+	{
+		int weapon_index = weaponwheelmenu.items[i];
+		int y = M_WeaponWheel_RowY(i);
+		qboolean included = i < weaponwheelmenu.visible_count;
+		qboolean available = Wheel_MenuWeaponAvailable(weapon_index);
+
+		if (included && available)
+		{
+			M_Print(32, y, "[ ]");
+			M_PrintRGBA(40, y, "x", white, 1.0f, false);
+			M_Print(64, y, Wheel_MenuWeaponName(weapon_index));
+		}
+		else
+		{
+			float alpha = included ? 0.55f : 0.40f;
+
+			M_PrintRGBA(32, y, "[ ]", white, alpha, true);
+			if (included)
+				M_PrintRGBA(40, y, "x", white, alpha, false);
+			M_PrintRGBA(64, y, Wheel_MenuWeaponName(weapon_index), white, alpha, true);
+		}
+	}
+
+	if (weaponwheelmenu.total_count > 0)
+	{
+		preview_y = M_WeaponWheel_PreviewY();
+		M_WeaponWheel_DrawTextBoxExact(24, preview_y - 8, 7, 1);
+		M_PrintWhite(32, preview_y, "Preview");
+	}
+	else
+	{
+		M_Print(32, WEAPONWHEEL_LIST_Y, "no weapons available");
+	}
+
+	if (M_WeaponWheel_MenuCount() > 0)
+		M_DrawCharacter(16, M_WeaponWheel_CursorY(weaponwheelmenu.cursor), 12 + ((int)(realtime * 4) & 1));
+
+	legend_width = (float)(strlen("enter:") + strlen("toggle  ") + strlen("left/right:") +
+		strlen("reorder  ") + strlen("ctrl+r:") + strlen("defaults")) * 8.0f * legend_scale;
+	legend_x = (320.0f - legend_width) * 0.5f;
+	M_WeaponWheel_PrintLegendSegment(&legend_x, 190, "enter:", false, legend_scale);
+	M_WeaponWheel_PrintLegendSegment(&legend_x, 190, "toggle  ", true, legend_scale);
+	M_WeaponWheel_PrintLegendSegment(&legend_x, 190, "left/right:", false, legend_scale);
+	M_WeaponWheel_PrintLegendSegment(&legend_x, 190, "reorder  ", true, legend_scale);
+	M_WeaponWheel_PrintLegendSegment(&legend_x, 190, "ctrl+r:", false, legend_scale);
+	M_WeaponWheel_PrintLegendSegment(&legend_x, 190, "defaults", true, legend_scale);
+}
+
+void M_WeaponWheel_Key(int key)
+{
+	if (weaponwheelmenu.preview)
+	{
+		switch (key)
+		{
+		case K_ESCAPE:
+		case K_BBUTTON:
+		case K_MOUSE4:
+		case K_MOUSE2:
+		case K_ENTER:
+		case K_KP_ENTER:
+		case K_ABUTTON:
+			weaponwheelmenu.preview = false;
+			M_WeaponWheel_ClearMouseDrag();
+			S_LocalSound("misc/menu3.wav");
+			return;
+		case K_MOUSE1:
+			weaponwheelmenu.preview_pick = Wheel_MenuPreviewPickFromPoint(weaponwheelmenu.preview_pick,
+				(float)m_mousex, (float)m_mousey);
+			S_LocalSound("misc/menu1.wav");
+			return;
+		case K_MWHEELUP:
+		case K_UPARROW:
+		case K_LEFTARROW:
+		case '[':
+			weaponwheelmenu.preview_pick = Wheel_MenuPreviewScroll(weaponwheelmenu.preview_pick, -1);
+			S_LocalSound("misc/menu1.wav");
+			return;
+		case K_MWHEELDOWN:
+		case K_DOWNARROW:
+		case K_RIGHTARROW:
+		case ']':
+			weaponwheelmenu.preview_pick = Wheel_MenuPreviewScroll(weaponwheelmenu.preview_pick, 1);
+			S_LocalSound("misc/menu1.wav");
+			return;
+		default:
+			return;
+		}
+	}
+
+	if (keydown[K_CTRL] && (key == 'r' || key == 'R'))
+	{
+		M_WeaponWheel_ResetDefaults();
+		return;
+	}
+
+	switch (key)
+	{
+	case K_ESCAPE:
+	case K_BBUTTON:
+	case K_MOUSE4:
+	case K_MOUSE2:
+		M_WeaponWheel_Save();
+		M_Menu_Options_f();
+		break;
+
+	case K_MOUSE1:
+	{
+		int item = M_WeaponWheel_ItemAtY(m_mousey);
+		if (item >= 0)
+		{
+			weaponwheelmenu.cursor = item;
+			weaponwheelmenu.mouse_down = true;
+			weaponwheelmenu.mouse_item = item;
+			weaponwheelmenu.mouse_dragged = false;
+		}
+		else
+			M_WeaponWheel_ClearMouseDrag();
+		break;
+	}
+
+	case K_ENTER:
+	case K_KP_ENTER:
+	case K_ABUTTON:
+		m_entersound = true;
+		M_WeaponWheel_ToggleSelected();
+		break;
+
+	case K_UPARROW:
+		if (keydown[K_SHIFT])
+			M_WeaponWheel_MoveSelected(-1);
+		else
+			M_WeaponWheel_MoveCursor(-1);
+		break;
+
+	case K_DOWNARROW:
+		if (keydown[K_SHIFT])
+			M_WeaponWheel_MoveSelected(1);
+		else
+			M_WeaponWheel_MoveCursor(1);
+		break;
+
+	case K_MWHEELUP:
+		M_WeaponWheel_MoveCursor(-1);
+		break;
+
+	case K_MWHEELDOWN:
+		M_WeaponWheel_MoveCursor(1);
+		break;
+
+	case K_LEFTARROW:
+	case '[':
+		M_WeaponWheel_MoveSelected(-1);
+		break;
+
+	case K_RIGHTARROW:
+	case ']':
+		M_WeaponWheel_MoveSelected(1);
+		break;
+	}
+}
+
+void M_WeaponWheel_Mousemove(int cx, int cy)
+{
+	int item = M_WeaponWheel_ItemAtY(cy);
+
+	if (weaponwheelmenu.preview)
+	{
+		weaponwheelmenu.preview_pick = Wheel_MenuPreviewPickFromPoint(weaponwheelmenu.preview_pick,
+			(float)cx, (float)cy);
+		return;
+	}
+
+	if (weaponwheelmenu.mouse_down)
+	{
+		if (!keydown[K_MOUSE1])
+		{
+			M_WeaponWheel_FinishMouseClick();
+			return;
+		}
+
+		if (item != weaponwheelmenu.mouse_item)
+			weaponwheelmenu.mouse_dragged = true;
+
+		if (weaponwheelmenu.mouse_item >= 0 &&
+			weaponwheelmenu.mouse_item < weaponwheelmenu.visible_count &&
+			item >= 0 && item < weaponwheelmenu.visible_count)
+		{
+			M_WeaponWheel_MoveItem(weaponwheelmenu.mouse_item, item);
+		}
+		return;
+	}
+
+	if (item >= 0)
+		weaponwheelmenu.cursor = item;
+}
+
+/*
+==================
+Keys Menu
+==================
+*/
+
+typedef struct
+{
+	const char *cmd;
+	const char *desc;
+	keydevicemask_t devicemask;
+} defaultbind_t;
+
+static const defaultbind_t quakebindnames[] = // woods use iw quake bind names
+{
+	{"+forward",		"Move forward",			KDM_KEYBOARD_AND_MOUSE},
+	{"+back",			"Move backward",		KDM_KEYBOARD_AND_MOUSE},
+	{"+moveleft",		"Move left",			KDM_KEYBOARD_AND_MOUSE},
+	{"+moveright",		"Move right",			KDM_KEYBOARD_AND_MOUSE},
+	{"+jump",			"Jump / swim up",		KDM_ANY},
+	{"+moveup",			"Swim up",				KDM_ANY},
+	{"+movedown",		"Swim down",			KDM_ANY},
+	{"+speed",			"Run",					KDM_KEYBOARD_AND_MOUSE},
+	{"+strafe",			"Sidestep",				KDM_KEYBOARD_AND_MOUSE},
+	{"+left",			"Turn left",			KDM_KEYBOARD_AND_MOUSE},
+	{"+right",			"Turn right",			KDM_KEYBOARD_AND_MOUSE},
+	{"+lookup",			"Look up",				KDM_KEYBOARD_AND_MOUSE},
+	{"+lookdown",		"Look down",			KDM_KEYBOARD_AND_MOUSE},
+	{"centerview",		"Center view",			KDM_ANY},
+	{"zoom_in",			"Toggle zoom",			KDM_ANY},
+	{"+zoom",			"Quick zoom",			KDM_ANY},
+	{"+gyroaction",		"Gyro switch",			KDM_GAMEPAD},
+	{"+altmodifier",	"Alt modifier",			KDM_GAMEPAD},
+	{"+attack",			"Attack",				KDM_ANY},
+	{"+weaponwheel",	"Weapon wheel",			KDM_ANY},
+	{"impulse 10",		"Next weapon",			KDM_ANY},
+	{"impulse 12",		"Previous weapon",		KDM_ANY},
+	{"impulse 1",		"Axe",					KDM_ANY},
+	{"impulse 2",		"Shotgun",				KDM_ANY},
+	{"impulse 3",		"Super Shotgun",		KDM_ANY},
+	{"impulse 4",		"Nailgun",				KDM_ANY},
+	{"impulse 5",		"Super Nailgun",		KDM_ANY},
+	{"impulse 6",		"Grenade Launcher",		KDM_ANY},
+	{"impulse 7",		"Rocket Launcher",		KDM_ANY},
+	{"impulse 8",		"Thunderbolt",			KDM_ANY},
+	{"impulse 225",		"Laser Cannon",			KDM_ANY},
+	{"impulse 226",		"Mjolnir",				KDM_ANY},
+};
+#define	NUMQUAKECOMMANDS	(sizeof(quakebindnames)/sizeof(quakebindnames[0]))
+
+
+#define MAX_VIS_KEYS	14 // woods #mousemenu
+#define KEYS_TAB_Y		40
+#define KEYS_LIST_Y		56
+
+static struct
+{
+	menulist_t           list;
+	struct {
+		char text[32];
+		int len;
+		int maxlen;
+	} search;
+	keydevicemask_t devicemask;
+	int* filtered_indices;
+	int num_filtered;
+	qboolean scrollbar_grab;  // Add this
+	int x, y, cols;          // Add these for scrollbar positioning
+} keysmenu;
+
+typedef struct { // woods #mousemenu
+	char* cmd;
+	char* desc;
+	keydevicemask_t devicemask;
+} bindname_t;
+
+static bindname_t* bindnames = NULL; // woods #mousemenu
+static int numbindnames = 0; // woods #mousemenu
+
+qboolean	bind_grab;
+
+static void M_Keys_UpdateFilter(void);
+
+static void M_Keys_SetDeviceMask(keydevicemask_t devicemask)
+{
+	if (devicemask == KDM_NONE || keysmenu.devicemask == devicemask)
+		return;
+
+	keysmenu.devicemask = devicemask;
+	M_Keys_UpdateFilter();
+}
+
+static keydevicemask_t M_Keys_GetTabAtPoint(int x, int y)
+{
+	if (y < KEYS_TAB_Y || y >= KEYS_TAB_Y + 8)
+		return KDM_NONE;
+
+	return x < 160 ? KDM_KEYBOARD_AND_MOUSE : KDM_GAMEPAD;
+}
+
+static void M_Keys_AddBindName (const char *cmd, const char *desc, keydevicemask_t devicemask)
+{
+	bindnames = (bindname_t *)Z_Realloc(bindnames, sizeof(bindname_t) * (numbindnames + 1));
+	bindnames[numbindnames].cmd = (char *)Z_Malloc(strlen(cmd) + 1);
+	strcpy(bindnames[numbindnames].cmd, cmd);
+	bindnames[numbindnames].desc = (char *)Z_Malloc(strlen(desc) + 1);
+	strcpy(bindnames[numbindnames].desc, desc);
+	bindnames[numbindnames].devicemask = devicemask;
+	numbindnames++;
+}
+
+static const defaultbind_t *M_Keys_FindDefaultBind (const char *cmd)
+{
+	int i;
+
+	for (i = 0; i < NUMQUAKECOMMANDS; i++)
+	{
+		if (!strcmp(quakebindnames[i].cmd, cmd))
+			return &quakebindnames[i];
+	}
+
+	return NULL;
+}
+
+static qboolean M_Keys_HasCommand (const char *cmd)
+{
+	int i;
+
+	for (i = 0; i < numbindnames; i++)
+	{
+		if (!strcmp(bindnames[i].cmd, cmd))
+			return true;
+	}
+
+	return false;
+}
+
+static void M_Keys_AddMissingControllerBinds (void)
+{
+	int i;
+
+	for (i = 0; i < NUMQUAKECOMMANDS; i++)
+	{
+		if (quakebindnames[i].devicemask != KDM_GAMEPAD)
+			continue;
+		if (M_Keys_HasCommand(quakebindnames[i].cmd))
+			continue;
+
+		M_Keys_AddBindName(quakebindnames[i].cmd, quakebindnames[i].desc, quakebindnames[i].devicemask);
+	}
+}
+
+void M_Keys_Populate(void) // woods #mousemenu -- modified 
+{
+	FILE* file;
+	char line[1024];
+	if (numbindnames) return;
+
+	// Try to open the file
+	if (COM_FOpenFile("bindlist.lst", &file, NULL) >= 0 && file) 
+	{
+		while (fgets(line, sizeof(line), file))
+		{
+			const char* cmd, * desc;
+			const defaultbind_t *defaultbind;
+			Cmd_TokenizeString(line);
+			cmd = Cmd_Argv(0);
+			desc = Cmd_Argv(1);
+
+			if (*cmd)
+			{
+				defaultbind = M_Keys_FindDefaultBind(cmd);
+				M_Keys_AddBindName(cmd, desc, defaultbind ? defaultbind->devicemask : KDM_ANY);
+			}
+		}
+		fclose(file);
+		if (numbindnames)
+			M_Keys_AddMissingControllerBinds();
+	}
+
+	// Fallback to default bindings if no bindings were loaded from the file
+	if (!numbindnames)
+	{
+		for (int i = 0; i < NUMQUAKECOMMANDS; i++)
+			M_Keys_AddBindName(quakebindnames[i].cmd, quakebindnames[i].desc, quakebindnames[i].devicemask);
+	}
+}
+
+void M_Keys_UpdateFilter(void)
+{
+	keysmenu.num_filtered = 0;
+	keysmenu.list.scroll = 0;  // Reset scroll position when filtering
+
+	// First pass: count matches
+	for (int i = 0; i < numbindnames; i++)
+	{
+		if (!(bindnames[i].devicemask & keysmenu.devicemask))
+			continue;
+
+		if (keysmenu.search.len == 0)
+		{
+			keysmenu.num_filtered++;
+			continue;
+		}
+		else
+		{
+			const char* desc = bindnames[i].desc;
+			const char* cmd = bindnames[i].cmd;
+			const char* search = keysmenu.search.text;
+
+			char desc_lower[128] = { 0 };
+			char cmd_lower[128] = { 0 };
+			char search_lower[32] = { 0 };
+
+			Q_strncpy(desc_lower, desc, sizeof(desc_lower) - 1);
+			Q_strncpy(cmd_lower, cmd, sizeof(cmd_lower) - 1);
+			Q_strncpy(search_lower, search, sizeof(search_lower) - 1);
+
+			// Convert to lowercase
+			for (char* p = desc_lower; *p; p++) *p = q_tolower(*p);
+			for (char* p = cmd_lower; *p; p++) *p = q_tolower(*p);
+			for (char* p = search_lower; *p; p++) *p = q_tolower(*p);
+
+			if (strstr(desc_lower, search_lower) || strstr(cmd_lower, search_lower))
+			{
+				keysmenu.num_filtered++;
+			}
+		}
+	}
+
+	// Allocate or reallocate filtered indices array
+	if (keysmenu.filtered_indices)
+		Z_Free(keysmenu.filtered_indices);
+	keysmenu.filtered_indices = (int*)Z_Malloc(keysmenu.num_filtered * sizeof(int));
+
+	// Second pass: fill indices
+	if (keysmenu.search.len == 0)
+	{
+		// No search, just copy all indices
+		int filter_idx = 0;
+		for (int i = 0; i < numbindnames; i++)
+		{
+			if (bindnames[i].devicemask & keysmenu.devicemask)
+				keysmenu.filtered_indices[filter_idx++] = i;
+		}
+	}
+	else
+	{
+		// Fill with matching indices
+		int filter_idx = 0;
+		for (int i = 0; i < numbindnames; i++)
+		{
+			if (!(bindnames[i].devicemask & keysmenu.devicemask))
+				continue;
+
+			const char* desc = bindnames[i].desc;
+			const char* cmd = bindnames[i].cmd;
+			const char* search = keysmenu.search.text;
+
+			char desc_lower[128] = { 0 };
+			char cmd_lower[128] = { 0 };
+			char search_lower[32] = { 0 };
+
+			Q_strncpy(desc_lower, desc, sizeof(desc_lower) - 1);
+			Q_strncpy(cmd_lower, cmd, sizeof(cmd_lower) - 1);
+			Q_strncpy(search_lower, search, sizeof(search_lower) - 1);
+
+			// Convert to lowercase
+			for (char* p = desc_lower; *p; p++) *p = q_tolower(*p);
+			for (char* p = cmd_lower; *p; p++) *p = q_tolower(*p);
+			for (char* p = search_lower; *p; p++) *p = q_tolower(*p);
+
+			if (strstr(desc_lower, search_lower) || strstr(cmd_lower, search_lower))
+			{
+				keysmenu.filtered_indices[filter_idx++] = i;
+			}
+		}
+	}
+
+	// Update menu list state
+	keysmenu.list.numitems = keysmenu.num_filtered;
+	if (keysmenu.list.cursor >= keysmenu.num_filtered)
+		keysmenu.list.cursor = keysmenu.num_filtered - 1;
+	if (keysmenu.list.cursor < 0)
+		keysmenu.list.cursor = 0;
+}
+
+void M_Menu_Keys_f(void)
+{
+	key_dest = key_menu;
+	m_state = m_keys;
+	m_entersound = true;
+
+	M_Keys_Populate();
+
+	keysmenu.list.viewsize = MAX_VIS_KEYS;
+	keysmenu.list.cursor = 0;
+	keysmenu.list.scroll = 0;
+	keysmenu.list.numitems = numbindnames;
+
+	keysmenu.search.len = 0;
+	keysmenu.search.text[0] = 0;
+	keysmenu.search.maxlen = sizeof(keysmenu.search.text) - 1;
+	keysmenu.devicemask = (IN_GetLastActiveDeviceType() == KD_GAMEPAD) ? KDM_GAMEPAD : KDM_KEYBOARD_AND_MOUSE;
+
+	keysmenu.scrollbar_grab = false;
+	keysmenu.x = 0;
+	keysmenu.y = KEYS_LIST_Y;
+	keysmenu.cols = 36;
+
+	// Initialize filtered indices array
+	if (keysmenu.filtered_indices)
+		Z_Free(keysmenu.filtered_indices);
+	keysmenu.filtered_indices = (int*)Z_Malloc(numbindnames * sizeof(int));
+	keysmenu.num_filtered = 0;
+	M_Keys_UpdateFilter();
+
+	IN_UpdateGrabs();
+}
+
+qboolean IsCompleteCommand(const char* binding, const char* command)
+{
+	// Check if commands are exactly equal
+	if (!strcmp(binding, command))
+		return true;
+
+	// For impulse commands, ensure we're matching complete numbers
+	if (strstr(command, "impulse ") == command)
+	{
+		// If binding also starts with "impulse "
+		if (strstr(binding, "impulse ") == binding)
+		{
+			// Compare the numbers after "impulse "
+			const char* bind_num = binding + 8;
+			const char* cmd_num = command + 8;
+
+			// Check if the numbers match exactly
+			char* bind_end;
+			char* cmd_end;
+			int bind_val = strtol(bind_num, &bind_end, 10);
+			int cmd_val = strtol(cmd_num, &cmd_end, 10);
+
+			// Make sure we consumed all digits and the numbers match
+			return (*bind_end == '\0' && *cmd_end == '\0' && bind_val == cmd_val);
+		}
+	}
+	return false;
+}
+
+void M_FindKeysForCommand (const char *command, int *threekeys)
+{
+	Key_GetKeysForCommand(command, threekeys, 3, keysmenu.devicemask);
+}
+
+static int M_Keys_GetPrimaryBindmap (void)
+{
+	if (key_bindmap[0] >= 0 && key_bindmap[0] < MAX_BINDMAPS)
+		return key_bindmap[0];
+	return 0;
+}
+
+void M_UnbindCommand (const char *command)
+{
+	int active_bindmaps[2];
+	int i, j;
+
+	active_bindmaps[0] = M_Keys_GetPrimaryBindmap();
+	active_bindmaps[1] = (key_bindmap[1] >= 0 && key_bindmap[1] < MAX_BINDMAPS) ? key_bindmap[1] : -1;
+
+	for (i = 0; i < 2; i++)
+	{
+		int bindmap = active_bindmaps[i];
+
+		if (bindmap < 0 || (i > 0 && bindmap == active_bindmaps[0]))
+			continue;
+
+		for (j = 0; j < MAX_KEYS; j++)
+		{
+			char *b = keybindings[bindmap][j];
+
+			if (!b)
+				continue;
+			if (IsCompleteCommand(b, command) && (Key_GetDeviceMaskForKeynum(j) & keysmenu.devicemask))
+				Key_SetBinding(j, NULL, bindmap);
+		}
+	}
+}
+
+extern qpic_t	*pic_up, *pic_down;
+
+void M_Keys_Draw(void)
+{
+	int firstvis, numvis, x, y, cols;
+	qpic_t* p;
+	const char* hint = NULL;
+
+	p = Draw_CachePic("gfx/p_option.lmp");
+	M_DrawPic((320 - p->width) / 2, 4, p);
+
+	{
+		qboolean gamepad_connected = IN_HasGamepad();
+		qboolean gamepad_active = (keysmenu.devicemask == KDM_GAMEPAD);
+
+		if (gamepad_active)
+			M_Print(16, KEYS_TAB_Y, "Keyboard & Mouse");
+		else
+			M_PrintWhite(16, KEYS_TAB_Y, "Keyboard & Mouse");
+
+		if (!gamepad_connected)
+			M_PrintRGBA(184, KEYS_TAB_Y, "Gamepad", CL_PLColours_Parse("0xffffff"), 0.375f, !gamepad_active);
+		else if (gamepad_active)
+			M_PrintWhite(184, KEYS_TAB_Y, "Gamepad");
+		else
+			M_Print(184, KEYS_TAB_Y, "Gamepad");
+	}
+
+	x = 0;
+	y = keysmenu.y;
+	cols = 36;
+
+	// Get visible range
+	M_List_GetVisibleRange(&keysmenu.list, &firstvis, &numvis);
+
+	// Draw scroll indicators
+	if (keysmenu.list.scroll > 0)
+		M_DrawEllipsisBar(x, y - 8, cols);
+	if (keysmenu.list.scroll + keysmenu.list.viewsize < keysmenu.num_filtered)
+		M_DrawEllipsisBar(x, y + keysmenu.list.viewsize * 8, cols);
+
+	if (M_List_GetOverflow(&keysmenu.list) > 0)
+	{
+		M_List_DrawScrollbar(&keysmenu.list, keysmenu.x + keysmenu.cols * 8 - 8, keysmenu.y);
+	}
+
+	// Draw visible items
+	for (int i = 0; i < numvis; i++)
+	{
+		int list_index = firstvis + i;
+		if (list_index >= keysmenu.num_filtered)
+			break;
+
+		int actual_idx = keysmenu.filtered_indices[list_index];
+		qboolean is_selected = (list_index == keysmenu.list.cursor && bind_grab);
+
+		void (*print_fn)(int, int, const char*) = is_selected ? M_PrintWhite : M_Print;
+		print_fn(0, y, bindnames[actual_idx].desc);
+
+		int keys[3];
+		M_FindKeysForCommand(bindnames[actual_idx].cmd, keys);
+		if (list_index == keysmenu.list.cursor && bind_grab && keys[2] != -1)
+			keys[0] = -1;
+
+		int x_pos = 136;
+		if (keys[0] != -1)
+		{
+			const char* keyStr = Key_KeynumToFriendlyString(keys[0]);
+			print_fn(x_pos, y, keyStr);
+			x_pos += (strlen(keyStr) * 8);
+
+			for (int j = 1; j < 3 && keys[j] != -1; j++)
+			{
+				qboolean masked = !is_selected;
+				float alpha = 0.5f;
+				M_PrintRGBA(x_pos, y, ",", CL_PLColours_Parse("0xffffff"), alpha, masked);
+				x_pos += 8;  // Comma width
+				M_PrintRGBA(x_pos, y, " ", CL_PLColours_Parse("0xffffff"), alpha, masked);
+				x_pos += 8;  // Space width
+				keyStr = Key_KeynumToFriendlyString(keys[j]);
+				print_fn(x_pos, y, keyStr);
+				x_pos += (strlen(keyStr) * 8);
+			}
+		}
+		else
+		{
+			qboolean masked = !is_selected;
+			float alpha = masked ? 0.5f : 1.0f;
+			M_PrintRGBA(x_pos, y,
+				(bind_grab && list_index == keysmenu.list.cursor && Key_GetGamepadAltModifierState()) ? "Alt-???" : "???",
+				CL_PLColours_Parse("0xffffff"), alpha, masked);
+		}
+
+		if (list_index == keysmenu.list.cursor)
+		{
+			M_DrawCharacter(128, y, bind_grab ? '=' : 12 + ((int)(realtime * 4) & 1));
+		}
+		y += 8;
+	}
+
+	// Draw search box
+	if (keysmenu.search.len > 0)
+	{
+		M_DrawTextBox(16, 174, 32, 1);
+		M_PrintHighlight(24, 182, keysmenu.search.text,
+			keysmenu.search.text,
+			keysmenu.search.len);
+		int cursor_x = 24 + 8 * keysmenu.search.len;
+		if (keysmenu.num_filtered == 0)
+			M_DrawCharacter(cursor_x, 182, 11 ^ 128);
+		else
+			M_DrawCharacter(cursor_x, 182, 10 + ((int)(realtime * 4) & 1));
+	}
+	else
+	{
+		if (bind_grab)
+		{
+			hint = keysmenu.devicemask == KDM_GAMEPAD ?
+				va("Press new button, or %s to cancel", Key_KeynumToFriendlyString(K_START)) :
+				va("Press new key, or %s to cancel", Key_KeynumToFriendlyString(K_ESCAPE));
+		}
+		else if (keysmenu.devicemask == KDM_GAMEPAD)
+		{
+			hint = va("%s = change, %s = clear", Key_KeynumToFriendlyString(K_ABUTTON), Key_KeynumToFriendlyString(K_YBUTTON));
+		}
+		else
+		{
+			hint = va("%s = change, %s = clear", Key_KeynumToFriendlyString(K_ENTER), Key_KeynumToFriendlyString(K_BACKSPACE));
+		}
+
+		M_PrintWhite((320 - 8 * strlen(hint)) / 2, 182, hint);
+	}
+}
+
+void M_Keys_Key(int k)
+{
+	int x, y;
+	keydevicemask_t clickedmask = KDM_NONE;
+
+	if (keysmenu.scrollbar_grab)
+	{
+		switch (k)
+		{
+		case K_ESCAPE:
+		case K_BBUTTON:
+		case K_MOUSE4:
+		case K_MOUSE2:
+			keysmenu.scrollbar_grab = false;
+			break;
+		}
+		return;
+	}
+
+	if (k == K_MOUSE1)
+	{
+		clickedmask = M_Keys_GetTabAtPoint(m_mousex, m_mousey);
+		if (clickedmask != KDM_NONE)
+		{
+			if (clickedmask == KDM_GAMEPAD && !IN_HasGamepad())
+				return;
+
+			if (bind_grab)
+			{
+				bind_grab = false;
+				IN_UpdateGrabs();
+			}
+
+			if (clickedmask != keysmenu.devicemask)
+			{
+				S_LocalSound("misc/menu1.wav");
+				M_Keys_SetDeviceMask(clickedmask);
+			}
+			return;
+		}
+	}
+	
+	char    cmd[80];
+	if (bind_grab)
+	{   // defining a key
+		S_LocalSound("misc/menu1.wav");
+		if (k != K_ESCAPE && k != K_BBUTTON && k != '`')
+		{
+			int actual_idx = keysmenu.filtered_indices[keysmenu.list.cursor];
+			const char *command = bindnames[actual_idx].cmd;
+			int keys[3];
+
+			if (!(Key_GetDeviceMaskForKeynum(k) & keysmenu.devicemask))
+				return;
+			if (strcmp(command, "+altmodifier"))
+			{
+				if (Key_IsKeyGamepadAltModifier(k))
+					return;
+				if (Key_GetGamepadAltModifierState() && k >= K_LTHUMB && k <= K_TOUCHPAD)
+					k += K_LTHUMB_ALT - K_LTHUMB;
+			}
+
+			M_FindKeysForCommand(command, keys);
+			if (keys[2] != -1)
+				M_UnbindCommand(command);
+			sprintf(cmd, "in_bind %i \"%s\" \"%s\"\n", M_Keys_GetPrimaryBindmap(), Key_KeynumToString(k), command);
+			Cbuf_InsertText(cmd);
+		}
+		bind_grab = false;
+		IN_UpdateGrabs();
+		return;
+	}
+
+	if (k == K_TAB || k == K_LSHOULDER || k == K_RSHOULDER)
+	{
+		if (keysmenu.devicemask != KDM_GAMEPAD && !IN_HasGamepad())
+			return;
+		S_LocalSound("misc/menu1.wav");
+		M_Keys_SetDeviceMask((keysmenu.devicemask == KDM_GAMEPAD) ? KDM_KEYBOARD_AND_MOUSE : KDM_GAMEPAD);
+		return;
+	}
+
+	if (keydown[K_CTRL])
+	{
+		if ((k == 'u' || k == 'U') && keysmenu.search.len > 0)
+		{
+			// Clear entire search with Ctrl+U
+			keysmenu.search.len = 0;
+			keysmenu.search.text[0] = 0;
+			M_Keys_UpdateFilter();
+			return;
+		}
+		else if (k == K_BACKSPACE && keysmenu.search.len > 0)
+		{
+			// Delete previous word with Ctrl+Backspace
+			listsearch_t temp;
+			temp.len = keysmenu.search.len;
+			Q_strcpy(temp.text, keysmenu.search.text);
+			M_DeletePrevWord(&temp);
+			Q_strcpy(keysmenu.search.text, temp.text);
+			keysmenu.search.len = temp.len;
+			M_Keys_UpdateFilter();
+			return;
+		}
+	}
+
+	// Handle search functionality first
+	if (k >= 32 && k < 127) // Printable characters
+	{
+		if (keysmenu.search.len < keysmenu.search.maxlen)
+		{
+			keysmenu.search.text[keysmenu.search.len++] = k;
+			keysmenu.search.text[keysmenu.search.len] = 0;
+			M_Keys_UpdateFilter();
+			return;
+		}
+	}
+
+	if (k == K_BACKSPACE)
+	{
+		if (keysmenu.search.len > 0)
+		{
+			if (keydown[K_CTRL])
+			{
+				// Delete previous word instead of just one character
+				listsearch_t temp;
+				temp.len = keysmenu.search.len;
+				Q_strcpy(temp.text, keysmenu.search.text);
+				M_DeletePrevWord(&temp);
+				Q_strcpy(keysmenu.search.text, temp.text);
+				keysmenu.search.len = temp.len;
+			}
+			else
+			{
+				// Delete one character
+			keysmenu.search.text[--keysmenu.search.len] = 0;
+			}
+			M_Keys_UpdateFilter();
+			return;
+		}
+	}
+
+	if (M_List_Key(&keysmenu.list, k))
+		return;
+
+	switch (k)
+	{
+	case K_ESCAPE:
+		if (keysmenu.search.len > 0)
+		{
+			// Clear search but stay in menu
+			keysmenu.search.len = 0;
+			keysmenu.search.text[0] = 0;
+			M_Keys_UpdateFilter();
+			return;
+		}
+		// Fall through to exit menu if search is already empty
+	case K_BBUTTON:
+	case K_MOUSE4:
+	case K_MOUSE2:
+		M_Menu_Options_f();
+		break;
+
+	case K_ENTER:
+	case K_KP_ENTER:
+	case K_ABUTTON:
+	case K_MOUSE1:
+	{
+		if (keysmenu.num_filtered <= 0)
+			break;
+		x = m_mousex - keysmenu.x - (keysmenu.cols - 1) * 8;
+		y = m_mousey - keysmenu.y;
+		if (x < -8 || !M_List_UseScrollbar(&keysmenu.list, y))
+		{
+			// Handle normal click
+			S_LocalSound("misc/menu2.wav");
+			bind_grab = true;
+			M_List_AutoScroll(&keysmenu.list);
+			IN_UpdateGrabs();
+		}
+		else
+		{
+			keysmenu.scrollbar_grab = true;
+			M_Keys_Mousemove(m_mousex, m_mousey);
+		}
+		break;
+	}
+
+	case K_BACKSPACE:
+	case K_DEL:
+	case K_YBUTTON:
+		if (!keysmenu.search.len && keysmenu.num_filtered > 0)  // Only delete binding if not searching
+		{
+			S_LocalSound("misc/menu2.wav");
+			int actual_idx = keysmenu.filtered_indices[keysmenu.list.cursor];
+			M_UnbindCommand(bindnames[actual_idx].cmd);
+		}
+		break;
+	}
+}
+
+void M_Keys_Mousemove(int cx, int cy)
+{
+	cy -= keysmenu.y;
+
+	if (keysmenu.scrollbar_grab)
+	{
+		if (!keydown[K_MOUSE1])
+		{
+			keysmenu.scrollbar_grab = false;
+			return;
+		}
+		M_List_UseScrollbar(&keysmenu.list, cy);
+		// Note: no return, we also update the cursor
+	}
+
+	M_List_Mousemove(&keysmenu.list, cy);
+}
+
+/*
+==================
+Mouse Menu
+==================
+*/
+
+typedef const char* (*menu_search_gettext_fn)(int index);
+
+static int M_Menu_ClampCursorValue(int cursor, int total_items)
+{
+	if (total_items <= 0)
+		return 0;
+
+	if (cursor < 0 || cursor >= total_items)
+	{
+		cursor %= total_items;
+		if (cursor < 0)
+			cursor += total_items;
+	}
+
+	return cursor;
+}
+
+static qboolean M_Menu_SearchItemMatches(menu_search_gettext_fn get_item_text,
+	const char* search_text, int index)
+{
+	const char* itemtext = get_item_text(index);
+
+	return itemtext && q_strcasestr(itemtext, search_text);
+}
+
+static int M_Menu_UpdateSearchCursor(int total_items, int cursor,
+	int* filtered_count, menu_search_gettext_fn get_item_text,
+	const char* search_text, int search_len)
+{
+	int i;
+	int first_match = -1;
+	const qboolean has_search = search_len > 0;
+	qboolean current_matches;
+
+	cursor = M_Menu_ClampCursorValue(cursor, total_items);
+	current_matches = has_search &&
+		M_Menu_SearchItemMatches(get_item_text, search_text, cursor);
+
+	if (!has_search)
+	{
+		*filtered_count = total_items;
+		return cursor;
+	}
+
+	*filtered_count = 0;
+	for (i = 0; i < total_items; i++)
+	{
+		if (M_Menu_SearchItemMatches(get_item_text, search_text, i))
+		{
+			if (first_match < 0)
+				first_match = i;
+			(*filtered_count)++;
+		}
+	}
+
+	if (*filtered_count > 0 && !current_matches)
+		cursor = first_match;
+
+	return cursor;
+}
+
+static int M_Menu_MoveSearchCursor(int total_items, int filtered_count,
+	int cursor, int delta, menu_search_gettext_fn get_item_text,
+	const char* search_text, int search_len)
+{
+	int i;
+
+	cursor = M_Menu_ClampCursorValue(cursor, total_items);
+
+	if (search_len <= 0)
+	{
+		cursor += delta;
+		cursor %= total_items;
+		if (cursor < 0)
+			cursor += total_items;
+		return cursor;
+	}
+
+	if (filtered_count <= 0)
+		return cursor;
+
+	for (i = 0; i < total_items; i++)
+	{
+		cursor += delta;
+		cursor %= total_items;
+		if (cursor < 0)
+			cursor += total_items;
+
+		if (M_Menu_SearchItemMatches(get_item_text, search_text, cursor))
+			return cursor;
+	}
+
+	return cursor;
+}
+
+static size_t M_Menu_CommonPrefixLength(const char *a, const char *b)
+{
+	size_t i = 0;
+
+	while (a[i] && b[i] && q_tolower((unsigned char)a[i]) == q_tolower((unsigned char)b[i]))
+		++i;
+
+	return i;
+}
+
+static qboolean M_Menu_TabCompleteFileList(menu_textfield_t *field,
+	char *buffer, size_t buffer_size, filelist_item_t *list,
+	char *tab_partial, size_t tab_partial_size)
+{
+	const filelist_item_t *item;
+	const filelist_item_t *first_match = NULL;
+	const filelist_item_t *last_match = NULL;
+	const filelist_item_t *prev_match = NULL;
+	const filelist_item_t *current_match = NULL;
+	const filelist_item_t *next_match = NULL;
+	char prefix[MAXCMDLINE];
+	char completed[MAXCMDLINE];
+	const char *replacement = NULL;
+	size_t prefix_len, partial_len, common_len = 0;
+	int match_count = 0;
+	qboolean first_cycle = !tab_partial[0];
+
+	if (!buffer_size)
+		return false;
+
+	prefix_len = (size_t)CLAMP(0, field->cursor, (int)strlen(buffer));
+	if (prefix_len >= sizeof(prefix))
+		prefix_len = sizeof(prefix) - 1;
+
+	memcpy(prefix, buffer, prefix_len);
+	prefix[prefix_len] = '\0';
+
+	if (first_cycle)
+		q_strlcpy(tab_partial, prefix, tab_partial_size);
+
+	partial_len = strlen(tab_partial);
+
+	for (item = list; item; item = item->next)
+	{
+		if (partial_len && q_strncasecmp(item->name, tab_partial, partial_len) != 0)
+			continue;
+
+		if (!first_match)
+		{
+			first_match = item;
+			common_len = strlen(item->name);
+		}
+		else
+		{
+			common_len = q_min(common_len, M_Menu_CommonPrefixLength(first_match->name, item->name));
+		}
+
+		if (current_match && !next_match)
+			next_match = item;
+
+		if (!q_strcasecmp(item->name, prefix))
+			current_match = item;
+		else if (!current_match)
+			prev_match = item;
+
+		last_match = item;
+		++match_count;
+	}
+
+	if (!first_match)
+		return false;
+
+	if (first_cycle)
+	{
+		if (match_count == 1)
+		{
+			replacement = first_match->name;
+		}
+		else if (common_len > partial_len)
+		{
+			memcpy(completed, first_match->name, common_len);
+			completed[common_len] = '\0';
+			replacement = completed;
+		}
+		else
+		{
+			replacement = keydown[K_SHIFT] ? last_match->name : first_match->name;
+		}
+	}
+	else if (current_match)
+	{
+		replacement = keydown[K_SHIFT]
+			? (prev_match ? prev_match->name : last_match->name)
+			: (next_match ? next_match->name : first_match->name);
+	}
+	else
+	{
+		replacement = keydown[K_SHIFT] ? last_match->name : first_match->name;
+	}
+
+	q_strlcpy(completed, replacement, sizeof(completed));
+	q_strlcat(completed, buffer + prefix_len, sizeof(completed));
+
+	if (!strcmp(buffer, completed) && field->cursor == (int)strlen(replacement))
+		return false;
+
+	q_strlcpy(buffer, completed, buffer_size);
+	field->cursor = (int)strlen(replacement);
+	field->sel_start = -1;
+	M_TextField_ClampCursor(field);
+	return true;
+}
+
+/*
+=================
+M_Menu_TabCompleteNameHistory -- woods #namehistory
+
+Like M_Menu_TabCompleteFileList but walks namehistorylist and matches against
+the dequaked (plain ascii) form of each stored name via substring search
+(matching Con_Match / console behaviour), so the user can type any portion of
+a saved name — including one that contains quake special chars — and have the
+original name inserted with its colours preserved.
+=================
+*/
+static qboolean M_Menu_TabCompleteNameHistory(menu_textfield_t *field,
+	char *buffer, size_t buffer_size,
+	char *tab_partial, size_t tab_partial_size)
+{
+	extern char unfun[129];
+	const filelist_item_t *item;
+	const filelist_item_t *first_match = NULL;
+	const filelist_item_t *last_match = NULL;
+	const filelist_item_t *prev_match = NULL;
+	const filelist_item_t *current_match = NULL;
+	const filelist_item_t *next_match = NULL;
+	char prefix[MAXCMDLINE];
+	char unfun_prefix[MAXCMDLINE];
+	char unfun_partial[MAXCMDLINE];
+	char unfun_name[MAXCMDLINE];
+	const char *replacement = NULL;
+	size_t prefix_len;
+	size_t i;
+	qboolean first_cycle = !tab_partial[0];
+
+	if (!buffer_size)
+		return false;
+
+	prefix_len = (size_t)CLAMP(0, field->cursor, (int)strlen(buffer));
+	if (prefix_len >= sizeof(prefix))
+		prefix_len = sizeof(prefix) - 1;
+	memcpy(prefix, buffer, prefix_len);
+	prefix[prefix_len] = '\0';
+
+	if (first_cycle)
+		q_strlcpy(tab_partial, prefix, tab_partial_size);
+
+	/* dequake the saved partial for substring matching */
+	for (i = 0; tab_partial[i] && i < sizeof(unfun_partial) - 1; i++)
+		unfun_partial[i] = unfun[tab_partial[i] & 127];
+	unfun_partial[i] = '\0';
+
+	/* dequake the current buffer for "is this the current match?" check */
+	for (i = 0; prefix[i] && i < sizeof(unfun_prefix) - 1; i++)
+		unfun_prefix[i] = unfun[prefix[i] & 127];
+	unfun_prefix[i] = '\0';
+
+	for (item = namehistorylist; item; item = item->next)
+	{
+		for (i = 0; item->name[i] && i < sizeof(unfun_name) - 1; i++)
+			unfun_name[i] = unfun[item->name[i] & 127];
+		unfun_name[i] = '\0';
+
+		/* substring match -- matches Con_Match / console behaviour */
+		if (unfun_partial[0] && !q_strcasestr(unfun_name, unfun_partial))
+			continue;
+
+		if (!first_match)
+			first_match = item;
+
+		if (current_match && !next_match)
+			next_match = item;
+
+		if (!q_strcasecmp(unfun_name, unfun_prefix))
+			current_match = item;
+		else if (!current_match)
+			prev_match = item;
+
+		last_match = item;
+	}
+
+	if (!first_match)
+		return false;
+
+	/* always cycle through full names (no common-prefix shortcut —
+	   substring matches may appear at different offsets) */
+	if (first_cycle)
+	{
+		replacement = keydown[K_SHIFT] ? last_match->name : first_match->name;
+	}
+	else if (current_match)
+	{
+		replacement = keydown[K_SHIFT]
+			? (prev_match ? prev_match->name : last_match->name)
+			: (next_match ? next_match->name : first_match->name);
+	}
+	else
+	{
+		replacement = keydown[K_SHIFT] ? last_match->name : first_match->name;
+	}
+
+	if (!strcmp(buffer, replacement))
+		return false;
+
+	q_strlcpy(buffer, replacement, buffer_size);
+	field->cursor = (int)strlen(buffer);
+	field->sel_start = -1;
+	M_TextField_ClampCursor(field);
+	return true;
+}
+
+extern cvar_t cl_minpitch, cl_maxpitch;
+extern cvar_t scr_customcursor;
+
+#ifdef __APPLE__
+#define MACOS_X_ACCELERATION_HACK
+#endif
+
+#ifdef MACOS_X_ACCELERATION_HACK
+extern cvar_t in_disablemacosxmouseaccel;
+#endif
+
+static enum mouse_e
+{
+	MOUSE_SPEED,
+	MOUSE_INVERT,
+	MOUSE_ALWAYSMLOOK,
+	MOUSE_PITCHMODE,
+	MOUSE_CUSTOMCURSOR,
+#ifdef MACOS_X_ACCELERATION_HACK
+	MOUSE_ACCELERATION,
+#endif
+	MOUSE_COUNT
+} mouse_cursor;
+
+#define MOUSE_ITEMS (MOUSE_COUNT)
+int numberOfMouseItems = MOUSE_ITEMS;
+
+
+static void M_Mouse_SetPitchMode(qboolean netquake)
+{
+	if (netquake)
+	{
+		Cvar_SetValue("cl_minpitch", -69.99);
+		Cvar_SetValue("cl_maxpitch", 79.99);
+	}
+	else
+	{
+		Cvar_SetValue("cl_minpitch", -90);
+		Cvar_SetValue("cl_maxpitch", 90);
+	}
+}
+
+static struct
+{
+	int cursor;
+	struct {
+		char text[32];
+		int len;
+	} search;
+} mousemenu;
+
+static qboolean mouse_slider_grab;
+
+static const char* M_Mouse_GetItemText(int index)
+{
+	static char buffer[64];
+
+	switch (index)
+	{
+	case MOUSE_SPEED:
+		return "Mouse Speed";
+	case MOUSE_INVERT:
+		return "Invert Mouse";
+	case MOUSE_ALWAYSMLOOK:
+		return "Mouse Look";
+	case MOUSE_PITCHMODE:
+		return "Pitch Mode";
+	case MOUSE_CUSTOMCURSOR:
+		return "Custom Cursor";
+#ifdef MACOS_X_ACCELERATION_HACK
+	case MOUSE_ACCELERATION:
+		return "Acceleration";
+#endif
+	default:
+		q_snprintf(buffer, sizeof(buffer), "Unknown Item %d", index);
+		return buffer;
+	}
+}
+
+static void M_Mouse_UpdateSearch(void)
+{
+	mouse_cursor = (enum mouse_e)M_Menu_UpdateSearchCursor(
+		MOUSE_ITEMS, (int)mouse_cursor, &numberOfMouseItems,
+		M_Mouse_GetItemText, mousemenu.search.text, mousemenu.search.len);
+}
+
+static void M_Mouse_MoveCursor(int delta)
+{
+	mouse_cursor = (enum mouse_e)M_Menu_MoveSearchCursor(
+		MOUSE_ITEMS, numberOfMouseItems, (int)mouse_cursor, delta,
+		M_Mouse_GetItemText, mousemenu.search.text, mousemenu.search.len);
+}
+
+void M_Menu_Mouse_f(void)
+{
+	key_dest = key_menu;
+	m_state = m_mouse;
+	m_entersound = true;
+	mouse_cursor = 0;
+	mousemenu.cursor = 0;
+	mousemenu.search.len = 0;
+	mousemenu.search.text[0] = 0;
+	numberOfMouseItems = MOUSE_ITEMS;
+
+	IN_UpdateGrabs();
+}
+
+static void M_Mouse_AdjustSliders(int dir)
+{
+	float f;
+	S_LocalSound("misc/menu3.wav");
+
+	switch (mouse_cursor)
+	{
+	case MOUSE_SPEED:
+		f = sensitivity.value + dir * 0.1;
+		if (f > 20) f = 20;
+		else if (f < 1) f = 1;
+		Cvar_SetValue("sensitivity", f);
+		break;
+
+	case MOUSE_INVERT:
+		Cvar_SetValue("m_pitch", -m_pitch.value);
+		break;
+
+	case MOUSE_ALWAYSMLOOK:
+		if (in_mlook.state & 1)
+			Cbuf_AddText("-mlook");
+		else
+			Cbuf_AddText("+mlook");
+		break;
+
+	case MOUSE_PITCHMODE:
+		// Toggle between NetQuake and Quakespasm pitch modes
+		if (cl_maxpitch.value >= 89)  // If currently Quakespasm mode
+			M_Mouse_SetPitchMode(true);  // Switch to NetQuake
+		else
+			M_Mouse_SetPitchMode(false); // Switch to Quakespasm
+		break;
+	case MOUSE_CUSTOMCURSOR:
+		Cvar_SetValue("scr_customcursor", !scr_customcursor.value);
+		break;
+#ifdef MACOS_X_ACCELERATION_HACK
+	case MOUSE_ACCELERATION:
+		Cvar_SetValue("in_disablemacosxmouseaccel", !in_disablemacosxmouseaccel.value);
+		break;
+#endif
+	default:
+		break;
+	}
+}
+
+void M_Mouse_Draw(void)
+{
+	qpic_t* p;
+	float r;
+	enum mouse_e i;
+
+	mouse_cursor = (enum mouse_e)M_Menu_ClampCursorValue((int)mouse_cursor, MOUSE_ITEMS);
+
+	p = Draw_CachePic("gfx/p_option.lmp");
+	M_DrawPic((320 - p->width) / 2, 4, p);
+
+	const char* title = "Mouse Options";
+	M_PrintWhite((320 - 8 * strlen(title)) / 2, 32, title);
+
+	for (i = 0; i < MOUSE_ITEMS; i++)
+	{
+		int y = 48 + 8 * i;
+		const char* text = NULL;
+		const char* value = NULL;
+
+		switch (i)
+		{
+		case MOUSE_SPEED:
+			text = "     Sensitivity";
+			r = (sensitivity.value - 1) / 19;
+			M_DrawSlider(186, y, r, sensitivity.value, "%.1f");
+			break;
+
+		case MOUSE_INVERT:
+			text = "    Invert Mouse";
+			M_DrawCheckbox(178, y, m_pitch.value < 0);
+			break;
+
+		case MOUSE_ALWAYSMLOOK:
+			text = "      Mouse Look";
+			M_DrawCheckbox(178, y, in_mlook.state & 1);
+			break;
+
+		case MOUSE_PITCHMODE:
+			text = "      Pitch Mode";
+			// Check current pitch settings to determine mode
+			if (cl_maxpitch.value >= 89)
+				value = "qs (straight up/down)";
+			else
+				value = "traditional ";
+			M_Print(178, y, value);
+			break;
+		case MOUSE_CUSTOMCURSOR:
+			text = "   Custom Cursor";
+			M_DrawCheckbox(178, y, scr_customcursor.value);
+			break;
+#ifdef MACOS_X_ACCELERATION_HACK
+		case MOUSE_ACCELERATION:
+			text = "    Acceleration";
+			M_DrawCheckbox(178, y, !in_disablemacosxmouseaccel.value);
+			break;
+#endif
+		default:
+			break;
+		}
+
+		if (text)
+		{
+			if (mousemenu.search.len > 0 &&
+				q_strcasestr(text, mousemenu.search.text))
+			{
+				M_PrintHighlight(16, y, text,
+					mousemenu.search.text,
+					mousemenu.search.len);
+			}
+			else
+			{
+				M_Print(16, y, text);
+			}
+		}
+	}
+
+	// Draw cursor
+	M_DrawCharacter(168, 48 + mouse_cursor * 8, 12 + ((int)(realtime * 4) & 1));
+
+	// Draw search box if search is active
+	if (mousemenu.search.len > 0)
+	{
+		M_DrawTextBox(16, 170, 32, 1);
+		M_PrintHighlight(24, 178, mousemenu.search.text,
+			mousemenu.search.text,
+			mousemenu.search.len);
+		int cursor_x = 24 + 8 * mousemenu.search.len;
+		if (numberOfMouseItems == 0)
+			M_DrawCharacter(cursor_x, 178, 11 ^ 128);
+		else
+			M_DrawCharacter(cursor_x, 178, 10 + ((int)(realtime * 4) & 1));
+	}
+}
+
+void M_Mouse_Key(int k)
+{
+	// Handle slider grab release
+	if (!keydown[K_MOUSE1])
+		mouse_slider_grab = false;
+
+	if (mouse_slider_grab)
+	{
+		switch (k)
+		{
+		case K_ESCAPE:
+		case K_BBUTTON:
+		case K_MOUSE4:
+		case K_MOUSE2:
+			mouse_slider_grab = false;
+			break;
+		}
+		return;
+	}
+
+	// Handle search functionality first
+	if (k == K_ESCAPE)
+	{
+		if (mousemenu.search.len > 0)
+		{
+			mousemenu.search.len = 0;
+			mousemenu.search.text[0] = 0;
+			M_Mouse_UpdateSearch();
+			return;
+		}
+		M_Menu_Options_f();
+		return;
+	}
+	else if (k == K_BACKSPACE)
+	{
+		if (mousemenu.search.len > 0)
+		{
+			if (keydown[K_CTRL])
+			{
+				// Delete previous word
+				listsearch_t temp;
+				temp.len = mousemenu.search.len;
+				Q_strcpy(temp.text, mousemenu.search.text);
+				M_DeletePrevWord(&temp);
+				Q_strcpy(mousemenu.search.text, temp.text);
+				mousemenu.search.len = temp.len;
+			}
+			else
+			{
+				// Delete one character
+				mousemenu.search.text[--mousemenu.search.len] = 0;
+			}
+
+			M_Mouse_UpdateSearch();
+			return;
+		}
+	}
+	else if (k == 'u' || k == 'U')
+	{
+		if (keydown[K_CTRL] && mousemenu.search.len > 0)
+		{
+			mousemenu.search.len = 0;
+			mousemenu.search.text[0] = 0;
+			M_Mouse_UpdateSearch();
+			return;
+		}
+	}
+	else if (k >= 32 && k < 127)
+	{
+		if (mousemenu.search.len < sizeof(mousemenu.search.text) - 1)
+		{
+			mousemenu.search.text[mousemenu.search.len++] = k;
+			mousemenu.search.text[mousemenu.search.len] = 0;
+			M_Mouse_UpdateSearch();
+			return;
+		}
+	}
+
+	switch (k)
+	{
+	case K_ESCAPE:
+	case K_BBUTTON:
+	case K_MOUSE4:
+	case K_MOUSE2:
+		M_Menu_Options_f();
+		break;
+
+	case K_MOUSE1:
+		m_entersound = true;
+
+		// Check if click is in search box area
+		if (mousemenu.search.len > 0 && m_mousey >= 170)
+			break;
+
+		// Check if click is in valid menu area
+		if (m_mousey >= 48 && m_mousey < 48 + (MOUSE_ITEMS * 8))
+		{
+			mouse_cursor = (m_mousey - 48) / 8;
+
+			if (mouse_cursor == MOUSE_SPEED)
+			{
+				mouse_slider_grab = true;
+			}
+			else
+			{
+				M_Mouse_AdjustSliders(1);
+			}
+		}
+		break;
+
+	case K_ENTER:
+	case K_KP_ENTER:
+	case K_ABUTTON:
+		m_entersound = true;
+		M_Mouse_AdjustSliders(1);
+		break;
+
+	case K_UPARROW:
+		S_LocalSound("misc/menu1.wav");
+		M_Mouse_MoveCursor(-1);
+		break;
+
+	case K_DOWNARROW:
+		S_LocalSound("misc/menu1.wav");
+		M_Mouse_MoveCursor(1);
+		break;
+
+	case K_LEFTARROW:
+	case K_MWHEELDOWN:
+		M_Mouse_AdjustSliders(-1);
+		break;
+
+	case K_RIGHTARROW:
+	case K_MWHEELUP:
+		M_Mouse_AdjustSliders(1);
+		break;
+	}
+}
+
+void M_Mouse_Mousemove(int cx, int cy)
+{
+	if (mouse_slider_grab)
+	{
+		if (!keydown[K_MOUSE1])
+		{
+			mouse_slider_grab = false;
+			return;
+		}
+
+		float f;
+		switch (mouse_cursor)
+		{
+		case MOUSE_SPEED:
+			f = 1.f + M_MouseToSliderFraction(cx - 187) * 19.f;
+			Cvar_SetValue("sensitivity", f);
+			break;
+		case MOUSE_INVERT:
+		case MOUSE_ALWAYSMLOOK:
+		case MOUSE_PITCHMODE:
+		case MOUSE_COUNT:
+			break;
+		default:
+			break;
+		}
+		return;
+	}
+
+	// Don't process mouse movement if it's in the search box area
+	if (mousemenu.search.len > 0 && cy >= 170)
+		return;
+
+	// Calculate which menu item the mouse is over
+	int item = (cy - 48) / 8;
+
+	// Make sure the item is within valid range
+	if (item >= 0 && item < MOUSE_ITEMS)
+	{
+		// Update the cursor position
+		mouse_cursor = item;
+	}
+}
+
+/*
+==================
+Controller Menu
+==================
+*/
+
+extern cvar_t joy_device;
+extern cvar_t joy_deadzone_look, joy_deadzone_move, joy_deadzone_trigger;
+extern cvar_t joy_sensitivity_yaw, joy_sensitivity_pitch;
+extern cvar_t joy_invert, joy_exponent, joy_exponent_move, joy_swapmovelook;
+extern cvar_t joy_flick, joy_rumble;
+extern cvar_t gyro_enable, gyro_mode, gyro_turning_axis;
+extern cvar_t gyro_yawsensitivity, gyro_pitchsensitivity, gyro_noise_thresh;
+
+#define CONTROLLER_SLIDER_X		186
+#define CONTROLLER_CURSOR_X		168
+#define CONTROLLER_VALUE_X		178
+#define CONTROLLER_TITLE_Y		32
+#define CONTROLLER_TOP_Y		48
+#define CONTROLLER_MAX_VISIBLE	18
+#define MIN_JOY_SENS			60.f
+#define MAX_JOY_SENS			720.f
+#define MIN_JOY_EXPONENT		1.f
+#define MAX_JOY_EXPONENT		5.f
+#define MIN_STICK_DEADZONE		0.f
+#define MAX_STICK_DEADZONE		0.75f
+#define MIN_TRIGGER_DEADZONE	0.f
+#define MAX_TRIGGER_DEADZONE	0.75f
+#define MIN_RUMBLE				0.f
+#define MAX_RUMBLE				1.f
+#define MIN_GYRO_SENS			0.1f
+#define MAX_GYRO_SENS			20.f
+#define MIN_GYRO_NOISE_THRESH	0.f
+#define MAX_GYRO_NOISE_THRESH	5.f
+
+static enum controller_e
+{
+	CONTROLLER_DEVICE,
+	CONTROLLER_SPACE_DEVICE,
+	CONTROLLER_SENSX,
+	CONTROLLER_SENSY,
+	CONTROLLER_INVERT,
+	CONTROLLER_LOOK_STICK,
+	CONTROLLER_SPACE_LOOK_STICK,
+	CONTROLLER_EXPONENT_LOOK,
+	CONTROLLER_EXPONENT_MOVE,
+	CONTROLLER_DEADZONE_LOOK,
+	CONTROLLER_DEADZONE_MOVE,
+	CONTROLLER_TRIGGER_THRESH,
+	CONTROLLER_SPACE_BEFORE_RUMBLE,
+	CONTROLLER_RUMBLE,
+	CONTROLLER_SPACE_AFTER_RUMBLE,
+	CONTROLLER_GYRO_ENABLE,
+	CONTROLLER_FLICK_STICK,
+	CONTROLLER_GYRO_MODE,
+	CONTROLLER_GYRO_AXIS,
+	CONTROLLER_GYRO_SENSX,
+	CONTROLLER_GYRO_SENSY,
+	CONTROLLER_GYRO_NOISE,
+	CONTROLLER_CALIBRATE,
+	CONTROLLER_TEST,
+	CONTROLLER_COUNT
+} controller_cursor;
+
+#define CONTROLLER_ITEMS (CONTROLLER_COUNT)
+
+static qboolean controller_slider_grab;
+static int controller_scroll;
+
+static const char *M_Controller_GetItemText(int index)
+{
+	static char buffer[64];
+
+	switch (index)
+	{
+	case CONTROLLER_SPACE_DEVICE:
+	case CONTROLLER_SPACE_LOOK_STICK:
+	case CONTROLLER_SPACE_BEFORE_RUMBLE:
+	case CONTROLLER_SPACE_AFTER_RUMBLE:
+		return "";
+	case CONTROLLER_DEVICE:
+		return "          Device";
+	case CONTROLLER_SENSX:
+		return "       Yaw Speed";
+	case CONTROLLER_SENSY:
+		return "     Pitch Speed";
+	case CONTROLLER_INVERT:
+		return "    Invert Pitch";
+	case CONTROLLER_LOOK_STICK:
+		return "      Look Stick";
+	case CONTROLLER_EXPONENT_LOOK:
+		return "      Look Accel";
+	case CONTROLLER_EXPONENT_MOVE:
+		return "      Move Accel";
+	case CONTROLLER_DEADZONE_LOOK:
+		return "   Look Deadzone";
+	case CONTROLLER_DEADZONE_MOVE:
+		return "   Move Deadzone";
+	case CONTROLLER_TRIGGER_THRESH:
+		return "  Trigger Thresh";
+	case CONTROLLER_TEST:
+		return " Controller Test";
+	case CONTROLLER_RUMBLE:
+		return "       Vibration";
+	case CONTROLLER_GYRO_ENABLE:
+		return "            Gyro";
+	case CONTROLLER_FLICK_STICK:
+		return "     Flick Stick";
+	case CONTROLLER_GYRO_MODE:
+		return "     Gyro Button";
+	case CONTROLLER_GYRO_AXIS:
+		return "       Gyro Axis";
+	case CONTROLLER_GYRO_SENSX:
+		return "  Gyro Yaw Speed";
+	case CONTROLLER_GYRO_SENSY:
+		return "Gyro Pitch Speed";
+	case CONTROLLER_GYRO_NOISE:
+		return "      Gyro Noise";
+	case CONTROLLER_CALIBRATE:
+		return "       Calibrate";
+	default:
+		q_snprintf(buffer, sizeof(buffer), "Unknown Item %d", index);
+		return buffer;
+	}
+}
+
+static qboolean M_Controller_IsSlider(int option)
+{
+	switch (option)
+	{
+	case CONTROLLER_SENSX:
+	case CONTROLLER_SENSY:
+	case CONTROLLER_EXPONENT_LOOK:
+	case CONTROLLER_EXPONENT_MOVE:
+	case CONTROLLER_DEADZONE_LOOK:
+	case CONTROLLER_DEADZONE_MOVE:
+	case CONTROLLER_TRIGGER_THRESH:
+	case CONTROLLER_RUMBLE:
+	case CONTROLLER_GYRO_SENSX:
+	case CONTROLLER_GYRO_SENSY:
+	case CONTROLLER_GYRO_NOISE:
+		return true;
+	default:
+		return false;
+	}
+}
+
+static qboolean M_Controller_IsOptionVisible(int option)
+{
+	switch (option)
+	{
+	case CONTROLLER_CALIBRATE:
+		return IN_HasGyro();
+
+	default:
+		return true;
+	}
+}
+
+#define CONTROLLER_DIM_ALPHA	0.375f
+
+static int M_Controller_GetVisibleItemCount(void);
+static int M_Controller_CursorToOption(int cursor);
+
+static qboolean M_Controller_IsOptionEnabled(int option)
+{
+	if (option == CONTROLLER_SPACE_DEVICE || option == CONTROLLER_SPACE_LOOK_STICK
+		|| option == CONTROLLER_SPACE_BEFORE_RUMBLE || option == CONTROLLER_SPACE_AFTER_RUMBLE)
+		return false;
+	if (option == CONTROLLER_DEVICE)
+		return true;
+	if (!IN_HasGamepad())
+		return false;
+
+	switch (option)
+	{
+	case CONTROLLER_RUMBLE:
+		return IN_HasRumble();
+
+	case CONTROLLER_GYRO_ENABLE:
+	case CONTROLLER_FLICK_STICK:
+	case CONTROLLER_GYRO_MODE:
+	case CONTROLLER_GYRO_AXIS:
+	case CONTROLLER_GYRO_SENSX:
+	case CONTROLLER_GYRO_SENSY:
+	case CONTROLLER_GYRO_NOISE:
+		return IN_HasGyro();
+
+	default:
+		return true;
+	}
+}
+
+static void M_Controller_PrintMaybeDim(int x, int y, const char *str, qboolean enabled)
+{
+	if (enabled)
+		M_Print(x, y, str);
+	else
+		M_PrintRGBA(x, y, str, CL_PLColours_Parse("0xffffff"), CONTROLLER_DIM_ALPHA, true);
+}
+
+static void M_Controller_DrawSliderMaybeDim(int x, int y, float range, float value, const char *format, qboolean enabled)
+{
+	int i;
+	char buffer[6];
+	plcolour_t c;
+
+	if (enabled)
+	{
+		M_DrawSlider(x, y, range, value, format);
+		return;
+	}
+
+	c = CL_PLColours_Parse("0xffffff");
+	if (range < 0) range = 0;
+	if (range > 1) range = 1;
+	M_DrawCharacterRGBA(x - 8, y, 128, c, CONTROLLER_DIM_ALPHA);
+	for (i = 0; i < SLIDER_RANGE; i++)
+		M_DrawCharacterRGBA(x + i * 8, y, 129, c, CONTROLLER_DIM_ALPHA);
+	M_DrawCharacterRGBA(x + i * 8, y, 130, c, CONTROLLER_DIM_ALPHA);
+	M_DrawCharacterRGBA(x + (SLIDER_RANGE - 1) * 8 * range, y, 131, c, CONTROLLER_DIM_ALPHA);
+
+	q_snprintf(buffer, sizeof(buffer), format, value);
+	M_PrintRGBA(x + (SLIDER_RANGE + 2) * 8, y, buffer, c, CONTROLLER_DIM_ALPHA, true);
+}
+
+static void M_Controller_DrawCheckboxMaybeDim(int x, int y, int on, qboolean enabled)
+{
+	if (enabled)
+		M_DrawCheckbox(x, y, on);
+	else
+		M_PrintRGBA(x, y, on ? "on" : "off", CL_PLColours_Parse("0xffffff"), CONTROLLER_DIM_ALPHA, true);
+}
+
+static int M_Controller_StepCursorToEnabled(int start, int dir)
+{
+	int visible_count = M_Controller_GetVisibleItemCount();
+	int cursor = start;
+	int steps;
+
+	if (visible_count <= 0)
+		return 0;
+
+	for (steps = 0; steps < visible_count; steps++)
+	{
+		int option = M_Controller_CursorToOption(cursor);
+		if (M_Controller_IsOptionEnabled(option))
+			return cursor;
+		cursor += dir;
+		if (cursor < 0)
+			cursor = visible_count - 1;
+		else if (cursor >= visible_count)
+			cursor = 0;
+	}
+
+	return start;
+}
+
+static int M_Controller_GetVisibleItemCount(void)
+{
+	int count = 0;
+	int option;
+
+	for (option = 0; option < CONTROLLER_ITEMS; option++)
+	{
+		if (M_Controller_IsOptionVisible(option))
+			count++;
+	}
+
+	return count;
+}
+
+static int M_Controller_CursorToOption(int cursor)
+{
+	int option;
+	int visible_index = 0;
+
+	for (option = 0; option < CONTROLLER_ITEMS; option++)
+	{
+		if (!M_Controller_IsOptionVisible(option))
+			continue;
+		if (visible_index == cursor)
+			return option;
+		visible_index++;
+	}
+
+	return CONTROLLER_DEVICE;
+}
+
+static void M_Controller_ClampCursor(void)
+{
+	int visible_count = M_Controller_GetVisibleItemCount();
+	int max_visible = q_min(visible_count, CONTROLLER_MAX_VISIBLE);
+	int option;
+
+	if (visible_count <= 0)
+	{
+		controller_cursor = 0;
+		controller_scroll = 0;
+		return;
+	}
+
+	if (controller_cursor < 0)
+		controller_cursor = 0;
+	else if (controller_cursor >= visible_count)
+		controller_cursor = visible_count - 1;
+
+	option = M_Controller_CursorToOption(controller_cursor);
+	if (!M_Controller_IsOptionEnabled(option))
+		controller_cursor = M_Controller_StepCursorToEnabled(controller_cursor, 1);
+
+	if (controller_scroll < 0)
+		controller_scroll = 0;
+	else if (controller_scroll > visible_count - max_visible)
+		controller_scroll = visible_count - max_visible;
+}
+
+static void M_Controller_ScrollToCursor(void)
+{
+	int visible_count = M_Controller_GetVisibleItemCount();
+	int max_visible = q_min(visible_count, CONTROLLER_MAX_VISIBLE);
+
+	if (visible_count <= 0)
+		return;
+
+	if (controller_cursor < controller_scroll)
+		controller_scroll = controller_cursor;
+	else if (controller_cursor >= controller_scroll + max_visible)
+		controller_scroll = controller_cursor - max_visible + 1;
+}
+
+static void M_Controller_Ellipsize(char *dst, size_t dstsize, const char *src, int maxchars)
+{
+	if (!dstsize)
+		return;
+
+	if (!src)
+	{
+		dst[0] = '\0';
+		return;
+	}
+
+	if (maxchars < 4)
+	{
+		q_strlcpy(dst, src, dstsize);
+		if ((size_t)maxchars < dstsize)
+			dst[maxchars] = '\0';
+		return;
+	}
+
+	if ((size_t)(maxchars + 1) > dstsize)
+		maxchars = (int)dstsize - 1;
+
+	if ((int)strlen(src) <= maxchars)
+	{
+		q_strlcpy(dst, src, dstsize);
+		return;
+	}
+
+	memcpy(dst, src, maxchars - 3);
+	dst[maxchars - 3] = '.';
+	dst[maxchars - 2] = '.';
+	dst[maxchars - 1] = '.';
+	dst[maxchars] = '\0';
+}
+
+static const char *M_Controller_GetDeviceLabel(void)
+{
+	static char label[20];
+	const char *name = NULL;
+	int device = (int)joy_device.value;
+
+#if defined(USE_SDL2)
+	if (device < 0)
+		return "Disabled";
+
+	if (device < SDL_NumJoysticks())
+	{
+		if (!SDL_IsGameController(device))
+			return "Unsupported";
+
+		name = SDL_GameControllerNameForIndex(device);
+	}
+	else
+	{
+		name = IN_GetGamepadName();
+		if (!name)
+			return "Not connected";
+	}
+#else
+	name = IN_GetGamepadName();
+	if (!name)
+		return "Unavailable";
+#endif
+
+	if (!name || !*name)
+		name = "[Unknown gamepad]";
+
+	M_Controller_Ellipsize(label, sizeof(label), name, 16);
+	return label;
+}
+
+static const char *M_Controller_GetGyroModeLabel(void)
+{
+	switch ((int)gyro_mode.value)
+	{
+	case GYRO_BUTTON_ENABLES:
+		return "Hold To Use";
+	case GYRO_BUTTON_DISABLES:
+		return "Hold To Pause";
+	case GYRO_BUTTON_INVERTS_DIR:
+		return "Hold To Invert";
+	default:
+		return "Always On";
+	}
+}
+
+static const char *M_Controller_GetGyroAxisLabel(void)
+{
+	return gyro_turning_axis.value ? "Roll" : "Yaw";
+}
+
+static void M_Controller_CycleDevice(int dir)
+{
+#if defined(USE_SDL2)
+	int i, count, current, effective_current, first, last, next, prev, target;
+
+	count = SDL_NumJoysticks();
+	current = (int)joy_device.value;
+	effective_current = (current >= 0 && current < count && SDL_IsGameController(current)) ? current : -1;
+	first = last = next = prev = -1;
+	target = current;
+
+	for (i = 0; i < count; i++)
+	{
+		if (!SDL_IsGameController(i))
+			continue;
+
+		if (first == -1)
+			first = i;
+		last = i;
+
+		if (i < effective_current)
+			prev = i;
+		else if (i > effective_current && next == -1)
+			next = i;
+	}
+
+	if (first == -1)
+		return;
+
+	if (effective_current < 0)
+		target = dir > 0 ? first : last;
+	else if (dir > 0)
+		target = next != -1 ? next : -1;
+	else
+		target = prev != -1 ? prev : -1;
+
+	if (target != current)
+		Cvar_SetValueQuick(&joy_device, target);
+#else
+	(void)dir;
+#endif
+}
+
+static void M_Controller_AdjustSliders(int dir)
+{
+	int option;
+
+	M_Controller_ClampCursor();
+	option = M_Controller_CursorToOption(controller_cursor);
+
+	if (!M_Controller_IsOptionEnabled(option))
+		return;
+
+	S_LocalSound("misc/menu3.wav");
+
+	switch (option)
+	{
+	case CONTROLLER_DEVICE:
+		M_Controller_CycleDevice(dir);
+		break;
+
+	case CONTROLLER_SENSX:
+		Cvar_SetValueQuick(&joy_sensitivity_yaw, CLAMP(MIN_JOY_SENS, joy_sensitivity_yaw.value + dir * 10.f, MAX_JOY_SENS));
+		break;
+
+	case CONTROLLER_SENSY:
+		Cvar_SetValueQuick(&joy_sensitivity_pitch, CLAMP(MIN_JOY_SENS, joy_sensitivity_pitch.value + dir * 10.f, MAX_JOY_SENS));
+		break;
+
+	case CONTROLLER_INVERT:
+		Cvar_SetValueQuick(&joy_invert, !joy_invert.value);
+		break;
+
+	case CONTROLLER_LOOK_STICK:
+		Cvar_SetValueQuick(&joy_swapmovelook, !joy_swapmovelook.value);
+		break;
+
+	case CONTROLLER_EXPONENT_LOOK:
+		Cvar_SetValueQuick(&joy_exponent, CLAMP(MIN_JOY_EXPONENT, joy_exponent.value + dir * 0.5f, MAX_JOY_EXPONENT));
+		break;
+
+	case CONTROLLER_EXPONENT_MOVE:
+		Cvar_SetValueQuick(&joy_exponent_move, CLAMP(MIN_JOY_EXPONENT, joy_exponent_move.value + dir * 0.5f, MAX_JOY_EXPONENT));
+		break;
+
+	case CONTROLLER_DEADZONE_LOOK:
+		Cvar_SetValueQuick(&joy_deadzone_look, CLAMP(MIN_STICK_DEADZONE, joy_deadzone_look.value + dir * 0.05f, MAX_STICK_DEADZONE));
+		break;
+
+	case CONTROLLER_DEADZONE_MOVE:
+		Cvar_SetValueQuick(&joy_deadzone_move, CLAMP(MIN_STICK_DEADZONE, joy_deadzone_move.value + dir * 0.05f, MAX_STICK_DEADZONE));
+		break;
+
+	case CONTROLLER_TRIGGER_THRESH:
+		Cvar_SetValueQuick(&joy_deadzone_trigger, CLAMP(MIN_TRIGGER_DEADZONE, joy_deadzone_trigger.value + dir * 0.05f, MAX_TRIGGER_DEADZONE));
+		break;
+
+	case CONTROLLER_TEST:
+		M_Menu_Controller_Test_f();
+		break;
+
+	case CONTROLLER_RUMBLE:
+		Cvar_SetValueQuick(&joy_rumble, CLAMP(MIN_RUMBLE, joy_rumble.value + dir * 0.05f, MAX_RUMBLE));
+		break;
+
+	case CONTROLLER_GYRO_ENABLE:
+		Cvar_SetValueQuick(&gyro_enable, !gyro_enable.value);
+		break;
+
+	case CONTROLLER_FLICK_STICK:
+		Cvar_SetValueQuick(&joy_flick, !joy_flick.value);
+		break;
+
+	case CONTROLLER_GYRO_MODE:
+		Cvar_SetValueQuick(&gyro_mode, ((int)gyro_mode.value + GYRO_MODE_COUNT + dir) % GYRO_MODE_COUNT);
+		break;
+
+	case CONTROLLER_GYRO_AXIS:
+		Cvar_SetValueQuick(&gyro_turning_axis, !gyro_turning_axis.value);
+		break;
+
+	case CONTROLLER_GYRO_SENSX:
+		Cvar_SetValueQuick(&gyro_yawsensitivity, CLAMP(MIN_GYRO_SENS, gyro_yawsensitivity.value + dir * 0.1f, MAX_GYRO_SENS));
+		break;
+
+	case CONTROLLER_GYRO_SENSY:
+		Cvar_SetValueQuick(&gyro_pitchsensitivity, CLAMP(MIN_GYRO_SENS, gyro_pitchsensitivity.value + dir * 0.1f, MAX_GYRO_SENS));
+		break;
+
+	case CONTROLLER_GYRO_NOISE:
+		Cvar_SetValueQuick(&gyro_noise_thresh, CLAMP(MIN_GYRO_NOISE_THRESH, gyro_noise_thresh.value + dir * 0.1f, MAX_GYRO_NOISE_THRESH));
+		break;
+
+	case CONTROLLER_CALIBRATE:
+		if (IN_HasGyro())
+			M_Menu_Calibration_f();
+		break;
+
+	default:
+		break;
+	}
+}
+
+static qboolean M_Controller_SetSliderValue(int option, float frac)
+{
+	frac = CLAMP(0.f, frac, 1.f);
+
+	switch (option)
+	{
+	case CONTROLLER_SENSX:
+		Cvar_SetValueQuick(&joy_sensitivity_yaw, MIN_JOY_SENS + frac * (MAX_JOY_SENS - MIN_JOY_SENS));
+		return true;
+
+	case CONTROLLER_SENSY:
+		Cvar_SetValueQuick(&joy_sensitivity_pitch, MIN_JOY_SENS + frac * (MAX_JOY_SENS - MIN_JOY_SENS));
+		return true;
+
+	case CONTROLLER_EXPONENT_LOOK:
+		Cvar_SetValueQuick(&joy_exponent, MIN_JOY_EXPONENT + frac * (MAX_JOY_EXPONENT - MIN_JOY_EXPONENT));
+		return true;
+
+	case CONTROLLER_EXPONENT_MOVE:
+		Cvar_SetValueQuick(&joy_exponent_move, MIN_JOY_EXPONENT + frac * (MAX_JOY_EXPONENT - MIN_JOY_EXPONENT));
+		return true;
+
+	case CONTROLLER_DEADZONE_LOOK:
+		Cvar_SetValueQuick(&joy_deadzone_look, MIN_STICK_DEADZONE + frac * (MAX_STICK_DEADZONE - MIN_STICK_DEADZONE));
+		return true;
+
+	case CONTROLLER_DEADZONE_MOVE:
+		Cvar_SetValueQuick(&joy_deadzone_move, MIN_STICK_DEADZONE + frac * (MAX_STICK_DEADZONE - MIN_STICK_DEADZONE));
+		return true;
+
+	case CONTROLLER_TRIGGER_THRESH:
+		Cvar_SetValueQuick(&joy_deadzone_trigger, MIN_TRIGGER_DEADZONE + frac * (MAX_TRIGGER_DEADZONE - MIN_TRIGGER_DEADZONE));
+		return true;
+
+	case CONTROLLER_RUMBLE:
+		Cvar_SetValueQuick(&joy_rumble, MIN_RUMBLE + frac * (MAX_RUMBLE - MIN_RUMBLE));
+		return true;
+
+	case CONTROLLER_GYRO_SENSX:
+		Cvar_SetValueQuick(&gyro_yawsensitivity, MIN_GYRO_SENS + frac * (MAX_GYRO_SENS - MIN_GYRO_SENS));
+		return true;
+
+	case CONTROLLER_GYRO_SENSY:
+		Cvar_SetValueQuick(&gyro_pitchsensitivity, MIN_GYRO_SENS + frac * (MAX_GYRO_SENS - MIN_GYRO_SENS));
+		return true;
+
+	case CONTROLLER_GYRO_NOISE:
+		Cvar_SetValueQuick(&gyro_noise_thresh, MIN_GYRO_NOISE_THRESH + frac * (MAX_GYRO_NOISE_THRESH - MIN_GYRO_NOISE_THRESH));
+		return true;
+
+	default:
+		return false;
+	}
+}
+
+static enum calibration_e
+{
+	CALIBRATION_INTRO_TEXT,
+	CALIBRATION_IN_PROGRESS,
+	CALIBRATION_FINISHED,
+} calibration_state;
+
+static double calibration_finished_delay;
+
+static void M_Calibration_Update(void)
+{
+	switch (calibration_state)
+	{
+	case CALIBRATION_IN_PROGRESS:
+		if (!IN_IsCalibratingGyro())
+			calibration_state = CALIBRATION_FINISHED;
+		break;
+
+	case CALIBRATION_FINISHED:
+		calibration_finished_delay -= host_frametime;
+		if (calibration_finished_delay < 0.0)
+			M_Menu_Controller_f();
+		break;
+
+	default:
+		break;
+	}
+}
+
+void M_Menu_Calibration_f(void)
+{
+	key_dest = key_menu;
+	m_state = m_calibration;
+	m_entersound = true;
+	calibration_state = CALIBRATION_INTRO_TEXT;
+	calibration_finished_delay = 1.0;
+
+	IN_UpdateGrabs();
+}
+
+void M_Calibration_Draw(void)
+{
+	char anim[16];
+	int i, progress;
+	int y = 72;
+	qpic_t *p;
+
+	p = Draw_CachePic("gfx/p_option.lmp");
+	M_DrawPic((320 - p->width) / 2, 4, p);
+	M_PrintWhite((320 - 8 * strlen("Gyro Calibration")) / 2, 32, "Gyro Calibration");
+
+	switch (calibration_state)
+	{
+	case CALIBRATION_INTRO_TEXT:
+		M_PrintWhite((320 - 8 * strlen("Place the controller flat")) / 2, y - 8, "Place the controller flat");
+		M_PrintWhite((320 - 8 * strlen("on a stable surface")) / 2, y, "on a stable surface");
+		M_DrawTextBox(160 - 5 * 8, y + 24, 8, 1);
+		M_DrawArrowCursor(160 - 6 * 8, y + 32);
+		M_PrintWhite((320 - 8 * strlen("Continue")) / 2, y + 32, "Continue");
+		break;
+
+	case CALIBRATION_IN_PROGRESS:
+		progress = (int)(IN_GetGyroCalibrationProgress() * (Q_COUNTOF(anim) - 1) + 0.5f);
+		for (i = 0; i < (int)Q_COUNTOF(anim) - 1; i++)
+			anim[i] = i < progress ? (char)('.' | 128) : '.';
+		anim[i] = '\0';
+		M_PrintWhite((320 - 8 * strlen("Calibrating, please wait...")) / 2, y, "Calibrating, please wait...");
+		M_PrintWhite((320 - 8 * strlen(anim)) / 2, y + 16, anim);
+		break;
+
+	case CALIBRATION_FINISHED:
+		M_PrintWhite((320 - 8 * strlen("Calibration complete!")) / 2, y, "Calibration complete!");
+		break;
+	}
+}
+
+void M_Calibration_Key(int key)
+{
+	if (calibration_state != CALIBRATION_INTRO_TEXT)
+		return;
+
+	switch (key)
+	{
+	case K_ENTER:
+	case K_KP_ENTER:
+	case K_ABUTTON:
+	case K_MOUSE1:
+		calibration_state = CALIBRATION_IN_PROGRESS;
+		S_LocalSound("misc/menu2.wav");
+		IN_StartGyroCalibration();
+		break;
+
+	case K_ESCAPE:
+	case K_BBUTTON:
+	case K_MOUSE4:
+	case K_MOUSE2:
+		M_Menu_Controller_f();
+		break;
+	}
+}
+
+void M_Menu_Controller_f(void)
+{
+	key_dest = key_menu;
+	m_state = m_controller;
+	m_entersound = true;
+	controller_cursor = 0;
+	controller_scroll = 0;
+	controller_slider_grab = false;
+	M_Controller_ClampCursor();
+
+	IN_UpdateGrabs();
+}
+
+void M_Controller_Draw(void)
+{
+	qpic_t *p;
+	float r;
+	int i;
+	int visible_index;
+	int max_visible;
+	int visible_count;
+	const char *title = "Controller Options";
+
+	M_Controller_ClampCursor();
+	visible_count = M_Controller_GetVisibleItemCount();
+	max_visible = q_min(visible_count, CONTROLLER_MAX_VISIBLE);
+
+	p = Draw_CachePic("gfx/p_option.lmp");
+	M_DrawPic((320 - p->width) / 2, 4, p);
+	M_PrintWhite((320 - 8 * strlen(title)) / 2, CONTROLLER_TITLE_Y, title);
+
+	visible_index = 0;
+	for (i = 0; i < CONTROLLER_ITEMS; i++)
+	{
+		int y;
+		int display_index;
+		qboolean enabled;
+
+		if (!M_Controller_IsOptionVisible(i))
+			continue;
+
+		display_index = visible_index - controller_scroll;
+		visible_index++;
+		if (display_index < 0 || display_index >= CONTROLLER_MAX_VISIBLE)
+			continue;
+
+		y = CONTROLLER_TOP_Y + 8 * display_index;
+		enabled = M_Controller_IsOptionEnabled(i);
+
+		M_Controller_PrintMaybeDim(16, y, M_Controller_GetItemText(i), enabled);
+
+		switch (i)
+		{
+		case CONTROLLER_DEVICE:
+			M_Controller_PrintMaybeDim(CONTROLLER_VALUE_X, y, M_Controller_GetDeviceLabel(), enabled);
+			break;
+
+		case CONTROLLER_SENSX:
+			r = (joy_sensitivity_yaw.value - MIN_JOY_SENS) / (MAX_JOY_SENS - MIN_JOY_SENS);
+			M_Controller_DrawSliderMaybeDim(CONTROLLER_SLIDER_X, y, r, joy_sensitivity_yaw.value, "%.0f", enabled);
+			break;
+
+		case CONTROLLER_SENSY:
+			r = (joy_sensitivity_pitch.value - MIN_JOY_SENS) / (MAX_JOY_SENS - MIN_JOY_SENS);
+			M_Controller_DrawSliderMaybeDim(CONTROLLER_SLIDER_X, y, r, joy_sensitivity_pitch.value, "%.0f", enabled);
+			break;
+
+		case CONTROLLER_INVERT:
+			M_Controller_DrawCheckboxMaybeDim(CONTROLLER_VALUE_X, y, joy_invert.value, enabled);
+			break;
+
+		case CONTROLLER_LOOK_STICK:
+			M_Controller_PrintMaybeDim(CONTROLLER_VALUE_X, y, joy_swapmovelook.value ? "Left" : "Right", enabled);
+			break;
+
+		case CONTROLLER_EXPONENT_LOOK:
+			r = (joy_exponent.value - MIN_JOY_EXPONENT) / (MAX_JOY_EXPONENT - MIN_JOY_EXPONENT);
+			M_Controller_DrawSliderMaybeDim(CONTROLLER_SLIDER_X, y, r, joy_exponent.value, "%.1f", enabled);
+			break;
+
+		case CONTROLLER_EXPONENT_MOVE:
+			r = (joy_exponent_move.value - MIN_JOY_EXPONENT) / (MAX_JOY_EXPONENT - MIN_JOY_EXPONENT);
+			M_Controller_DrawSliderMaybeDim(CONTROLLER_SLIDER_X, y, r, joy_exponent_move.value, "%.1f", enabled);
+			break;
+
+		case CONTROLLER_DEADZONE_LOOK:
+			r = (joy_deadzone_look.value - MIN_STICK_DEADZONE) / (MAX_STICK_DEADZONE - MIN_STICK_DEADZONE);
+			M_Controller_DrawSliderMaybeDim(CONTROLLER_SLIDER_X, y, r, joy_deadzone_look.value * 100.f, "%.0f%%", enabled);
+			break;
+
+		case CONTROLLER_DEADZONE_MOVE:
+			r = (joy_deadzone_move.value - MIN_STICK_DEADZONE) / (MAX_STICK_DEADZONE - MIN_STICK_DEADZONE);
+			M_Controller_DrawSliderMaybeDim(CONTROLLER_SLIDER_X, y, r, joy_deadzone_move.value * 100.f, "%.0f%%", enabled);
+			break;
+
+		case CONTROLLER_TRIGGER_THRESH:
+			r = (joy_deadzone_trigger.value - MIN_TRIGGER_DEADZONE) / (MAX_TRIGGER_DEADZONE - MIN_TRIGGER_DEADZONE);
+			M_Controller_DrawSliderMaybeDim(CONTROLLER_SLIDER_X, y, r, joy_deadzone_trigger.value * 100.f, "%.0f%%", enabled);
+			break;
+
+		case CONTROLLER_TEST:
+			M_Controller_PrintMaybeDim(CONTROLLER_VALUE_X, y, "...", enabled);
+			break;
+
+		case CONTROLLER_RUMBLE:
+			if (!IN_HasRumble())
+			{
+				M_Controller_PrintMaybeDim(CONTROLLER_VALUE_X, y, "Unavailable", false);
+			}
+			else
+			{
+				r = (joy_rumble.value - MIN_RUMBLE) / (MAX_RUMBLE - MIN_RUMBLE);
+				M_Controller_DrawSliderMaybeDim(CONTROLLER_SLIDER_X, y, r, joy_rumble.value * 100.f, "%.0f%%", enabled);
+			}
+			break;
+
+		case CONTROLLER_GYRO_ENABLE:
+			if (!IN_HasGyro())
+				M_Controller_PrintMaybeDim(CONTROLLER_VALUE_X, y, "Unavailable", false);
+			else
+				M_Controller_DrawCheckboxMaybeDim(CONTROLLER_VALUE_X, y, gyro_enable.value, enabled);
+			break;
+
+		case CONTROLLER_FLICK_STICK:
+			M_Controller_DrawCheckboxMaybeDim(CONTROLLER_VALUE_X, y, joy_flick.value, enabled);
+			break;
+
+		case CONTROLLER_GYRO_MODE:
+			M_Controller_PrintMaybeDim(CONTROLLER_VALUE_X, y, M_Controller_GetGyroModeLabel(), enabled);
+			break;
+
+		case CONTROLLER_GYRO_AXIS:
+			M_Controller_PrintMaybeDim(CONTROLLER_VALUE_X, y, M_Controller_GetGyroAxisLabel(), enabled);
+			break;
+
+		case CONTROLLER_GYRO_SENSX:
+			r = (gyro_yawsensitivity.value - MIN_GYRO_SENS) / (MAX_GYRO_SENS - MIN_GYRO_SENS);
+			M_Controller_DrawSliderMaybeDim(CONTROLLER_SLIDER_X, y, r, gyro_yawsensitivity.value, "%.1f", enabled);
+			break;
+
+		case CONTROLLER_GYRO_SENSY:
+			r = (gyro_pitchsensitivity.value - MIN_GYRO_SENS) / (MAX_GYRO_SENS - MIN_GYRO_SENS);
+			M_Controller_DrawSliderMaybeDim(CONTROLLER_SLIDER_X, y, r, gyro_pitchsensitivity.value, "%.1f", enabled);
+			break;
+
+		case CONTROLLER_GYRO_NOISE:
+			r = (gyro_noise_thresh.value - MIN_GYRO_NOISE_THRESH) / (MAX_GYRO_NOISE_THRESH - MIN_GYRO_NOISE_THRESH);
+			M_Controller_DrawSliderMaybeDim(CONTROLLER_SLIDER_X, y, r, gyro_noise_thresh.value, "%.1f", enabled);
+			break;
+
+		case CONTROLLER_CALIBRATE:
+			M_Controller_PrintMaybeDim(CONTROLLER_VALUE_X, y, IN_HasGyro() ? "Start" : "Unavailable", enabled);
+			break;
+
+		default:
+			break;
+		}
+	}
+
+	if (visible_count > max_visible)
+	{
+		if (controller_scroll > 0)
+			M_DrawEllipsisBar(16, CONTROLLER_TOP_Y - 8, 36);
+		if (controller_scroll + max_visible < visible_count)
+			M_DrawEllipsisBar(16, CONTROLLER_TOP_Y + max_visible * 8, 36);
+	}
+
+	if (controller_cursor >= controller_scroll && controller_cursor < controller_scroll + max_visible)
+		M_DrawCharacter(CONTROLLER_CURSOR_X, CONTROLLER_TOP_Y + (controller_cursor - controller_scroll) * 8, 12 + ((int)(realtime * 4) & 1));
+}
+
+void M_Controller_Key(int k)
+{
+	int option;
+	int visible_count;
+
+	M_Controller_ClampCursor();
+
+	if (!keydown[K_MOUSE1])
+		controller_slider_grab = false;
+
+	if (controller_slider_grab)
+	{
+		switch (k)
+		{
+		case K_ESCAPE:
+		case K_BBUTTON:
+		case K_MOUSE4:
+		case K_MOUSE2:
+			controller_slider_grab = false;
+			break;
+		}
+		return;
+	}
+
+	switch (k)
+	{
+	case K_ESCAPE:
+	case K_BBUTTON:
+	case K_MOUSE4:
+	case K_MOUSE2:
+		M_Menu_Options_f();
+		break;
+
+	case K_MOUSE1:
+		m_entersound = true;
+		visible_count = M_Controller_GetVisibleItemCount();
+		visible_count = q_min(visible_count, CONTROLLER_MAX_VISIBLE);
+		if (m_mousey >= CONTROLLER_TOP_Y && m_mousey < CONTROLLER_TOP_Y + visible_count * 8)
+		{
+			int clicked = controller_scroll + (m_mousey - CONTROLLER_TOP_Y) / 8;
+			int clicked_option;
+
+			if (clicked < 0)
+				clicked = 0;
+			else if (clicked >= M_Controller_GetVisibleItemCount())
+				clicked = M_Controller_GetVisibleItemCount() - 1;
+
+			clicked_option = M_Controller_CursorToOption(clicked);
+			if (!M_Controller_IsOptionEnabled(clicked_option))
+				break;
+
+			controller_cursor = clicked;
+			M_Controller_ClampCursor();
+			option = M_Controller_CursorToOption(controller_cursor);
+
+			if (M_Controller_IsSlider(option) &&
+				m_mousex >= CONTROLLER_SLIDER_X &&
+				m_mousex <= CONTROLLER_SLIDER_X + SLIDER_RANGE * 8)
+			{
+				controller_slider_grab = true;
+				M_Controller_SetSliderValue(option, M_MouseToSliderFraction(m_mousex - CONTROLLER_SLIDER_X));
+				S_LocalSound("misc/menu3.wav");
+			}
+			else
+			{
+				M_Controller_AdjustSliders(1);
+			}
+		}
+		break;
+
+	case K_ENTER:
+	case K_KP_ENTER:
+	case K_ABUTTON:
+		m_entersound = true;
+		M_Controller_AdjustSliders(1);
+		break;
+
+	case K_UPARROW:
+		visible_count = M_Controller_GetVisibleItemCount();
+		S_LocalSound("misc/menu1.wav");
+		controller_cursor--;
+		if (controller_cursor < 0)
+			controller_cursor = visible_count - 1;
+		controller_cursor = M_Controller_StepCursorToEnabled(controller_cursor, -1);
+		M_Controller_ClampCursor();
+		M_Controller_ScrollToCursor();
+		break;
+
+	case K_DOWNARROW:
+		visible_count = M_Controller_GetVisibleItemCount();
+		S_LocalSound("misc/menu1.wav");
+		controller_cursor++;
+		if (controller_cursor >= visible_count)
+			controller_cursor = 0;
+		controller_cursor = M_Controller_StepCursorToEnabled(controller_cursor, 1);
+		M_Controller_ClampCursor();
+		M_Controller_ScrollToCursor();
+		break;
+
+	case K_LEFTARROW:
+		M_Controller_AdjustSliders(-1);
+		break;
+
+	case K_MWHEELUP:
+		option = M_Controller_CursorToOption(controller_cursor);
+		if (option == CONTROLLER_TEST)
+			break;
+		visible_count = M_Controller_GetVisibleItemCount();
+		if (visible_count > CONTROLLER_MAX_VISIBLE)
+		{
+			if (controller_scroll > 0)
+			{
+				S_LocalSound("misc/menu1.wav");
+				controller_scroll--;
+			}
+		}
+		else
+		{
+			M_Controller_AdjustSliders(1);
+		}
+		break;
+
+	case K_MWHEELDOWN:
+		option = M_Controller_CursorToOption(controller_cursor);
+		if (option == CONTROLLER_TEST)
+			break;
+		visible_count = M_Controller_GetVisibleItemCount();
+		if (visible_count > CONTROLLER_MAX_VISIBLE)
+		{
+			int max_visible = q_min(visible_count, CONTROLLER_MAX_VISIBLE);
+			if (controller_scroll + max_visible < visible_count)
+			{
+				S_LocalSound("misc/menu1.wav");
+				controller_scroll++;
+			}
+		}
+		else
+		{
+			M_Controller_AdjustSliders(-1);
+		}
+		break;
+
+	case K_RIGHTARROW:
+		M_Controller_AdjustSliders(1);
+		break;
+
+	case 't':
+	case 'T':
+		if (IN_HasGamepad())
+			M_Menu_Controller_Test_f();
+		break;
+	}
+}
+
+void M_Controller_Mousemove(int cx, int cy)
+{
+	int visible_count;
+
+	M_Controller_ClampCursor();
+
+	if (controller_slider_grab)
+	{
+		int option = M_Controller_CursorToOption(controller_cursor);
+
+		if (!keydown[K_MOUSE1])
+		{
+			controller_slider_grab = false;
+			return;
+		}
+
+		M_Controller_SetSliderValue(option, M_MouseToSliderFraction(cx - CONTROLLER_SLIDER_X));
+		return;
+	}
+
+	visible_count = M_Controller_GetVisibleItemCount();
+	visible_count = q_min(visible_count, CONTROLLER_MAX_VISIBLE);
+	if (cy >= CONTROLLER_TOP_Y && cy < CONTROLLER_TOP_Y + visible_count * 8)
+	{
+		int hovered = controller_scroll + (cy - CONTROLLER_TOP_Y) / 8;
+		int total = M_Controller_GetVisibleItemCount();
+		int hovered_option;
+
+		if (hovered < 0)
+			hovered = 0;
+		else if (hovered >= total)
+			hovered = total - 1;
+
+		hovered_option = M_Controller_CursorToOption(hovered);
+		if (M_Controller_IsOptionEnabled(hovered_option))
+		{
+			controller_cursor = hovered;
+			M_Controller_ClampCursor();
+		}
+	}
+}
+
+/*
+==================
+Controller Test Menu
+==================
+*/
+
+#define M_CONTROLLER_TEST_PLACEHOLDER_ALPHA	0.55f
+#define M_CONTROLLER_TEST_DIM_ALPHA		0.45f
+
+static enum m_state_e controller_test_prev = m_controller;
+
+static int M_Controller_Test_AxisPixel(float value, float scale)
+{
+	value = CLAMP(-1.f, value, 1.f);
+	return (int)(value * scale + (value < 0.f ? -0.5f : 0.5f));
+}
+
+static void M_Controller_Test_DimPrint(int x, int y, const char *s, qboolean dim)
+{
+	if (dim)
+		M_PrintRGBA(x, y, s, CL_PLColours_Parse("0xffffff"), M_CONTROLLER_TEST_DIM_ALPHA, true);
+	else
+		M_Print(x, y, s);
+}
+
+static void M_Controller_Test_DrawStickBox(int x, int y, const char *label, float ax, float ay, float deadzone, qboolean dim)
+{
+	int marker_x, marker_y;
+	qboolean active;
+	plcolour_t white = CL_PLColours_Parse("0xffffff");
+
+	M_Controller_Test_DimPrint(x + 16, y - 8, label, dim);
+
+	if (dim)
+		M_DrawTextBox_WithAlpha(x, y, 5, 4, M_CONTROLLER_TEST_DIM_ALPHA);
+	else
+		M_DrawTextBox(x, y, 5, 4);
+
+	marker_x = x + 32 + M_Controller_Test_AxisPixel(ax, 16.f);
+	marker_y = y + 24 + M_Controller_Test_AxisPixel(ay, 16.f);
+	active = !dim && (ax * ax + ay * ay) > (deadzone * deadzone);
+
+	if (active)
+		M_PrintWhite(marker_x, marker_y, "+");
+	else
+		M_PrintRGBA(marker_x, marker_y, "+", white, dim ? 0.25f : 0.35f, true);
+}
+
+static const char *M_Controller_Test_GamepadTypeLabel(void)
+{
+	switch (IN_GetGamepadType())
+	{
+	case GAMEPAD_XBOX:
+		return "Xbox";
+	case GAMEPAD_PLAYSTATION:
+		return "PlayStation";
+	case GAMEPAD_NINTENDO:
+		return "Nintendo";
+	default:
+		return "Unknown";
+	}
+}
+
+static void M_Controller_Test_AppendHeldKey(char *dst, size_t dstsize, int keynum, const char *label)
+{
+	const char *name;
+
+	if (!keydown[keynum])
+		return;
+
+	name = label ? label : Key_KeynumToFriendlyString(keynum);
+	if (!name || !*name)
+		return;
+
+	if (strlen(dst) + strlen(name) + 2 >= dstsize)
+	{
+		if (!strstr(dst, "..."))
+			q_strlcat(dst, " ...", dstsize);
+		return;
+	}
+
+	q_strlcat(dst, " ", dstsize);
+	q_strlcat(dst, name, dstsize);
+}
+
+static void M_Controller_Test_DrawHeldButtons(int y, qboolean dim)
+{
+	char face[38];
+	char other[38];
+
+	q_strlcpy(face, "Face:", sizeof(face));
+	M_Controller_Test_AppendHeldKey(face, sizeof(face), K_ABUTTON, NULL);
+	M_Controller_Test_AppendHeldKey(face, sizeof(face), K_BBUTTON, NULL);
+	M_Controller_Test_AppendHeldKey(face, sizeof(face), K_XBUTTON, NULL);
+	M_Controller_Test_AppendHeldKey(face, sizeof(face), K_YBUTTON, NULL);
+	M_Controller_Test_AppendHeldKey(face, sizeof(face), K_ABUTTON_ALT, NULL);
+	M_Controller_Test_AppendHeldKey(face, sizeof(face), K_BBUTTON_ALT, NULL);
+	M_Controller_Test_AppendHeldKey(face, sizeof(face), K_XBUTTON_ALT, NULL);
+	M_Controller_Test_AppendHeldKey(face, sizeof(face), K_YBUTTON_ALT, NULL);
+	if (!strcmp(face, "Face:"))
+		q_strlcat(face, " -", sizeof(face));
+
+	q_strlcpy(other, "Other:", sizeof(other));
+	M_Controller_Test_AppendHeldKey(other, sizeof(other), K_DPAD_UP, "Up");
+	M_Controller_Test_AppendHeldKey(other, sizeof(other), K_DPAD_DOWN, "Down");
+	M_Controller_Test_AppendHeldKey(other, sizeof(other), K_DPAD_LEFT, "Left");
+	M_Controller_Test_AppendHeldKey(other, sizeof(other), K_DPAD_RIGHT, "Right");
+	M_Controller_Test_AppendHeldKey(other, sizeof(other), K_LSHOULDER, NULL);
+	M_Controller_Test_AppendHeldKey(other, sizeof(other), K_RSHOULDER, NULL);
+	M_Controller_Test_AppendHeldKey(other, sizeof(other), K_LTRIGGER, NULL);
+	M_Controller_Test_AppendHeldKey(other, sizeof(other), K_RTRIGGER, NULL);
+	M_Controller_Test_AppendHeldKey(other, sizeof(other), K_LTHUMB, NULL);
+	M_Controller_Test_AppendHeldKey(other, sizeof(other), K_RTHUMB, NULL);
+	M_Controller_Test_AppendHeldKey(other, sizeof(other), K_ESCAPE, Key_KeynumToFriendlyString(K_START));
+	M_Controller_Test_AppendHeldKey(other, sizeof(other), K_TAB, Key_KeynumToFriendlyString(K_BACK));
+	M_Controller_Test_AppendHeldKey(other, sizeof(other), K_MISC1, NULL);
+	M_Controller_Test_AppendHeldKey(other, sizeof(other), K_PADDLE1, NULL);
+	M_Controller_Test_AppendHeldKey(other, sizeof(other), K_PADDLE2, NULL);
+	M_Controller_Test_AppendHeldKey(other, sizeof(other), K_PADDLE3, NULL);
+	M_Controller_Test_AppendHeldKey(other, sizeof(other), K_PADDLE4, NULL);
+	M_Controller_Test_AppendHeldKey(other, sizeof(other), K_TOUCHPAD, NULL);
+	if (!strcmp(other, "Other:"))
+		q_strlcat(other, " -", sizeof(other));
+
+	M_Controller_Test_DimPrint(16, y, face, dim);
+	M_Controller_Test_DimPrint(16, y + 8, other, dim);
+}
+
+static void M_Controller_Test_DrawHintLetter(int x, int y, const char *s, qboolean dim)
+{
+	if (dim)
+		M_PrintRGBA(x, y, s, CL_PLColours_Parse("0xffffff"), M_CONTROLLER_TEST_DIM_ALPHA, true);
+	else
+		M_PrintWhite(x, y, s);
+}
+
+static void M_Controller_Test_DrawHints(int y, qboolean dim)
+{
+	qboolean show_rumble, show_gyro;
+	int w, x;
+
+	if (dim)
+	{
+		show_rumble = true;
+		show_gyro = true;
+	}
+	else
+	{
+		show_rumble = IN_HasRumble();
+		show_gyro = IN_HasGyro();
+	}
+
+	w = 0;
+	if (show_rumble) w += 8;			// "A Rumble"
+	if (show_gyro) w += (show_rumble ? 2 : 0) + 11;	// "  X Calibrate"
+	if (!w) return;
+
+	x = (320 - 8 * w) / 2;
+	if (show_rumble)
+	{
+		M_Controller_Test_DrawHintLetter(x, y, "A", dim);
+		M_Controller_Test_DimPrint(x + 8, y, " Rumble", dim);
+		x += 8 * 8;
+	}
+	if (show_gyro)
+	{
+		if (show_rumble)
+			x += 16;
+		M_Controller_Test_DrawHintLetter(x, y, "X", dim);
+		M_Controller_Test_DimPrint(x + 8, y, " Calibrate", dim);
+	}
+}
+
+static void M_Controller_Test_DrawStatusValue(int x, int y, const char *value, qboolean present, qboolean warn)
+{
+	if (!present)
+		M_PrintRGBA(x, y, value, CL_PLColours_Parse("0xffffff"), M_CONTROLLER_TEST_PLACEHOLDER_ALPHA, true);
+	else if (warn)
+		M_PrintRGBA(x, y, value, CL_PLColours_Parse("0xffcc44"), 1.f, true);
+	else
+		M_PrintWhite(x, y, value);
+}
+
+static void M_Controller_Test_DrawStatusValueRA(int end_x, int y, const char *value, qboolean present, qboolean warn)
+{
+	int x = end_x - 8 * (int)strlen(value);
+	M_Controller_Test_DrawStatusValue(x, y, value, present, warn);
+}
+
+void M_Menu_Controller_Test_f(void)
+{
+	if (m_state != m_controller_test && m_state != m_none)
+		controller_test_prev = m_state;
+	else
+		controller_test_prev = m_controller;
+
+	key_dest = key_menu;
+	m_state = m_controller_test;
+	m_entersound = true;
+
+	IN_UpdateGrabs();
+}
+
+static void M_Controller_Test_Back(void)
+{
+	if (controller_test_prev == m_options)
+		M_Menu_Options_f();
+	else
+		M_Menu_Controller_f();
+}
+
+void M_Controller_Test_Draw(void)
+{
+	qpic_t *p;
+	float movex, movey, lookx, looky, trigleft, trigright;
+	float gyro, r;
+	char value[32];
+	const char *title = "Controller Test";
+	qboolean has_pad = IN_HasGamepad();
+	qboolean dim = !has_pad;
+
+	IN_GetRawMoveAxis(&movex, &movey);
+	IN_GetRawLookAxis(&lookx, &looky);
+	IN_GetRawTriggerAxis(&trigleft, &trigright);
+
+	p = Draw_CachePic("gfx/p_option.lmp");
+	M_DrawPic((320 - p->width) / 2, 4, p);
+	M_PrintWhite((320 - 8 * strlen(title)) / 2, 32, title);
+
+	{
+		const char *device_label = M_Controller_GetDeviceLabel();
+
+		M_Print(16, 48, "Device");
+		M_Controller_Test_DrawStatusValue(72, 48, device_label, true, false);
+
+		M_Print(16, 56, "Type");
+		M_Controller_Test_DrawStatusValueRA(152, 56, has_pad ? M_Controller_Test_GamepadTypeLabel() : "--", has_pad, false);
+
+		M_Print(160, 56, "Rumble");
+		M_Controller_Test_DrawStatusValueRA(240, 56, has_pad ? (IN_HasRumble() ? "Yes" : "No") : "--", has_pad && IN_HasRumble(), false);
+
+		M_Print(248, 56, "Gyro");
+		M_Controller_Test_DrawStatusValueRA(312, 56, has_pad ? (IN_HasGyro() ? "Yes" : "No") : "--", has_pad && IN_HasGyro(), false);
+	}
+
+	M_Controller_Test_DrawStickBox(24, 72, "Move", movex, movey, joy_deadzone_move.value, dim);
+	M_Controller_Test_DrawStickBox(112, 72, "Look", lookx, looky, joy_deadzone_look.value, dim);
+
+	q_snprintf(value, sizeof(value), "X%+.1f Y%+.1f", movex, movey);
+	M_Controller_Test_DimPrint(56 - 4 * (int)strlen(value), 120, value, dim);
+	q_snprintf(value, sizeof(value), "X%+.1f Y%+.1f", lookx, looky);
+	M_Controller_Test_DimPrint(144 - 4 * (int)strlen(value), 120, value, dim);
+
+	{
+		qboolean lt_active = !dim && trigleft  > joy_deadzone_trigger.value;
+		qboolean rt_active = !dim && trigright > joy_deadzone_trigger.value;
+
+		if (lt_active) M_PrintWhite(40, 136, "Left Trigger");
+		else           M_Controller_Test_DimPrint(40, 136, "Left Trigger", dim);
+		M_Controller_DrawSliderMaybeDim(176, 136, trigleft,  trigleft  * 100.f, "%.0f%%", !dim);
+
+		if (rt_active) M_PrintWhite(40, 144, "Right Trigger");
+		else           M_Controller_Test_DimPrint(40, 144, "Right Trigger", dim);
+		M_Controller_DrawSliderMaybeDim(176, 144, trigright, trigright * 100.f, "%.0f%%", !dim);
+	}
+
+	if (IN_HasGyro())
+	{
+		qboolean gyro_active;
+		gyro = IN_GetRawGyroMagnitude();
+		r = CLAMP(0.f, gyro / 180.f, 1.f);
+		gyro_active = gyro > gyro_noise_thresh.value;
+		if (gyro_active) M_PrintWhite(40, 152, "Gyro");
+		else             M_Controller_Test_DimPrint(40, 152, "Gyro", dim);
+		M_Controller_DrawSliderMaybeDim(176, 152, r, gyro, "%.0f", !dim);
+	}
+	else
+	{
+		M_Controller_Test_DimPrint(40, 152, "Gyro", dim);
+		M_Controller_Test_DimPrint(176, 152, "Unavailable", dim);
+	}
+
+	M_Controller_Test_DrawHeldButtons(168, dim);
+	M_Controller_Test_DrawHints(184, dim);
+}
+
+void M_Controller_Test_Key(int key)
+{
+	switch (key)
+	{
+	case K_ENTER:
+	case K_KP_ENTER:
+	case K_ABUTTON:
+		if (!IN_HasGamepad())
+		{
+			S_LocalSound("misc/menu2.wav");
+			M_Menu_Controller_f();
+		}
+		else if (IN_HasRumble())
+		{
+			S_LocalSound("misc/menu3.wav");
+			IN_TestRumble();
+		}
+		else
+		{
+			S_LocalSound("misc/menu1.wav");
+		}
+		break;
+
+	case K_XBUTTON:
+	case 'c':
+	case 'C':
+		if (IN_HasGyro())
+		{
+			M_Menu_Calibration_f();
+		}
+		else
+		{
+			S_LocalSound("misc/menu1.wav");
+		}
+		break;
+
+	case K_ESCAPE:
+	case K_BBUTTON:
+	case K_MOUSE4:
+	case K_MOUSE2:
+		M_Controller_Test_Back();
+		break;
+	}
+}
+
+/*
+==================
+Graphics Menu
+==================
+*/
+
+extern cvar_t r_particles, gl_load24bit, r_replacemodels, r_lerpmodels, r_lerpmove, r_scale, r_outline,
+vid_gamma, vid_contrast, vid_fsaa, r_particledesc, gl_loadlitfiles, r_rocketlight, r_explosionlight,
+gl_powerupshells, gl_caustics;
+
+static enum graphics_e
+{
+	GRAPHICS_BRIGHTNESS,
+	GRAPHICS_CONTRAST,
+	GRAPHICS_FILTERING,
+	GRAPHICS_ANTIALIASING,
+	GRAPHICS_EXTERNALTEX,
+	GRAPHICS_REPLACEMENTMODELS,
+	GRAPHICS_ROCKETLIGHT,     // Added
+	GRAPHICS_EXPLOSIONLIGHT,  // Added
+	GRAPHICS_MODELLERP,
+	GRAPHICS_RENDERSCALE,
+	GRAPHICS_CLASSICPARTICLES,
+	GRAPHICS_CUSTOMPARTICLES,    // Added
+	GRAPHICS_COLOREDLIGHTING,    // Added
+	GRAPHICS_ALIASSHADOW,
+	GRAPHICS_BRUSHSHADOW,
+	GRAPHICS_MODELOUTLINES,
+	GRAPHICS_POWERUPSHELLS,
+	GRAPHICS_WATERCAUSTICS,
+	GRAPHICS_SKY,
+	GRAPHICS_COUNT
+} graphics_cursor;
+
+#define GRAPHICS_ITEMS (GRAPHICS_COUNT)
+int numberOfGraphicsItems = GRAPHICS_ITEMS;
+
+static struct
+{
+	int cursor;
+	struct {
+		char text[32];
+		int len;
+	} search;
+} graphicsmenu;
+
+static const char* M_Graphics_GetItemText(int index)
+{
+	static char buffer[64];
+
+	switch (index)
+	{
+	case GRAPHICS_BRIGHTNESS:
+		return "Brightness";
+	case GRAPHICS_CONTRAST:
+		return "Contrast";
+	case GRAPHICS_FILTERING:
+		return "Texture Filtering";
+	case GRAPHICS_ANTIALIASING:
+		return "Screen Anti-Aliasing";
+	case GRAPHICS_EXTERNALTEX:
+		return "External Textures";
+	case GRAPHICS_REPLACEMENTMODELS:
+		return "Custom Models";
+	case GRAPHICS_ROCKETLIGHT:
+		return "Rocket Light";
+	case GRAPHICS_EXPLOSIONLIGHT:
+		return "Explosion Light";
+	case GRAPHICS_MODELLERP:
+		return "Smooth Model Anims";
+	case GRAPHICS_RENDERSCALE:
+		return "Render Scale";
+	case GRAPHICS_CLASSICPARTICLES:
+		return "Classic Particles";
+	case GRAPHICS_ALIASSHADOW:
+		return "Shadows";
+	case GRAPHICS_BRUSHSHADOW:
+		return "Brush Shadows";
+	case GRAPHICS_CUSTOMPARTICLES:
+		return "Custom Particles";
+	case GRAPHICS_COLOREDLIGHTING:
+		return "Colored Lighting";
+	case GRAPHICS_MODELOUTLINES:
+		return "Model Outlines";
+	case GRAPHICS_POWERUPSHELLS:
+		return "Powerup Shells";
+	case GRAPHICS_WATERCAUSTICS:
+		return "Water Caustics";
+	case GRAPHICS_SKY:
+		return "Sky";
+	default:
+		q_snprintf(buffer, sizeof(buffer), "Unknown Item %d", index);
+		return buffer;
+	}
+}
+
+static void M_Graphics_ClampCursor(void)
+{
+	int cursor = (int)graphics_cursor;
+
+	if (cursor < 0 || cursor >= GRAPHICS_ITEMS)
+	{
+		cursor %= GRAPHICS_ITEMS;
+		if (cursor < 0)
+			cursor += GRAPHICS_ITEMS;
+		graphics_cursor = (enum graphics_e)cursor;
+	}
+}
+
+static qboolean M_Graphics_ItemMatchesSearch(int index)
+{
+	const char* itemtext = M_Graphics_GetItemText(index);
+
+	return itemtext && q_strcasestr(itemtext, graphicsmenu.search.text);
+}
+
+static void M_Graphics_UpdateSearch(void)
+{
+	int i;
+	int first_match = -1;
+	const qboolean has_search = graphicsmenu.search.len > 0;
+	const qboolean current_matches = has_search &&
+		M_Graphics_ItemMatchesSearch((int)graphics_cursor);
+
+	M_Graphics_ClampCursor();
+
+	if (!has_search)
+	{
+		numberOfGraphicsItems = GRAPHICS_ITEMS;
+		return;
+	}
+
+	numberOfGraphicsItems = 0;
+	for (i = 0; i < GRAPHICS_ITEMS; i++)
+	{
+		if (M_Graphics_ItemMatchesSearch(i))
+		{
+			if (first_match < 0)
+				first_match = i;
+			numberOfGraphicsItems++;
+		}
+	}
+
+	if (numberOfGraphicsItems > 0 && !current_matches)
+		graphics_cursor = (enum graphics_e)first_match;
+}
+
+static void M_Graphics_MoveCursor(int delta)
+{
+	int cursor;
+	int i;
+
+	M_Graphics_ClampCursor();
+
+	if (graphicsmenu.search.len <= 0)
+	{
+		cursor = (int)graphics_cursor + delta;
+		cursor %= GRAPHICS_ITEMS;
+		if (cursor < 0)
+			cursor += GRAPHICS_ITEMS;
+		graphics_cursor = (enum graphics_e)cursor;
+		return;
+	}
+
+	if (numberOfGraphicsItems <= 0)
+		return;
+
+	cursor = (int)graphics_cursor;
+	for (i = 0; i < GRAPHICS_ITEMS; i++)
+	{
+		cursor += delta;
+		cursor %= GRAPHICS_ITEMS;
+		if (cursor < 0)
+			cursor += GRAPHICS_ITEMS;
+
+		if (M_Graphics_ItemMatchesSearch(cursor))
+		{
+			graphics_cursor = (enum graphics_e)cursor;
+			return;
+		}
+	}
+}
+
+void M_Menu_Graphics_f(void)
+{
+	key_dest = key_menu;
+	m_state = m_graphics;
+	m_entersound = true;
+	graphics_cursor = 0;
+	graphicsmenu.cursor = 0;
+	graphicsmenu.search.len = 0;
+	graphicsmenu.search.text[0] = 0;
+	numberOfGraphicsItems = GRAPHICS_ITEMS;
+
+	IN_UpdateGrabs();
+}
+
+static void M_Graphics_AdjustSliders(int dir)
+{
+	int m;
+	float f;
+	S_LocalSound("misc/menu3.wav");
+
+	switch (graphics_cursor)
+	{
+		case GRAPHICS_BRIGHTNESS:
+			f = vid_gamma.value - dir * 0.05f;
+			if (f < 0.5)    f = 0.5;
+			else if (f > 1) f = 1;
+			Cvar_SetValue("gamma", f);
+			break;
+
+		case GRAPHICS_CONTRAST:
+			f = vid_contrast.value + dir * 0.1f;
+			if (f < 1)    f = 1;
+			else if (f > 2) f = 2;
+			Cvar_SetValue("contrast", f);
+			break;
+
+		case GRAPHICS_FILTERING:
+			m = TexMgr_GetTextureMode() + dir;
+			while (m == 3 || (m > 4 && m < 8) || (m > 8 && m < 16))
+				m += dir;
+			if (m < 0)
+				m = 16;
+			else if (m > 16)
+				m = 0;
+			if (m == 0)
+			{
+				Cvar_Set("gl_texturemode", "nll");
+				Cvar_Set("gl_texture_anisotropy", "1");
+			}
+			else
+			{
+				Cvar_Set("gl_texturemode", "GL_LINEAR_MIPMAP_LINEAR");
+				Cvar_SetValue("gl_texture_anisotropy", m);
+			}
+			break;
+
+		case GRAPHICS_ANTIALIASING:
+		{
+			static const int aa_values[] = { 0, 2, 4, 6, 8, 16 };
+			int current = vid_fsaa.value;
+			int current_index = 0;
+
+			// Find current index
+			for (int i = 0; i < 6; i++) {
+				if (aa_values[i] == current) {
+					current_index = i;
+					break;
+				}
+			}
+
+			// Adjust index
+			current_index += dir;
+			if (current_index < 0) current_index = 5;
+			if (current_index > 5) current_index = 0;
+
+			Cvar_SetValue("vid_fsaa", aa_values[current_index]);
+		}
+		break;
+
+		default:
+			break;
+
+	case GRAPHICS_EXTERNALTEX:
+		Cvar_SetValueQuick(&gl_load24bit, !gl_load24bit.value);
+		Cbuf_AddText("flush\n");
+		break;
+
+	case GRAPHICS_REPLACEMENTMODELS:
+		Cvar_SetQuick(&r_replacemodels, *r_replacemodels.string ? "" : "iqm md5mesh md3");
+		Cbuf_AddText("flush\n");
+		break;
+
+	case GRAPHICS_ROCKETLIGHT:
+	{
+		float f = r_rocketlight.value + dir;
+		f = CLAMP(0, f, 100);
+		Cvar_SetValue("r_rocketlight", f);
+	}
+	break;
+
+	case GRAPHICS_EXPLOSIONLIGHT:
+	{
+		float f = r_explosionlight.value + dir;
+		f = CLAMP(0, f, 100);
+		Cvar_SetValue("r_explosionlight", f);
+	}
+	break;
+
+	case GRAPHICS_MODELLERP:
+		if (r_lerpmodels.value || r_lerpmove.value)
+		{
+			Cvar_SetValueQuick(&r_lerpmodels, 0);
+			Cvar_SetValueQuick(&r_lerpmove, 0);
+		}
+		else
+		{
+			Cvar_SetValueQuick(&r_lerpmodels, 1);
+			Cvar_SetValueQuick(&r_lerpmove, 1);
+		}
+		break;
+
+	case GRAPHICS_RENDERSCALE:
+		if (dir > 0) {
+			m = r_scale.value + 1;
+			if (m > 4) m = 1;
+		}
+		else {
+			m = r_scale.value - 1;
+			if (m < 1) m = 4;
+		}
+		Cvar_SetValueQuick(&r_scale, m);
+		break;
+
+	case GRAPHICS_CLASSICPARTICLES:
+		Cvar_SetValueQuick(&r_particles, (r_particles.value == 1) ? 2 : 1);
+		break;
+
+	case GRAPHICS_ALIASSHADOW:
+		f = r_shadows.value + dir * 0.1f;
+		f = CLAMP(0, f, 1);
+		Cvar_SetValue("r_shadows", f);
+		break;
+
+	case GRAPHICS_BRUSHSHADOW:
+		Cvar_SetValue("r_shadows_bmodels", !r_shadows_bmodels.value);
+		break;
+
+	case GRAPHICS_CUSTOMPARTICLES:
+		if (Q_strcmp(r_particledesc.string, "qssm") == 0)
+			Cvar_Set("r_particledesc", "qssmc");
+		else if (Q_strcmp(r_particledesc.string, "qssmc") == 0)
+			Cvar_Set("r_particledesc", "classic");
+		else
+			Cvar_Set("r_particledesc", "qssm");
+		break;
+
+	case GRAPHICS_COLOREDLIGHTING:
+		Cvar_SetValue("gl_loadlitfiles", !gl_loadlitfiles.value);
+		break;
+
+	case GRAPHICS_MODELOUTLINES:
+		f = r_outline.value + dir;
+		f = CLAMP(0, f, 5);
+		Cvar_SetValue("r_outline", f);
+		break;
+
+	case GRAPHICS_POWERUPSHELLS:
+	{
+		int value = gl_powerupshells.value + dir;
+		if (value < 0) value = 2;
+		if (value > 2) value = 0;
+		Cvar_SetValue("gl_powerupshells", value);
+		break;
+	}
+
+	case GRAPHICS_WATERCAUSTICS:
+	{
+		float f_wc = gl_caustics.value + dir * 0.1f; // Slider 0-100% maps to value 0-10
+		f_wc = CLAMP(0, f_wc, 10);
+		Cvar_SetValue("gl_caustics", f_wc);
+		break;
+	}
+	break;
+
+	case GRAPHICS_SKY:
+		M_Menu_Sky_f();
+		break;
+	}
+}
+
+void M_Graphics_Draw(void)
+{
+	qpic_t* p;
+	enum graphics_e i;
+	float r;
+	int m;
+
+	M_Graphics_ClampCursor();
+
+	p = Draw_CachePic("gfx/p_option.lmp");
+	M_DrawPic((320 - p->width) / 2, 4, p);
+
+	const char* title = "Graphics Options";
+	M_PrintWhite((320 - 8 * strlen(title)) / 2, 32, title);
+
+	for (i = 0; i < GRAPHICS_ITEMS; i++)
+	{
+		int y = 48 + 8 * i;
+		const char* text = NULL;
+		const char* value = NULL;
+
+		switch (i)
+		{
+		case GRAPHICS_BRIGHTNESS:
+			text = "        Brightness";
+			r = (1.0 - vid_gamma.value) / 0.5;
+			M_DrawSlider(186, y, r, 10.f * r, "%.0f");
+			break;
+
+		case GRAPHICS_CONTRAST:
+			text = "          Contrast";
+			r = vid_contrast.value - 1.0;
+			M_DrawSlider(186, y, r, 10.f * r, "%.0f");
+			break;
+		
+		case GRAPHICS_FILTERING:
+			text = " Texture Filtering";
+			m = TexMgr_GetTextureMode();
+			switch (m)
+			{
+			case 0: value = "nearest"; break;
+			case 1: value = "linear"; break;
+			default: value = va("aniso %i", m); break;
+			}
+			M_Print(178, y, value);
+			break;
+
+		case GRAPHICS_ANTIALIASING:
+			text = "     Anti-Aliasing";
+			if (vid_fsaa.value == 0)
+				value = "off";
+			else
+				value = va("%ix", (int)vid_fsaa.value);
+			M_Print(178, y, value);
+			break;
+
+		case GRAPHICS_EXTERNALTEX:
+			text = " External Textures";
+			M_DrawCheckbox(178, y, !!gl_load24bit.value);
+			break;
+
+		case GRAPHICS_REPLACEMENTMODELS:
+			text = "     Custom Models";
+			M_DrawCheckbox(178, y, !!*r_replacemodels.string);
+			break;
+
+		case GRAPHICS_ROCKETLIGHT:
+			text = "      Rocket Light";
+			r = r_rocketlight.value / 100.0;
+			M_DrawSlider(186, y, r, r_rocketlight.value, "%.0f%%");
+			break;
+
+		case GRAPHICS_EXPLOSIONLIGHT:
+			text = "   Explosion Light";
+			r = r_explosionlight.value / 100.0;
+			M_DrawSlider(186, y, r, r_explosionlight.value, "%.0f%%");
+			break;
+
+		case GRAPHICS_MODELLERP:
+			text = "Smooth Model Anims";
+			M_DrawCheckbox(178, y, !!r_lerpmodels.value && !!r_lerpmove.value);
+			break;
+
+		case GRAPHICS_RENDERSCALE:
+			text = "      Render Scale";
+			if (r_scale.value == 1)
+				M_Print(178, y, "native (1/1)");
+			else if (r_scale.value == 2)
+				M_Print(178, y, "half (1/2)");
+			else if (r_scale.value == 3)
+				M_Print(178, y, "third (1/3)");
+			else if (r_scale.value == 4)
+				M_Print(178, y, "quarter (1/4)");
+			else
+				M_Print(178, y, "unknown");
+			break;
+
+		case GRAPHICS_CLASSICPARTICLES:
+			text = " Classic Particles";
+			value = r_particles.value == 1 ? "round (winquake)" : "square (glquake)";
+			M_Print(178, y, value);
+			break;
+
+		case GRAPHICS_ALIASSHADOW:
+			text = "           Shadows";
+			r = r_shadows.value;
+			M_DrawSlider(186, y, r, r_shadows.value, "%.1f");
+			break;
+
+		case GRAPHICS_BRUSHSHADOW:
+			text = "     Brush Shadows";
+			M_DrawCheckbox(178, y, r_shadows_bmodels.value != 0);
+			break;
+
+		case GRAPHICS_CUSTOMPARTICLES:
+			text = "  Custom Particles";
+			if (Q_strcmp(r_particledesc.string, "qssm") == 0)
+				value = "qssm";
+			else if (Q_strcmp(r_particledesc.string, "qssmc") == 0)
+				value = "classic+qssm";
+			else
+				value = "off (classic)";
+			M_Print(178, y, value);
+			break;
+
+		case GRAPHICS_COLOREDLIGHTING:
+			text = "  Colored Lighting";
+			M_DrawCheckbox(178, y, gl_loadlitfiles.value != 0);
+			break;
+
+		case GRAPHICS_MODELOUTLINES:
+			text = "    Model Outlines";
+			r = r_outline.value / 5.0; // Normalize to 0-1 range for slider (max value is 5)
+			M_DrawSlider(186, y, r, r_outline.value, "%.0f");
+			break;
+
+		case GRAPHICS_POWERUPSHELLS:
+			text = "    Powerup Shells";
+			if (gl_powerupshells.value == 0)
+				value = "off";
+			else if (gl_powerupshells.value == 1)
+				value = "shell+effects";
+			else
+				value = "light only";
+			M_Print(178, y, value);
+			break;
+
+		case GRAPHICS_WATERCAUSTICS:
+			text = "    Water Caustics"; // Adjust spacing as needed
+			r = gl_caustics.value / 10.0f; // Normalize 0-10 value to 0-1 for slider
+			M_DrawSlider(186, y, r, gl_caustics.value * 10.0f, "%.0f%%"); // Display as 0-100%
+			break;
+
+		case GRAPHICS_SKY:
+			text = "               Sky";
+			M_Print(178, y, "...");
+			break;
+
+		default:
+			break;
+		}
+
+		if (text)
+		{
+			if (graphicsmenu.search.len > 0 &&
+				q_strcasestr(text, graphicsmenu.search.text))
+			{
+				M_PrintHighlight(0, y, text,
+					graphicsmenu.search.text,
+					graphicsmenu.search.len);
+			}
+			else
+			{
+				M_Print(0, y, text);
+			}
+
+			if (value)
+				M_Print(178, y, value);
+		}
+	}
+
+	// Draw search box if search is active
+	if (graphicsmenu.search.len > 0)
+	{
+		M_DrawTextBox(16, 170, 32, 1);
+		M_PrintHighlight(24, 178, graphicsmenu.search.text,
+			graphicsmenu.search.text,
+			graphicsmenu.search.len);
+		int cursor_x = 24 + 8 * graphicsmenu.search.len;
+		if (numberOfGraphicsItems == 0)
+			M_DrawCharacter(cursor_x, 178, 11 ^ 128);
+		else
+			M_DrawCharacter(cursor_x, 178, 10 + ((int)(realtime * 4) & 1));
+	}
+
+	// cursor
+	M_DrawCharacter(168, 48 + graphics_cursor * 8, 12 + ((int)(realtime * 4) & 1));
+}
+
+static qboolean graphics_slider_grab;
+
+void M_Graphics_Key(int k)
+{
+	// Handle slider grab release
+	if (!keydown[K_MOUSE1])
+		graphics_slider_grab = false;
+
+	if (graphics_slider_grab)
+	{
+		switch (k)
+		{
+		case K_ESCAPE:
+		case K_BBUTTON:
+		case K_MOUSE4:
+		case K_MOUSE2:
+			graphics_slider_grab = false;
+			break;
+		}
+		return;
+	}
+
+	// Handle search functionality first
+	if (k == K_ESCAPE)
+	{
+		if (graphicsmenu.search.len > 0)
+		{
+			graphicsmenu.search.len = 0;
+			graphicsmenu.search.text[0] = 0;
+			M_Graphics_UpdateSearch();
+			return;
+		}
+		M_Menu_Options_f();
+		return;
+	}
+	else if (keydown[K_CTRL])
+	{
+		if ((k == 'u' || k == 'U') && graphicsmenu.search.len > 0)
+		{
+			// Clear entire search with Ctrl+U
+			graphicsmenu.search.len = 0;
+			graphicsmenu.search.text[0] = 0;
+			M_Graphics_UpdateSearch();
+			return;
+		}
+		else if (k == K_BACKSPACE && graphicsmenu.search.len > 0)
+		{
+			// Delete previous word with Ctrl+Backspace
+			listsearch_t temp;
+			temp.len = graphicsmenu.search.len;
+			Q_strcpy(temp.text, graphicsmenu.search.text);
+			M_DeletePrevWord(&temp);
+			Q_strcpy(graphicsmenu.search.text, temp.text);
+			graphicsmenu.search.len = temp.len;
+			M_Graphics_UpdateSearch();
+			return;
+	}
+	}
+	else if (k == K_BACKSPACE)
+	{
+		if (graphicsmenu.search.len > 0)
+		{
+			graphicsmenu.search.text[--graphicsmenu.search.len] = 0;
+			M_Graphics_UpdateSearch();
+			return;
+		}
+	}
+	else if (k >= 32 && k < 127)
+	{
+		if (graphicsmenu.search.len < sizeof(graphicsmenu.search.text) - 1)
+		{
+			graphicsmenu.search.text[graphicsmenu.search.len++] = k;
+			graphicsmenu.search.text[graphicsmenu.search.len] = 0;
+			M_Graphics_UpdateSearch();
+			return;
+		}
+	}
+
+	switch (k)
+	{
+	case K_ESCAPE:
+	case K_BBUTTON:
+	case K_MOUSE4:
+	case K_MOUSE2:
+		M_Menu_Options_f();
+		break;
+
+	case K_MOUSE1:
+		m_entersound = true;
+
+		// Check if click is in search box area
+		if (graphicsmenu.search.len > 0 && m_mousey >= 170)
+			break;
+
+		// Check if click is in valid menu area
+		if (m_mousey >= 48 && m_mousey < 48 + (GRAPHICS_ITEMS * 8))
+		{
+			graphics_cursor = (m_mousey - 48) / 8;
+
+			if (graphics_cursor == GRAPHICS_BRIGHTNESS ||
+				graphics_cursor == GRAPHICS_CONTRAST ||
+				graphics_cursor == GRAPHICS_ALIASSHADOW ||
+				graphics_cursor == GRAPHICS_ROCKETLIGHT ||
+				graphics_cursor == GRAPHICS_EXPLOSIONLIGHT ||
+				graphics_cursor == GRAPHICS_MODELOUTLINES ||
+				graphics_cursor == GRAPHICS_WATERCAUSTICS)
+			{
+				graphics_slider_grab = true;
+			}
+			else
+			{
+				M_Graphics_AdjustSliders(1);
+			}
+		}
+		break;
+
+	case K_ENTER:
+	case K_KP_ENTER:
+	case K_ABUTTON:
+		m_entersound = true;
+		M_Graphics_AdjustSliders(1);
+		break;
+
+	case K_UPARROW:
+		S_LocalSound("misc/menu1.wav");
+		M_Graphics_MoveCursor(-1);
+		break;
+
+	case K_DOWNARROW:
+		S_LocalSound("misc/menu1.wav");
+		M_Graphics_MoveCursor(1);
+		break;
+
+	case K_LEFTARROW:
+		M_Graphics_AdjustSliders(-1);
+		break;
+
+	case K_MWHEELDOWN:
+		if (graphics_cursor != GRAPHICS_SKY)
+			M_Graphics_AdjustSliders(-1);
+		break;
+
+	case K_RIGHTARROW:
+		M_Graphics_AdjustSliders(1);
+		break;
+
+	case K_MWHEELUP:
+		if (graphics_cursor != GRAPHICS_SKY)
+			M_Graphics_AdjustSliders(1);
+		break;
+	}
+}
+
+void M_Graphics_Mousemove(int cx, int cy)
+{
+	if (graphics_slider_grab)
+	{
+		if (!keydown[K_MOUSE1])
+		{
+			graphics_slider_grab = false;
+			return;
+		}
+
+		float f;
+		switch (graphics_cursor)
+		{
+		case GRAPHICS_BRIGHTNESS:
+			f = 1.f - M_MouseToSliderFraction(cx - 187) * 0.5f;
+			Cvar_SetValue("gamma", f);
+			break;
+
+		case GRAPHICS_CONTRAST:
+			f = M_MouseToSliderFraction(cx - 187) + 1.f;
+			Cvar_SetValue("contrast", f);
+			break;
+
+		case GRAPHICS_ALIASSHADOW:
+			f = M_MouseToSliderFraction(cx - 187);
+			f = CLAMP(0, f, 1);
+			Cvar_SetValue("r_shadows", f);
+			break;
+
+		case GRAPHICS_ROCKETLIGHT:
+			f = M_MouseToSliderFraction(cx - 187) * 100;
+			Cvar_SetValue("r_rocketlight", CLAMP(0, f, 100));
+			break;
+
+		case GRAPHICS_EXPLOSIONLIGHT:
+			f = M_MouseToSliderFraction(cx - 187) * 100;
+			Cvar_SetValue("r_explosionlight", CLAMP(0, f, 100));
+			break;
+
+		case GRAPHICS_MODELOUTLINES:
+			f = M_MouseToSliderFraction(cx - 187) * 5;
+			Cvar_SetValue("r_outline", CLAMP(0, f, 5));
+			break;
+
+		case GRAPHICS_WATERCAUSTICS: // Added
+			f = M_MouseToSliderFraction(cx - 187) * 10.0f; // Convert slider fraction (0-1) to value (0-10)
+			Cvar_SetValue("gl_caustics", CLAMP(0, f, 10));
+			break;
+
+			// Add empty cases for all other enum values to suppress warnings
+		case GRAPHICS_FILTERING:
+		case GRAPHICS_ANTIALIASING:
+		case GRAPHICS_EXTERNALTEX:
+		case GRAPHICS_REPLACEMENTMODELS:
+		case GRAPHICS_MODELLERP:
+		case GRAPHICS_RENDERSCALE:
+		case GRAPHICS_CLASSICPARTICLES:
+		case GRAPHICS_CUSTOMPARTICLES:
+		case GRAPHICS_COLOREDLIGHTING:
+		case GRAPHICS_BRUSHSHADOW:
+		case GRAPHICS_POWERUPSHELLS:
+		case GRAPHICS_SKY:
+		case GRAPHICS_COUNT:
+			break;
+
+		default:
+			break;
+		}
+		return;
+	}
+
+	// Don't process mouse movement if it's in the search box area
+	if (graphicsmenu.search.len > 0 && cy >= 170)
+		return;
+
+	// Calculate which menu item the mouse is over
+	int item = (cy - 48) / 8;
+
+	// Make sure the item is within valid range
+	if (item >= 0 && item < GRAPHICS_ITEMS)
+	{
+		// Update the cursor position
+		graphics_cursor = item;
+	}
+}
+
+
+/*
+==================
+Sky Menu
+==================
+*/
+
+extern cvar_t r_fastsky, r_fastskycolor, r_skyalpha, r_skyfog, r_skyspeed;
+extern cvar_t r_skywind, r_globalsky, allow_download_sky;
+// r_sky_quality is file-static in gl_sky.c; we access it by name via Cvar_FindVar.
+
+void Sky_GetWindParams(float *dist, float *yaw, float *period, float *pitch);
+void Sky_SetWindParams(float dist, float yaw, float period, float pitch);
+
+static qboolean sky_rgb_active;
+
+#define SKY_GLOBALSKY_BOX_X     178
+#define SKY_GLOBALSKY_BOX_WIDTH 14
+#define SKY_GLOBALSKY_TEXT_X    (SKY_GLOBALSKY_BOX_X + 8)
+
+static enum sky_e
+{
+	SKY_FASTSKY,
+	SKY_FASTSKY_COLOR,
+	SKY_QUALITY,
+	SKY_ALPHA,
+	SKY_FOG,
+	SKY_SPEED,
+	SKY_ALLOW_DOWNLOAD,
+	SKY_GLOBALSKY,
+	SKY_WIND,
+	SKY_COUNT
+} sky_cursor;
+
+#define SKY_ITEMS (SKY_COUNT)
+
+static qboolean sky_slider_grab;
+static qboolean sky_field_editing;
+static menu_textfield_t sky_globalsky_field;
+static char sky_globalsky_buffer[MAX_QPATH];
+static char sky_globalsky_hint[MAX_QPATH];
+static char sky_globalsky_tabpartial[MAX_QPATH];
+
+static int M_Sky_GetItemY(int index)
+{
+	int y = 48 + index * 8;
+	if (index >= SKY_GLOBALSKY)
+		y += 8;
+	if (index > SKY_GLOBALSKY)
+		y += 8;
+	return y;
+}
+
+static int M_Sky_GetItemAtY(int cy)
+{
+	int i;
+	for (i = 0; i < SKY_ITEMS; i++)
+	{
+		int y = M_Sky_GetItemY(i);
+		int top = (i == SKY_GLOBALSKY) ? y - 8 : y;
+		int bottom = y + 8;
+		if (cy >= top && cy < bottom)
+			return i;
+	}
+	return -1;
+}
+
+static int M_Sky_GlobalskyViewStart(const menu_textfield_t *field)
+{
+	int len = (int)strlen(field->text);
+	if (len <= SKY_GLOBALSKY_BOX_WIDTH)
+		return 0;
+	return CLAMP(0, field->cursor - SKY_GLOBALSKY_BOX_WIDTH, len - SKY_GLOBALSKY_BOX_WIDTH);
+}
+
+static void M_Sky_UpdateGlobalskyHint(void)
+{
+	filelist_item_t *item;
+	int len = (int)strlen(sky_globalsky_buffer);
+
+	sky_globalsky_hint[0] = '\0';
+
+	if (len <= 0)
+		return;
+
+	for (item = skylist; item; item = item->next)
+	{
+		if (!q_strncasecmp(item->name, sky_globalsky_buffer, len))
+		{
+			q_strlcpy(sky_globalsky_hint, item->name + len, sizeof(sky_globalsky_hint));
+			return;
+		}
+	}
+}
+
+static void M_Sky_BeginFieldEdit(void)
+{
+	q_strlcpy(sky_globalsky_buffer, r_globalsky.string, sizeof(sky_globalsky_buffer));
+	M_TextField_Init(&sky_globalsky_field, sky_globalsky_buffer,
+		sizeof(sky_globalsky_buffer) - 1, false);
+	sky_globalsky_field.cursor = (int)strlen(sky_globalsky_field.text);
+	sky_globalsky_field.sel_start = -1;
+	sky_field_editing = true;
+	sky_globalsky_tabpartial[0] = '\0';
+	M_Sky_UpdateGlobalskyHint();
+}
+
+static void M_Sky_EndFieldEdit(qboolean apply_changes)
+{
+	if (apply_changes)
+		Cvar_Set("r_globalsky", sky_globalsky_buffer);
+	else
+		q_strlcpy(sky_globalsky_buffer, r_globalsky.string, sizeof(sky_globalsky_buffer));
+
+	sky_globalsky_field.cursor = (int)strlen(sky_globalsky_field.text);
+	sky_globalsky_field.sel_start = -1;
+	M_TextField_ClampCursor(&sky_globalsky_field);
+	sky_field_editing = false;
+	sky_globalsky_hint[0] = '\0';
+	sky_globalsky_tabpartial[0] = '\0';
+}
+
+static cvar_t *M_Sky_QualityCvar(void)
+{
+	static cvar_t *cached = NULL;
+	if (!cached)
+		cached = Cvar_FindVar("r_sky_quality");
+	return cached;
+}
+
+static void M_Sky_ClampCursor(void)
+{
+	sky_cursor = (enum sky_e)M_Menu_ClampCursorValue((int)sky_cursor, SKY_ITEMS);
+}
+
+static void M_Sky_MoveCursor(int delta)
+{
+	sky_cursor = (enum sky_e)M_Menu_ClampCursorValue((int)sky_cursor + delta, SKY_ITEMS);
+}
+
+void M_Menu_Sky_f(void)
+{
+	key_dest = key_menu;
+	m_state = m_sky;
+	m_entersound = true;
+	sky_cursor = 0;
+	sky_slider_grab = false;
+	sky_field_editing = false;
+	sky_globalsky_hint[0] = '\0';
+	sky_globalsky_tabpartial[0] = '\0';
+
+	q_strlcpy(sky_globalsky_buffer, r_globalsky.string, sizeof(sky_globalsky_buffer));
+	M_TextField_Init(&sky_globalsky_field, sky_globalsky_buffer,
+		sizeof(sky_globalsky_buffer) - 1, false);
+
+	IN_UpdateGrabs();
+}
+
+static void M_Sky_AdjustColor(int dir)
+{
+	const char *current = r_fastskycolor.string;
+
+	if (keydown[K_SHIFT])
+	{
+		plcolour_t color = CL_PLColours_Parse(current);
+		vec3_t hsv;
+
+		sky_rgb_active = true;
+
+		if (color.type != 2)
+		{
+			byte *pal = (byte *)&d_8to24table[(color.basic << 4) + 8];
+			color.rgb[0] = pal[0];
+			color.rgb[1] = pal[1];
+			color.rgb[2] = pal[2];
+		}
+
+		rgbtohsv(color.rgb, hsv);
+		hsv[0] += dir / 128.0;
+		hsv[1] = 1;
+		hsv[2] = 1;
+		color.type = 2;
+		color.basic = 0;
+		hsvtorgb(hsv[0], hsv[1], hsv[2], color.rgb);
+
+		Cvar_Set("r_fastskycolor", CL_PLColours_ToString(color));
+		return;
+	}
+
+	sky_rgb_active = false;
+
+	if (!current[0])
+	{
+		if (dir > 0)
+		{
+			plcolour_t color;
+			color.type = 1;
+			color.basic = 0;
+			Cvar_Set("r_fastskycolor", CL_PLColours_ToString(color));
+		}
+		return;
+	}
+
+	{
+		plcolour_t color = CL_PLColours_Parse(current);
+		int newBasic;
+
+		color.type = 1;
+		newBasic = color.basic + dir;
+
+		if (newBasic < 0)
+		{
+			Cvar_Set("r_fastskycolor", "");
+			return;
+		}
+		if (newBasic > 13)
+			newBasic = 0;
+		color.basic = newBasic;
+		Cvar_Set("r_fastskycolor", CL_PLColours_ToString(color));
+	}
+}
+
+static void M_Sky_AdjustSliders(int dir)
+{
+	cvar_t *q;
+	float f;
+	int mode;
+
+	S_LocalSound("misc/menu3.wav");
+
+	switch (sky_cursor)
+	{
+	case SKY_FASTSKY:
+		mode = (int)r_fastsky.value;
+		mode = (mode + (dir > 0 ? 1 : 2)) % 3; // cycle 0->1->2
+		Cvar_SetValue("r_fastsky", (float)mode);
+		break;
+
+	case SKY_FASTSKY_COLOR:
+		M_Sky_AdjustColor(dir);
+		break;
+
+	case SKY_QUALITY:
+		q = M_Sky_QualityCvar();
+		if (q)
+		{
+			f = q->value + dir;
+			f = CLAMP(4, f, 32);
+			Cvar_SetValue("r_sky_quality", f);
+		}
+		break;
+
+	case SKY_ALPHA:
+		f = r_skyalpha.value + dir * 0.1f;
+		f = CLAMP(0, f, 1);
+		Cvar_SetValue("r_skyalpha", f);
+		break;
+
+	case SKY_FOG:
+		f = r_skyfog.value + dir * 0.05f;
+		f = CLAMP(0, f, 1);
+		Cvar_SetValue("r_skyfog", f);
+		break;
+
+	case SKY_SPEED:
+		f = r_skyspeed.value + dir * 0.25f;
+		f = CLAMP(0, f, 10);
+		Cvar_SetValue("r_skyspeed", f);
+		break;
+
+	case SKY_ALLOW_DOWNLOAD:
+		Cvar_SetValue("allow_download_sky", !allow_download_sky.value);
+		break;
+
+	case SKY_GLOBALSKY:
+		M_Sky_BeginFieldEdit();
+		break;
+
+	case SKY_WIND:
+		M_Menu_Skywind_f();
+		break;
+
+	case SKY_COUNT:
+	default:
+		break;
+	}
+}
+
+void M_Sky_Draw(void)
+{
+	qpic_t *p;
+	cvar_t *q;
+	float r;
+	int i;
+
+	M_TextField_CheckMouseRelease();
+	M_Sky_ClampCursor();
+
+	p = Draw_CachePic("gfx/p_option.lmp");
+	M_DrawPic((320 - p->width) / 2, 4, p);
+
+	{
+		const char *title = "Sky";
+		M_PrintWhite((320 - 8 * strlen(title)) / 2, 32, title);
+	}
+
+	for (i = 0; i < SKY_ITEMS; i++)
+	{
+		int y = M_Sky_GetItemY(i);
+		const char *text = NULL;
+
+		switch (i)
+		{
+		case SKY_FASTSKY:
+		{
+			static const char *labels[3] = {"off", "flat", "auto"};
+			int mode = (int)r_fastsky.value;
+			text = "          Fast Sky";
+			if (mode < 0) mode = 0;
+			if (mode > 2) mode = 2;
+			M_Print(178, y, labels[mode]);
+			break;
+		}
+
+		case SKY_FASTSKY_COLOR:
+		{
+			const char *val = r_fastskycolor.string;
+			const char *display;
+			text = "    Fast Sky Color";
+			if (!val[0])
+			{
+				display = "off";
+				M_Print(178, y, display);
+			}
+			else if (sky_rgb_active)
+			{
+				display = val;
+				M_Print(178, y, display);
+			}
+			else
+			{
+				plcolour_t color = CL_PLColours_Parse(val);
+				display = (color.type == 2) ? val : va("%d", color.basic);
+				M_Print(178, y, display);
+			}
+			if (val[0])
+				Draw_FillPlayer(178 + (strlen(display) * 8) + 4, y + 2, 6, 6,
+					CL_PLColours_Parse(val), 1.0);
+			break;
+		}
+
+		case SKY_QUALITY:
+			text = "       Sky Quality";
+			q = M_Sky_QualityCvar();
+			if (q)
+			{
+				float v = CLAMP(4, q->value, 32);
+				r = (v - 4) / (32 - 4);
+				M_DrawSlider(186, y, r, v, "%.0f");
+			}
+			else
+			{
+				M_Print(178, y, "n/a");
+			}
+			break;
+
+		case SKY_ALPHA:
+			text = "         Sky Alpha";
+			r = r_skyalpha.value;
+			M_DrawSlider(186, y, r, r * 100.0f, "%.0f%%");
+			break;
+
+		case SKY_FOG:
+			text = "           Sky Fog";
+			r = r_skyfog.value;
+			M_DrawSlider(186, y, r, r * 100.0f, "%.0f%%");
+			break;
+
+		case SKY_SPEED:
+			text = "         Sky Speed";
+			r = r_skyspeed.value / 10.0f;
+			M_DrawSlider(186, y, r, r_skyspeed.value, "%.2f");
+			break;
+
+		case SKY_ALLOW_DOWNLOAD:
+			text = "  Skybox Downloads";
+			M_DrawCheckbox(178, y, allow_download_sky.value != 0);
+			break;
+
+		case SKY_GLOBALSKY:
+		{
+			menu_textfield_t *field = &sky_globalsky_field;
+			int view_start = M_Sky_GlobalskyViewStart(field);
+			int sel_begin, sel_end;
+
+			text = "        Global Sky";
+			M_DrawTextBox(SKY_GLOBALSKY_BOX_X, y - 8, SKY_GLOBALSKY_BOX_WIDTH, 1);
+
+			if (M_TextField_GetSelection(field, &sel_begin, &sel_end))
+			{
+				int visible_begin = CLAMP(view_start, sel_begin, view_start + SKY_GLOBALSKY_BOX_WIDTH);
+				int visible_end   = CLAMP(view_start, sel_end,   view_start + SKY_GLOBALSKY_BOX_WIDTH);
+				if (visible_begin < visible_end)
+				{
+					Draw_Fill(SKY_GLOBALSKY_TEXT_X + (visible_begin - view_start) * 8, y,
+						(visible_end - visible_begin) * 8, 8, 170, 0.4f);
+				}
+			}
+
+			if (field->text[0])
+			{
+				char visible_text[SKY_GLOBALSKY_BOX_WIDTH + 1];
+				q_strlcpy(visible_text, field->text + view_start, sizeof(visible_text));
+				M_PrintWhite(SKY_GLOBALSKY_TEXT_X, y, visible_text);
+
+				if (sky_field_editing &&
+					sky_globalsky_hint[0] &&
+					field->cursor == (int)strlen(field->text))
+				{
+					int hint_col = field->cursor - view_start;
+					int max_hint_len = SKY_GLOBALSKY_BOX_WIDTH - hint_col;
+
+					if (hint_col >= 0 && max_hint_len > 0)
+					{
+						char visible_hint[SKY_GLOBALSKY_BOX_WIDTH + 1];
+						q_strlcpy(visible_hint, sky_globalsky_hint, (size_t)max_hint_len + 1);
+						M_PrintRGBA(SKY_GLOBALSKY_TEXT_X + hint_col * 8, y, visible_hint,
+							CL_PLColours_Parse("0xffffff"), 0.5f, true);
+					}
+				}
+			}
+			else if (!sky_field_editing)
+			{
+				M_PrintRGBA(SKY_GLOBALSKY_TEXT_X, y, "none",
+					CL_PLColours_Parse("0xffffff"), 0.5f, false);
+			}
+
+			if (sky_field_editing)
+			{
+				menu_textfield_t visible_field = *field;
+				visible_field.cursor = CLAMP(0, field->cursor - view_start, SKY_GLOBALSKY_BOX_WIDTH);
+				M_TextField_DrawCursor(&visible_field, SKY_GLOBALSKY_TEXT_X, y);
+			}
+			break;
+		}
+
+		case SKY_WIND:
+			text = "           Skywind";
+			M_Print(178, y, "...");
+			break;
+
+		default:
+			break;
+		}
+
+		if (text)
+			M_Print(0, y, text);
+	}
+
+	M_DrawCharacter(168, M_Sky_GetItemY(sky_cursor), 12 + ((int)(realtime * 4) & 1));
+
+	if (sky_field_editing)
+	{
+		const char *hint = "Tab completes, Enter applies, Esc cancels";
+		M_PrintRGBA((320 - (int)strlen(hint) * 8) / 2, 160, hint,
+			CL_PLColours_Parse("0xffffff"), 0.5f, false);
+	}
+}
+
+void M_Sky_Key(int k)
+{
+	if (!keydown[K_MOUSE1])
+		sky_slider_grab = false;
+
+	if (sky_slider_grab)
+	{
+		switch (k)
+		{
+		case K_ESCAPE:
+		case K_BBUTTON:
+		case K_MOUSE4:
+		case K_MOUSE2:
+			sky_slider_grab = false;
+			break;
+		}
+		return;
+	}
+
+	if (sky_field_editing)
+	{
+		if (k == K_TAB)
+		{
+			if (M_Menu_TabCompleteFileList(&sky_globalsky_field, sky_globalsky_buffer,
+				sizeof(sky_globalsky_buffer), skylist,
+				sky_globalsky_tabpartial, sizeof(sky_globalsky_tabpartial)))
+			{
+				M_Sky_UpdateGlobalskyHint();
+				S_LocalSound("misc/menu2.wav");
+			}
+			return;
+		}
+
+		if (M_TextField_Key(&sky_globalsky_field, k))
+		{
+			sky_globalsky_tabpartial[0] = '\0';
+			M_Sky_UpdateGlobalskyHint();
+			return;
+		}
+
+		switch (k)
+		{
+		case K_ESCAPE:
+		case K_BBUTTON:
+		case K_MOUSE4:
+		case K_MOUSE2:
+			M_Sky_EndFieldEdit(false);
+			return;
+
+		case K_ENTER:
+		case K_KP_ENTER:
+		case K_ABUTTON:
+			S_LocalSound("misc/menu3.wav");
+			M_Sky_EndFieldEdit(true);
+			return;
+
+		case K_UPARROW:
+			M_Sky_EndFieldEdit(true);
+			S_LocalSound("misc/menu1.wav");
+			M_Sky_MoveCursor(-1);
+			return;
+
+		case K_DOWNARROW:
+			M_Sky_EndFieldEdit(true);
+			S_LocalSound("misc/menu1.wav");
+			M_Sky_MoveCursor(1);
+			return;
+
+		case K_MOUSE1:
+			if (M_TextField_MouseInRow(m_mousey, M_Sky_GetItemY(SKY_GLOBALSKY)))
+			{
+				int view_start = M_Sky_GlobalskyViewStart(&sky_globalsky_field);
+				sky_globalsky_tabpartial[0] = '\0';
+				M_TextField_MouseClick(&sky_globalsky_field, m_mousex,
+					SKY_GLOBALSKY_TEXT_X - view_start * 8);
+				return;
+			}
+			M_Sky_EndFieldEdit(true);
+			break;
+
+		default:
+			break;
+		}
+	}
+
+	switch (k)
+	{
+	case K_ESCAPE:
+	case K_BBUTTON:
+	case K_MOUSE4:
+	case K_MOUSE2:
+		M_Menu_Graphics_f();
+		graphics_cursor = GRAPHICS_SKY;
+		break;
+
+	case K_MOUSE1:
+		m_entersound = true;
+		{
+			int item = M_Sky_GetItemAtY(m_mousey);
+			if (item >= 0)
+			{
+				sky_cursor = item;
+				if (sky_cursor == SKY_QUALITY || sky_cursor == SKY_ALPHA ||
+					sky_cursor == SKY_FOG || sky_cursor == SKY_SPEED)
+					sky_slider_grab = true;
+				else
+					M_Sky_AdjustSliders(1);
+			}
+		}
+		break;
+
+	case K_ENTER:
+	case K_KP_ENTER:
+	case K_ABUTTON:
+		m_entersound = true;
+		M_Sky_AdjustSliders(1);
+		break;
+
+	case K_UPARROW:
+		S_LocalSound("misc/menu1.wav");
+		M_Sky_MoveCursor(-1);
+		break;
+
+	case K_DOWNARROW:
+		S_LocalSound("misc/menu1.wav");
+		M_Sky_MoveCursor(1);
+		break;
+
+	case K_LEFTARROW:
+		M_Sky_AdjustSliders(-1);
+		break;
+
+	case K_MWHEELDOWN:
+		if (sky_cursor != SKY_WIND)
+			M_Sky_AdjustSliders(-1);
+		break;
+
+	case K_RIGHTARROW:
+		M_Sky_AdjustSliders(1);
+		break;
+
+	case K_MWHEELUP:
+		if (sky_cursor != SKY_WIND)
+			M_Sky_AdjustSliders(1);
+		break;
+	}
+}
+
+void M_Sky_Char(int k)
+{
+	if (!sky_field_editing)
+		return;
+	if (M_TextField_Char(&sky_globalsky_field, k))
+	{
+		sky_globalsky_tabpartial[0] = '\0';
+		M_Sky_UpdateGlobalskyHint();
+	}
+}
+
+qboolean M_Sky_TextEntry(void)
+{
+	return sky_field_editing;
+}
+
+void M_Sky_Mousemove(int cx, int cy)
+{
+	if (M_TextField_IsDraggingField(&sky_globalsky_field))
+	{
+		M_TextField_MouseDrag(cx);
+		return;
+	}
+
+	if (sky_slider_grab)
+	{
+		cvar_t *q;
+		float f;
+
+		if (!keydown[K_MOUSE1])
+		{
+			sky_slider_grab = false;
+			return;
+		}
+
+		switch (sky_cursor)
+		{
+		case SKY_QUALITY:
+			q = M_Sky_QualityCvar();
+			if (q)
+			{
+				f = 4.0f + M_MouseToSliderFraction(cx - 187) * (32 - 4);
+				Cvar_SetValue("r_sky_quality", floorf(f + 0.5f));
+			}
+			break;
+
+		case SKY_ALPHA:
+			f = CLAMP(0.0f, M_MouseToSliderFraction(cx - 187), 1.0f);
+			Cvar_SetValue("r_skyalpha", f);
+			break;
+
+		case SKY_FOG:
+			f = CLAMP(0.0f, M_MouseToSliderFraction(cx - 187), 1.0f);
+			Cvar_SetValue("r_skyfog", f);
+			break;
+
+		case SKY_SPEED:
+			f = CLAMP(0.0f, M_MouseToSliderFraction(cx - 187), 1.0f) * 10.0f;
+			Cvar_SetValue("r_skyspeed", f);
+			break;
+
+		default:
+			break;
+		}
+		return;
+	}
+
+	if (sky_field_editing)
+	{
+		if (M_TextField_MouseInRow(cy, M_Sky_GetItemY(SKY_GLOBALSKY)))
+			return;
+		M_Sky_EndFieldEdit(true);
+	}
+
+	{
+		int item = M_Sky_GetItemAtY(cy);
+		if (item >= 0)
+			sky_cursor = item;
+	}
+}
+
+
+/*
+==================
+Skywind Menu
+==================
+*/
+
+static enum skywind_e
+{
+	SKYWIND_STRENGTH,
+	SKYWIND_DIRECTION,
+	SKYWIND_PITCH,
+	SKYWIND_PERIOD,
+	SKYWIND_COUNT
+} skywind_cursor;
+
+#define SKYWIND_ITEMS (SKYWIND_COUNT)
+
+static qboolean skywind_slider_grab;
+
+static void M_Skywind_ClampCursor(void)
+{
+	skywind_cursor = (enum skywind_e)M_Menu_ClampCursorValue((int)skywind_cursor, SKYWIND_ITEMS);
+}
+
+static void M_Skywind_MoveCursor(int delta)
+{
+	skywind_cursor = (enum skywind_e)M_Menu_ClampCursorValue((int)skywind_cursor + delta, SKYWIND_ITEMS);
+}
+
+static void M_Skywind_Adjust(int dir)
+{
+	float dist, yaw, period, pitch;
+
+	Sky_GetWindParams(&dist, &yaw, &period, &pitch);
+	S_LocalSound("misc/menu3.wav");
+
+	switch (skywind_cursor)
+	{
+	case SKYWIND_STRENGTH:
+		dist = CLAMP(-2.0f, dist + dir * 0.1f, 2.0f);
+		break;
+
+	case SKYWIND_DIRECTION:
+		yaw += dir * 15.0f;
+		while (yaw < 0.0f)   yaw += 360.0f;
+		while (yaw >= 360.0f) yaw -= 360.0f;
+		break;
+
+	case SKYWIND_PITCH:
+		pitch = CLAMP(-90.0f, pitch + dir * 5.0f, 90.0f);
+		break;
+
+	case SKYWIND_PERIOD:
+		period = CLAMP(1.0f, period + dir * 1.0f, 120.0f);
+		break;
+
+	case SKYWIND_COUNT:
+	default:
+		return;
+	}
+
+	Sky_SetWindParams(dist, yaw, period, pitch);
+}
+
+void M_Menu_Skywind_f(void)
+{
+	key_dest = key_menu;
+	m_state = m_skywind;
+	m_entersound = true;
+	skywind_cursor = 0;
+	skywind_slider_grab = false;
+
+	IN_UpdateGrabs();
+}
+
+void M_Skywind_Draw(void)
+{
+	qpic_t *p;
+	float dist, yaw, period, pitch;
+	float r;
+	int i;
+
+	M_Skywind_ClampCursor();
+
+	Sky_GetWindParams(&dist, &yaw, &period, &pitch);
+
+	p = Draw_CachePic("gfx/p_option.lmp");
+	M_DrawPic((320 - p->width) / 2, 4, p);
+
+	{
+		const char *title = "Skywind";
+		M_PrintWhite((320 - 8 * strlen(title)) / 2, 32, title);
+	}
+
+	for (i = 0; i < SKYWIND_ITEMS; i++)
+	{
+		int y = 48 + 8 * i;
+		const char *text = NULL;
+
+		switch (i)
+		{
+		case SKYWIND_STRENGTH:
+			text = "          Strength";
+			r = (dist + 2.0f) / 4.0f; // map -2..2 to 0..1
+			M_DrawSlider(186, y, r, dist, "%.2f");
+			break;
+
+		case SKYWIND_DIRECTION:
+			text = "         Direction";
+			r = yaw / 360.0f;
+			M_DrawSlider(186, y, r, yaw, "%.0f\xf8"); // degree sign glyph
+			break;
+
+		case SKYWIND_PITCH:
+			text = "             Pitch";
+			r = (pitch + 90.0f) / 180.0f;
+			M_DrawSlider(186, y, r, pitch, "%.0f\xf8");
+			break;
+
+		case SKYWIND_PERIOD:
+			text = "            Period";
+			r = (period - 1.0f) / (120.0f - 1.0f);
+			M_DrawSlider(186, y, r, period, "%.0fs");
+			break;
+
+		default:
+			break;
+		}
+
+		if (text)
+			M_Print(0, y, text);
+	}
+
+	M_DrawCharacter(168, 48 + skywind_cursor * 8, 12 + ((int)(realtime * 4) & 1));
+
+	if (dist == 0.0f)
+		M_PrintRGBA(80, 144, "strength 0 = disabled",
+			CL_PLColours_Parse("0xffffff"), 0.6f, false);
+}
+
+void M_Skywind_Key(int k)
+{
+	if (!keydown[K_MOUSE1])
+		skywind_slider_grab = false;
+
+	if (skywind_slider_grab)
+	{
+		switch (k)
+		{
+		case K_ESCAPE:
+		case K_BBUTTON:
+		case K_MOUSE4:
+		case K_MOUSE2:
+			skywind_slider_grab = false;
+			break;
+		}
+		return;
+	}
+
+	switch (k)
+	{
+	case K_ESCAPE:
+	case K_BBUTTON:
+	case K_MOUSE4:
+	case K_MOUSE2:
+		M_Menu_Sky_f();
+		sky_cursor = SKY_WIND;
+		break;
+
+	case K_MOUSE1:
+		m_entersound = true;
+		if (m_mousey >= 48 && m_mousey < 48 + (SKYWIND_ITEMS * 8))
+		{
+			skywind_cursor = (m_mousey - 48) / 8;
+			skywind_slider_grab = true;
+		}
+		break;
+
+	case K_ENTER:
+	case K_KP_ENTER:
+	case K_ABUTTON:
+		m_entersound = true;
+		M_Skywind_Adjust(1);
+		break;
+
+	case K_UPARROW:
+		S_LocalSound("misc/menu1.wav");
+		M_Skywind_MoveCursor(-1);
+		break;
+
+	case K_DOWNARROW:
+		S_LocalSound("misc/menu1.wav");
+		M_Skywind_MoveCursor(1);
+		break;
+
+	case K_LEFTARROW:
+	case K_MWHEELDOWN:
+		M_Skywind_Adjust(-1);
+		break;
+
+	case K_RIGHTARROW:
+	case K_MWHEELUP:
+		M_Skywind_Adjust(1);
+		break;
+	}
+}
+
+void M_Skywind_Mousemove(int cx, int cy)
+{
+	if (skywind_slider_grab)
+	{
+		float dist, yaw, period, pitch;
+		float frac;
+
+		if (!keydown[K_MOUSE1])
+		{
+			skywind_slider_grab = false;
+			return;
+		}
+
+		Sky_GetWindParams(&dist, &yaw, &period, &pitch);
+		frac = CLAMP(0.0f, M_MouseToSliderFraction(cx - 187), 1.0f);
+
+		switch (skywind_cursor)
+		{
+		case SKYWIND_STRENGTH:
+			dist = frac * 4.0f - 2.0f;
+			break;
+		case SKYWIND_DIRECTION:
+			yaw = floorf((frac * 360.0f) / 5.0f + 0.5f) * 5.0f;
+			if (yaw >= 360.0f) yaw -= 360.0f;
+			break;
+		case SKYWIND_PITCH:
+			pitch = frac * 180.0f - 90.0f;
+			break;
+		case SKYWIND_PERIOD:
+			period = 1.0f + frac * (120.0f - 1.0f);
+			break;
+		default:
+			return;
+		}
+
+		Sky_SetWindParams(dist, yaw, period, pitch);
+		return;
+	}
+
+	{
+		int item = (cy - 48) / 8;
+		if (item >= 0 && item < SKYWIND_ITEMS)
+			skywind_cursor = item;
+	}
+}
+
+
+/*
+==================
+Sound Menu
+==================
+*/
+
+extern cvar_t cl_ambient, ambient_level, snd_waterfx;
+extern char mute[2];
+
+static enum sound_e
+{
+	SOUND_VOLUME,
+	SOUND_MUSICVOL,
+	SOUND_MUSICEXT,
+	SOUND_AUDIORATE,
+	SOUND_WATERFX,
+	SOUND_AMBIENTLEVEL,
+	SOUND_STOPSOUND,
+	SOUND_MUTE,
+	SOUND_VOIP,
+	SOUND_COUNT
+} sound_cursor;
+
+#define SOUND_ITEMS (SOUND_COUNT)
+int numberOfSoundItems = SOUND_ITEMS;
+
+static struct
+{
+	int cursor;
+	struct {
+		char text[32];
+		int len;
+	} search;
+} soundmenu;
+
+static const char* M_Sound_GetItemText(int index)
+{
+	static char buffer[64];
+
+	switch (index)
+	{
+	case SOUND_VOLUME:
+		return "Sound Volume";
+	case SOUND_MUSICVOL:
+		return "Music Volume";
+	case SOUND_MUSICEXT:
+		return "External Music";
+	case SOUND_AUDIORATE:
+		return "Audio Rate";
+	case SOUND_WATERFX:
+		return "Water FX";
+	case SOUND_AMBIENTLEVEL:
+		return "Ambient Level";
+	case SOUND_STOPSOUND:
+		return "Stop Sound";
+	case SOUND_MUTE:
+		return "Mute";
+	case SOUND_VOIP:
+		return "VoIP";
+	default:
+		q_snprintf(buffer, sizeof(buffer), "Unknown Item %d", index);
+		return buffer;
+	}
+}
+
+static void M_Sound_UpdateSearch(void)
+{
+	sound_cursor = (enum sound_e)M_Menu_UpdateSearchCursor(
+		SOUND_ITEMS, (int)sound_cursor, &numberOfSoundItems,
+		M_Sound_GetItemText, soundmenu.search.text, soundmenu.search.len);
+}
+
+static void M_Sound_MoveCursor(int delta)
+{
+	sound_cursor = (enum sound_e)M_Menu_MoveSearchCursor(
+		SOUND_ITEMS, numberOfSoundItems, (int)sound_cursor, delta,
+		M_Sound_GetItemText, soundmenu.search.text, soundmenu.search.len);
+}
+
+void M_Menu_Sound_f(void)
+{
+	key_dest = key_menu;
+	m_state = m_sound;
+	m_entersound = true;
+	sound_cursor = 0;
+	soundmenu.cursor = 0;
+	soundmenu.search.len = 0;
+	soundmenu.search.text[0] = 0;
+	numberOfSoundItems = SOUND_ITEMS;
+
+	IN_UpdateGrabs();
+}
+
+static void M_Sound_AdjustSliders(int dir)
+{
+	float f;
+	S_LocalSound("misc/menu3.wav");
+
+	switch (sound_cursor)
+	{
+	case SOUND_VOLUME:
+		f = sfxvolume.value + dir * 0.05f;
+		if (f < 0) f = 0;
+		else if (f > 1) f = 1;
+		Cvar_SetValue("volume", f);
+		break;
+
+	case SOUND_MUSICVOL:
+		f = bgmvolume.value + dir * 0.05f;
+		if (f < 0) f = 0;
+		else if (f > 1) f = 1;
+		Cvar_SetValue("bgmvolume", f);
+		break;
+
+	case SOUND_MUSICEXT:
+		Cvar_Set("bgm_extmusic", bgm_extmusic.value ? "0" : "1");
+		break;
+
+	case SOUND_AUDIORATE:
+		if (dir > 0) {
+			// Going up: 11025->22050->44100->48000->11025
+			if (snd_mixspeed.value == 11025)
+				Cvar_SetValueQuick(&snd_mixspeed, 22050);
+			else if (snd_mixspeed.value == 22050)
+				Cvar_SetValueQuick(&snd_mixspeed, 44100);
+			else if (snd_mixspeed.value == 44100)
+				Cvar_SetValueQuick(&snd_mixspeed, 48000);
+			else
+				Cvar_SetValueQuick(&snd_mixspeed, 11025);
+			Cbuf_AddText("\nsnd_restart\n");
+		}
+		else {
+			// Going down: 11025<-22050<-44100<-48000<-11025
+			if (snd_mixspeed.value == 48000)
+				Cvar_SetValueQuick(&snd_mixspeed, 44100);
+			else if (snd_mixspeed.value == 44100)
+				Cvar_SetValueQuick(&snd_mixspeed, 22050);
+			else if (snd_mixspeed.value == 22050)
+				Cvar_SetValueQuick(&snd_mixspeed, 11025);
+			else
+				Cvar_SetValueQuick(&snd_mixspeed, 48000);
+		}
+		break;
+
+	case SOUND_WATERFX:
+		f = snd_waterfx.value + dir * 0.05f;
+		if (f < 0) f = 0;
+		else if (f > 1) f = 1;
+		Cvar_SetValue("snd_waterfx", f);
+		break;
+
+	case SOUND_AMBIENTLEVEL:
+		f = ambient_level.value + dir * 0.05f;
+		if (f < 0) f = 0;
+		else if (f > 1) f = 1;
+		Cvar_SetValue("ambient_level", f);
+		break;
+
+	case SOUND_STOPSOUND:
+		Cvar_Set("cl_ambient", cl_ambient.value ? "0" : "1");
+		break;
+
+	case SOUND_MUTE:
+		if (mute[0] == 'n')  // If currently not muted (showing "on")
+			q_snprintf(mute, sizeof(mute), "y");  // Set to muted (will show "off")
+		else
+			q_snprintf(mute, sizeof(mute), "n");  // Set to not muted (will show "on")
+		break;
+
+	case SOUND_VOIP:
+		M_Menu_Voip_f();
+		break;
+
+	default:
+		break;
+	}
+}
+
+
+void M_Sound_Draw(void)
+{
+	qpic_t* p;
+	enum sound_e i;
+
+	sound_cursor = (enum sound_e)M_Menu_ClampCursorValue((int)sound_cursor, SOUND_ITEMS);
+
+	p = Draw_CachePic("gfx/p_option.lmp");
+	M_DrawPic((320 - p->width) / 2, 4, p);
+
+	const char* title = "Sound Options";
+	M_PrintWhite((320 - 8 * strlen(title)) / 2, 32, title);
+
+	for (i = 0; i < SOUND_ITEMS; i++)
+	{
+		int y = 48 + 8 * i;
+		const char* text = NULL;
+		const char* value = NULL;
+		float r;
+
+		switch (i)
+		{
+		case SOUND_VOLUME:
+			text = "      Sound Volume";
+			r = sfxvolume.value;
+			M_DrawSlider(186, y, r, 100.f * sfxvolume.value, "%.0f%%");
+			break;
+
+		case SOUND_MUSICVOL:
+			text = "      Music Volume";
+			r = bgmvolume.value;
+			M_DrawSlider(186, y, r, 100.f * bgmvolume.value, "%.0f%%");
+			break;
+
+		case SOUND_MUSICEXT:
+			text = "    External Music";
+			M_DrawCheckbox(178, y, bgm_extmusic.value);
+			break;
+
+		case SOUND_AUDIORATE:
+			text = "        Audio Rate";
+			if (snd_mixspeed.value == 48000)
+				value = "48000 hz (DVD)";
+			else if (snd_mixspeed.value == 44100)
+				value = "44100 hz (CD)";
+			else if (snd_mixspeed.value == 22050)
+				value = "22050 hz (Midrange)";
+			else if (snd_mixspeed.value == 11025)
+				value = "11025 hz (WinQuake)";
+			else
+				value = va("%i hz", (int)snd_mixspeed.value);
+			if (value)
+				M_Print(178, y, value);
+			break;
+
+		case SOUND_WATERFX:
+			text = "          Water FX";
+			r = snd_waterfx.value;
+			M_DrawSlider(186, y, r, 100.f * snd_waterfx.value, "%.0f%%");
+			break;
+
+		case SOUND_AMBIENTLEVEL:
+			text = "     Ambient Level";
+			r = ambient_level.value;
+			M_DrawSlider(186, y, r, 100.f * ambient_level.value, "%.0f%%");
+			break;
+
+		case SOUND_STOPSOUND:
+			text = "        Stop Sound";
+			M_DrawCheckbox(178, y, cl_ambient.value);
+			break;
+		case SOUND_MUTE:
+		{
+			text = "              Mute";
+			// If mute is 'y', sound is off. If 'n' or anything else, sound is on
+			if (mute[0] == 'y')
+				M_Print(178, y, "on");
+			else
+				M_Print(178, y, "off");
+		}
+		break;
+
+		case SOUND_VOIP:
+			text = "              VoIP";
+			M_Print(178, y, "...");
+			break;
+
+		default:
+			break;
+		}
+
+		if (text)
+		{
+			if (soundmenu.search.len > 0 &&
+				q_strcasestr(text, soundmenu.search.text))
+			{
+				M_PrintHighlight(0, y, text,
+					soundmenu.search.text,
+					soundmenu.search.len);
+			}
+			else
+			{
+				M_Print(0, y, text);
+			}
+		}
+	}
+
+	// Draw search box if search is active
+	if (soundmenu.search.len > 0)
+	{
+		M_DrawTextBox(16, 170, 32, 1);
+		M_PrintHighlight(24, 178, soundmenu.search.text,
+			soundmenu.search.text,
+			soundmenu.search.len);
+		int cursor_x = 24 + 8 * soundmenu.search.len;
+		if (numberOfSoundItems == 0)
+			M_DrawCharacter(cursor_x, 178, 11 ^ 128);
+		else
+			M_DrawCharacter(cursor_x, 178, 10 + ((int)(realtime * 4) & 1));
+	}
+
+	// cursor
+	M_DrawCharacter(168, 48 + sound_cursor * 8, 12 + ((int)(realtime * 4) & 1));
+}
+
+static qboolean sound_slider_grab; // For slider dragging
+
+
+void M_Sound_Key(int k)
+{
+	// Handle slider grab release
+	if (!keydown[K_MOUSE1])
+		sound_slider_grab = false;
+
+	if (sound_slider_grab)
+	{
+		switch (k)
+		{
+		case K_ESCAPE:
+		case K_BBUTTON:
+		case K_MOUSE4:
+		case K_MOUSE2:
+			sound_slider_grab = false;
+			break;
+		}
+		return;
+	}
+
+	// Handle search functionality first
+	if (k == K_ESCAPE)
+	{
+		if (soundmenu.search.len > 0)
+		{
+			soundmenu.search.len = 0;
+			soundmenu.search.text[0] = 0;
+			M_Sound_UpdateSearch();
+			return;
+		}
+		M_Menu_Options_f();
+		return;
+	}
+	else if (keydown[K_CTRL])
+	{
+		if ((k == 'u' || k == 'U') && soundmenu.search.len > 0)
+		{
+			// Clear entire search with Ctrl+U
+			soundmenu.search.len = 0;
+			soundmenu.search.text[0] = 0;
+			M_Sound_UpdateSearch();
+			return;
+		}
+		else if (k == K_BACKSPACE && soundmenu.search.len > 0)
+		{
+			// Delete previous word with Ctrl+Backspace
+			listsearch_t temp;
+			temp.len = soundmenu.search.len;
+			Q_strcpy(temp.text, soundmenu.search.text);
+			M_DeletePrevWord(&temp);
+			Q_strcpy(soundmenu.search.text, temp.text);
+			soundmenu.search.len = temp.len;
+			M_Sound_UpdateSearch();
+			return;
+		}
+	}
+	else if (k == K_BACKSPACE)
+	{
+		if (soundmenu.search.len > 0)
+		{
+			soundmenu.search.text[--soundmenu.search.len] = 0;
+			M_Sound_UpdateSearch();
+			return;
+		}
+	}
+	else if (k >= 32 && k < 127)
+	{
+		if (soundmenu.search.len < sizeof(soundmenu.search.text) - 1)
+		{
+			soundmenu.search.text[soundmenu.search.len++] = k;
+			soundmenu.search.text[soundmenu.search.len] = 0;
+			M_Sound_UpdateSearch();
+			return;
+		}
+	}
+
+	switch (k)
+	{
+	case K_ESCAPE:
+	case K_BBUTTON:
+	case K_MOUSE4:
+	case K_MOUSE2:
+		M_Menu_Options_f();
+		break;
+
+	case K_MOUSE1:
+		m_entersound = true;
+
+		// Check if click is in search box area
+		if (soundmenu.search.len > 0 && m_mousey >= 170)
+			break;
+
+		// Check if click is in valid menu area
+		if (m_mousey >= 48 && m_mousey < 48 + (SOUND_ITEMS * 8))
+		{
+			sound_cursor = (m_mousey - 48) / 8;
+
+			if (sound_cursor == SOUND_VOLUME ||
+				sound_cursor == SOUND_MUSICVOL ||
+				sound_cursor == SOUND_WATERFX ||
+				sound_cursor == SOUND_AMBIENTLEVEL)
+			{
+				sound_slider_grab = true;
+			}
+			else
+			{
+				M_Sound_AdjustSliders(1);
+			}
+		}
+		break;
+
+	case K_ENTER:
+	case K_KP_ENTER:
+	case K_ABUTTON:
+		m_entersound = true;
+		M_Sound_AdjustSliders(1);
+		break;
+
+	case K_UPARROW:
+		S_LocalSound("misc/menu1.wav");
+		M_Sound_MoveCursor(-1);
+		break;
+
+	case K_DOWNARROW:
+		S_LocalSound("misc/menu1.wav");
+		M_Sound_MoveCursor(1);
+		break;
+
+	case K_LEFTARROW:
+		M_Sound_AdjustSliders(-1);
+		break;
+
+	case K_MWHEELDOWN:
+		if (sound_cursor != SOUND_VOIP)
+			M_Sound_AdjustSliders(-1);
+		break;
+
+	case K_RIGHTARROW:
+		M_Sound_AdjustSliders(1);
+		break;
+
+	case K_MWHEELUP:
+		if (sound_cursor != SOUND_VOIP)
+			M_Sound_AdjustSliders(1);
+		break;
+	}
+}
+
+void M_Sound_Mousemove(int cx, int cy)
+{
+	if (sound_slider_grab)
+	{
+		if (!keydown[K_MOUSE1])
+		{
+			sound_slider_grab = false;
+			return;
+		}
+
+		float f;
+		switch (sound_cursor)
+		{
+		case SOUND_VOLUME:
+			f = M_MouseToSliderFraction(cx - 187);
+			f = CLAMP(0, f, 1);
+			Cvar_SetValue("volume", f);
+			break;
+
+		case SOUND_MUSICVOL:
+			f = M_MouseToSliderFraction(cx - 187);
+			f = CLAMP(0, f, 1);
+			Cvar_SetValue("bgmvolume", f);
+			break;
+
+		case SOUND_WATERFX:
+			f = M_MouseToSliderFraction(cx - 187);
+			f = CLAMP(0, f, 1);
+			Cvar_SetValue("snd_waterfx", f);
+			break;
+
+		case SOUND_AMBIENTLEVEL:
+			f = M_MouseToSliderFraction(cx - 187);
+			f = CLAMP(0, f, 1);
+			Cvar_SetValue("ambient_level", f);
+			break;
+
+			// Add cases for unhandled enumerations to suppress warnings
+		case SOUND_MUSICEXT:
+		case SOUND_AUDIORATE:
+		case SOUND_STOPSOUND:
+		case SOUND_MUTE:
+		case SOUND_VOIP:
+		case SOUND_COUNT:
+			// No action needed for these cases in mouse movement
+			break;
+
+		default:
+			// Handle unexpected cases gracefully
+			break;
+		}
+		return;
+	}
+
+	// Don't process mouse movement if it's in the search box area
+	if (soundmenu.search.len > 0 && cy >= 170)
+		return;
+
+	// Calculate which menu item the mouse is over
+	int item = (cy - 48) / 8;
+
+	// Make sure the item is within valid range
+	if (item >= 0 && item < SOUND_ITEMS)
+	{
+		// Update the cursor position
+		sound_cursor = item;
+	}
+}
+
+
+/*
+==================
+VoIP Menu
+==================
+*/
+
+extern cvar_t cl_voip_send, cl_voip_play, cl_voip_capturingvol, cl_voip_micamp,
+	cl_voip_vad_threshhold, cl_voip_vad_delay, cl_voip_ducking, cl_voip_noisefilter,
+	cl_voip_autogain, cl_voip_showmeter, cl_voip_bitrate, cl_voip_test;
+
+static enum voip_e
+{
+	VOIP_SEND,
+	VOIP_PLAYVOL,
+	VOIP_MICVOL,
+	VOIP_MICAMP,
+	VOIP_VADTHRESH,
+	VOIP_VADDELAY,
+	VOIP_DUCKING,
+	VOIP_NOISEFILTER,
+	VOIP_AUTOGAIN,
+	VOIP_SHOWMETER,
+	VOIP_BITRATE,
+	VOIP_TEST,
+	VOIP_COUNT
+} voip_cursor;
+
+#define VOIP_ITEMS (VOIP_COUNT)
+
+static qboolean voip_slider_grab;
+
+void M_Menu_Voip_f(void)
+{
+	key_dest = key_menu;
+	m_state = m_voip;
+	m_entersound = true;
+	voip_cursor = 0;
+	voip_slider_grab = false;
+
+	IN_UpdateGrabs();
+}
+
+static void M_Voip_AdjustSetting(int dir)
+{
+	float f;
+	int v;
+
+	S_LocalSound("misc/menu3.wav");
+
+	switch (voip_cursor)
+	{
+	case VOIP_SEND:
+		v = (int)cl_voip_send.value + dir;
+		if (v < 0) v = 2;
+		else if (v > 2) v = 0;
+		Cvar_SetValue("cl_voip_send", v);
+		break;
+
+	case VOIP_PLAYVOL:
+		f = cl_voip_play.value + dir * 0.05f;
+		f = CLAMP(0.f, f, 1.f);
+		Cvar_SetValue("cl_voip_play", f);
+		break;
+
+	case VOIP_MICVOL:
+		f = cl_voip_capturingvol.value + dir * 0.05f;
+		f = CLAMP(0.f, f, 1.f);
+		Cvar_SetValue("cl_voip_capturingvol", f);
+		break;
+
+	case VOIP_MICAMP:
+		f = cl_voip_micamp.value + dir * 0.25f;
+		f = CLAMP(0.f, f, 8.f);
+		Cvar_SetValue("cl_voip_micamp", f);
+		break;
+
+	case VOIP_VADTHRESH:
+		f = cl_voip_vad_threshhold.value + dir * 5.f;
+		f = CLAMP(0.f, f, 100.f);
+		Cvar_SetValue("cl_voip_vad_threshhold", f);
+		break;
+
+	case VOIP_VADDELAY:
+		f = cl_voip_vad_delay.value + dir * 0.1f;
+		f = CLAMP(0.f, f, 5.f);
+		Cvar_SetValue("cl_voip_vad_delay", f);
+		break;
+
+	case VOIP_DUCKING:
+		f = cl_voip_ducking.value + dir * 0.05f;
+		f = CLAMP(0.f, f, 1.f);
+		Cvar_SetValue("cl_voip_ducking", f);
+		break;
+
+	case VOIP_NOISEFILTER:
+		Cvar_SetValue("cl_voip_noisefilter", cl_voip_noisefilter.value ? 0 : 1);
+		break;
+
+	case VOIP_AUTOGAIN:
+		Cvar_SetValue("cl_voip_autogain", cl_voip_autogain.value ? 0 : 1);
+		break;
+
+	case VOIP_SHOWMETER:
+		v = (int)cl_voip_showmeter.value + dir;
+		if (v < 0) v = 2;
+		else if (v > 2) v = 0;
+		Cvar_SetValue("cl_voip_showmeter", v);
+		break;
+
+	case VOIP_BITRATE:
+	{
+		static const int rates[] = { 1500, 2000, 3000, 4000, 6000, 8000, 12000, 16000, 24000, 32000 };
+		int n = (int)(sizeof(rates) / sizeof(rates[0]));
+		int cur = 0, i;
+		int best = 0;
+		int bestdiff = 0x7fffffff;
+		for (i = 0; i < n; i++)
+		{
+			int diff = (int)cl_voip_bitrate.value - rates[i];
+			if (diff < 0) diff = -diff;
+			if (diff < bestdiff) { bestdiff = diff; best = i; }
+		}
+		cur = best + dir;
+		if (cur < 0) cur = n - 1;
+		else if (cur >= n) cur = 0;
+		Cvar_SetValue("cl_voip_bitrate", rates[cur]);
+		break;
+	}
+
+	case VOIP_TEST:
+		Cvar_SetValue("cl_voip_test", cl_voip_test.value ? 0 : 1);
+		break;
+
+	default:
+		break;
+	}
+}
+
+void M_Voip_Draw(void)
+{
+	qpic_t *p;
+	enum voip_e i;
+	const char *sendlabels[3] = { "off", "voice activation", "continuous" };
+	const char *meterlabels[3] = { "off", "on", "verbose" };
+
+	p = Draw_CachePic("gfx/p_option.lmp");
+	M_DrawPic((320 - p->width) / 2, 4, p);
+
+	const char *title = "VoIP Options";
+	M_PrintWhite((320 - 8 * strlen(title)) / 2, 32, title);
+
+	for (i = 0; i < VOIP_ITEMS; i++)
+	{
+		int y = 48 + 8 * i;
+		const char *text = NULL;
+		float r;
+		int idx;
+
+		switch (i)
+		{
+		case VOIP_SEND:
+			text = "              Mode";
+			idx = (int)cl_voip_send.value;
+			M_Print(178, y, (idx >= 0 && idx < 3) ? sendlabels[idx] : va("%d", idx));
+			break;
+
+		case VOIP_PLAYVOL:
+			text = "       Play Volume";
+			r = cl_voip_play.value;
+			M_DrawSlider(186, y, r, 100.f * cl_voip_play.value, "%.0f%%");
+			break;
+
+		case VOIP_MICVOL:
+			text = "        Mic Volume";
+			r = cl_voip_capturingvol.value;
+			M_DrawSlider(186, y, r, 100.f * cl_voip_capturingvol.value, "%.0f%%");
+			break;
+
+		case VOIP_MICAMP:
+			text = "       Mic Amplify";
+			r = cl_voip_micamp.value / 8.f;
+			M_DrawSlider(186, y, r, cl_voip_micamp.value, "%.2fx");
+			break;
+
+		case VOIP_VADTHRESH:
+			text = "     VAD Threshold";
+			r = cl_voip_vad_threshhold.value / 100.f;
+			M_DrawSlider(186, y, r, cl_voip_vad_threshhold.value, "%.0f");
+			break;
+
+		case VOIP_VADDELAY:
+			text = "         VAD Delay";
+			r = cl_voip_vad_delay.value / 5.f;
+			M_DrawSlider(186, y, r, cl_voip_vad_delay.value, "%.2fs");
+			break;
+
+		case VOIP_DUCKING:
+			text = "           Ducking";
+			r = cl_voip_ducking.value;
+			M_DrawSlider(186, y, r, 100.f * cl_voip_ducking.value, "%.0f%%");
+			break;
+
+		case VOIP_NOISEFILTER:
+			text = "      Noise Filter";
+			M_DrawCheckbox(178, y, cl_voip_noisefilter.value);
+			break;
+
+		case VOIP_AUTOGAIN:
+			text = "         Auto Gain";
+			M_DrawCheckbox(178, y, cl_voip_autogain.value);
+			break;
+
+		case VOIP_SHOWMETER:
+			text = "        Show Meter";
+			idx = (int)cl_voip_showmeter.value;
+			M_Print(178, y, (idx >= 0 && idx < 3) ? meterlabels[idx] : va("%d", idx));
+			break;
+
+		case VOIP_BITRATE:
+			text = "           Bitrate";
+			M_Print(178, y, va("%d bps", (int)cl_voip_bitrate.value));
+			break;
+
+		case VOIP_TEST:
+			text = "          Mic Test";
+			M_DrawCheckbox(178, y, cl_voip_test.value);
+			break;
+
+		default:
+			break;
+		}
+
+		if (text)
+			M_Print(0, y, text);
+	}
+
+	M_DrawCharacter(168, 48 + voip_cursor * 8, 12 + ((int)(realtime * 4) & 1));
+}
+
+void M_Voip_Key(int k)
+{
+	if (!keydown[K_MOUSE1])
+		voip_slider_grab = false;
+
+	if (voip_slider_grab)
+	{
+		switch (k)
+		{
+		case K_ESCAPE:
+		case K_BBUTTON:
+		case K_MOUSE4:
+		case K_MOUSE2:
+			voip_slider_grab = false;
+			break;
+		}
+		return;
+	}
+
+	switch (k)
+	{
+	case K_ESCAPE:
+	case K_BBUTTON:
+	case K_MOUSE4:
+	case K_MOUSE2:
+		M_Menu_Sound_f();
+		sound_cursor = SOUND_VOIP;
+		break;
+
+	case K_MOUSE1:
+		m_entersound = true;
+		if (m_mousey >= 48 && m_mousey < 48 + (VOIP_ITEMS * 8))
+		{
+			voip_cursor = (m_mousey - 48) / 8;
+			if (voip_cursor == VOIP_PLAYVOL ||
+				voip_cursor == VOIP_MICVOL ||
+				voip_cursor == VOIP_MICAMP ||
+				voip_cursor == VOIP_VADTHRESH ||
+				voip_cursor == VOIP_VADDELAY ||
+				voip_cursor == VOIP_DUCKING)
+			{
+				voip_slider_grab = true;
+			}
+			else
+			{
+				M_Voip_AdjustSetting(1);
+			}
+		}
+		break;
+
+	case K_ENTER:
+	case K_KP_ENTER:
+	case K_ABUTTON:
+		m_entersound = true;
+		M_Voip_AdjustSetting(1);
+		break;
+
+	case K_UPARROW:
+		S_LocalSound("misc/menu1.wav");
+		if (voip_cursor == 0)
+			voip_cursor = VOIP_ITEMS - 1;
+		else
+			voip_cursor--;
+		break;
+
+	case K_DOWNARROW:
+		S_LocalSound("misc/menu1.wav");
+		voip_cursor++;
+		if (voip_cursor >= VOIP_ITEMS)
+			voip_cursor = 0;
+		break;
+
+	case K_LEFTARROW:
+	case K_MWHEELDOWN:
+		M_Voip_AdjustSetting(-1);
+		break;
+
+	case K_RIGHTARROW:
+	case K_MWHEELUP:
+		M_Voip_AdjustSetting(1);
+		break;
+	}
+}
+
+void M_Voip_Mousemove(int cx, int cy)
+{
+	if (voip_slider_grab)
+	{
+		float f;
+
+		if (!keydown[K_MOUSE1])
+		{
+			voip_slider_grab = false;
+			return;
+		}
+
+		f = CLAMP(0.f, M_MouseToSliderFraction(cx - 187), 1.f);
+
+		switch (voip_cursor)
+		{
+		case VOIP_PLAYVOL:
+			Cvar_SetValue("cl_voip_play", f);
+			break;
+		case VOIP_MICVOL:
+			Cvar_SetValue("cl_voip_capturingvol", f);
+			break;
+		case VOIP_MICAMP:
+			Cvar_SetValue("cl_voip_micamp", f * 8.f);
+			break;
+		case VOIP_VADTHRESH:
+			Cvar_SetValue("cl_voip_vad_threshhold", f * 100.f);
+			break;
+		case VOIP_VADDELAY:
+			Cvar_SetValue("cl_voip_vad_delay", f * 5.f);
+			break;
+		case VOIP_DUCKING:
+			Cvar_SetValue("cl_voip_ducking", f);
+			break;
+		default:
+			break;
+		}
+		return;
+	}
+
+	int item = (cy - 48) / 8;
+	if (item >= 0 && item < VOIP_ITEMS)
+		voip_cursor = item;
+}
+
+
+/*
+==================
+Game Menu
+==================
+*/
+
+extern cvar_t cl_rollangle, scr_fov, gl_cshiftpercent, cl_bob, v_kicktime, v_kickroll, v_kickpitch, r_drawviewmodel,
+cl_damagehue, w_switch, b_switch, cl_say, cl_r2g, cl_truelightning, cl_beams_polygons, cl_deadbodyfilter, con_mm1mute,
+gl_max_size, gl_load24bit, r_player_xray;
+
+enum
+{
+	ALWAYSRUN_OFF = 0,
+	ALWAYSRUN_VANILLA,
+	ALWAYSRUN_QUAKESPASM,
+	ALWAYSRUN_ITEMS
+};
+
+static enum game_e
+{
+	GAME_ALWAYSRUN,
+	GAME_ROLLANGLE,
+	GAME_FOV,
+	GAME_FLASHES,
+	GAME_WEAPONBOB,
+	GAME_DAMAGEKICK,
+	GAME_DAMAGETINT,     // Added
+	GAME_AUTOSWITCH,     // Added
+	GAME_CONSOLECHAT,    // Added
+	GAME_SWAPROCKETS,    // Added
+	GAME_TRUELIGHTNING,  // Added
+	GAME_STRAIGHTSHAFT,
+	GAME_DEADBODYFILTER, // Added
+	GAME_MM1MUTE,        // Added
+	GAME_VIEWMODEL,      // Added
+	GAME_TEAMCOLOR,  // Added
+	GAME_ENEMYCOLOR, // Added
+	GAME_PLAYERXRAY,
+	GAME_TEXTURELESS,
+	GAME_COUNT
+} game_cursor;
+
+#define GAME_ITEMS (GAME_COUNT)
+int numberOfGameItems = GAME_ITEMS;
+
+static struct
+{
+	int cursor;
+	struct {
+		char text[32];
+		int len;
+	} search;
+} gamemenu;
+
+static qboolean game_slider_grab;
+static qboolean team_rgb_active;
+static qboolean enemy_rgb_active;
+static char last_team_color[10];
+static char last_enemy_color[10];
+
+enum
+{
+	PLAYERXRAY_MENU_OFF = 0,
+	PLAYERXRAY_MENU_BOTH,
+	PLAYERXRAY_MENU_ENEMY,
+	PLAYERXRAY_MENU_TEAM
+};
+
+enum
+{
+	PLAYERXRAY_TARGET_BOTH = 0,
+	PLAYERXRAY_TARGET_ENEMY,
+	PLAYERXRAY_TARGET_TEAM
+};
+
+enum
+{
+	PLAYERXRAY_COLOR_SPLIT = 0,
+	PLAYERXRAY_COLOR_MATCH
+};
+
+typedef struct
+{
+	float alpha;
+	float distance;
+	int target_mode;
+	int color_mode;
+	int max_match_size;
+	plcolour_t enemy_color;
+	plcolour_t team_color;
+} playerxray_settings_t;
+
+static enum playerxray_e
+{
+	PLAYERXRAY_TARGETS,
+	PLAYERXRAY_ALPHA,
+	PLAYERXRAY_DISTANCE,
+	PLAYERXRAY_COLORMODE,
+	PLAYERXRAY_ENEMYCOLOR,
+	PLAYERXRAY_TEAMCOLOR,
+	PLAYERXRAY_MATCHSIZE,
+	PLAYERXRAY_COUNT
+} playerxray_cursor;
+
+#define PLAYERXRAY_ITEMS (PLAYERXRAY_COUNT)
+
+static qboolean playerxray_slider_grab;
+static qboolean playerxray_enemy_rgb_active;
+static qboolean playerxray_team_rgb_active;
+
+static plcolour_t M_PlayerXray_ColorFromRGB(byte r, byte g, byte b)
+{
+	plcolour_t color;
+
+	color.type = 2;
+	color.basic = 0;
+	color.rgb[0] = r;
+	color.rgb[1] = g;
+	color.rgb[2] = b;
+	return color;
+}
+
+static void M_PlayerXray_DefaultColor(qboolean isTeam, plcolour_t *out)
+{
+	const char *source = isTeam ? gl_teamcolor.string : gl_enemycolor.string;
+
+	if (source && source[0])
+	{
+		*out = CL_PLColours_Parse(source);
+		return;
+	}
+
+	*out = isTeam
+		? M_PlayerXray_ColorFromRGB(0x00, 0xB7, 0xFF)
+		: M_PlayerXray_ColorFromRGB(0xFF, 0x00, 0x00);
+}
+
+static qboolean M_PlayerXray_ParseHexColorToken(const char *token, plcolour_t *out)
+{
+	unsigned int rgb;
+
+	if (q_strncasecmp(token, "0x", 2))
+		return false;
+	if (sscanf(token + 2, "%x", &rgb) != 1)
+		return false;
+
+	*out = M_PlayerXray_ColorFromRGB((rgb >> 16) & 0xFF, (rgb >> 8) & 0xFF, rgb & 0xFF);
+	return true;
+}
+
+static qboolean M_PlayerXray_ParseNamedColorToken(const char *token, const char *key, plcolour_t *out)
+{
+	const char *eq = strchr(token, '=');
+	size_t keylen;
+
+	if (!eq || !eq[1])
+		return false;
+
+	keylen = (size_t)(eq - token);
+	if (strlen(key) != keylen || q_strncasecmp(token, key, keylen))
+		return false;
+
+	return M_PlayerXray_ParseHexColorToken(eq + 1, out);
+}
+
+static int M_PlayerXray_ParseTargetToken(const char *token)
+{
+	const char *value = token;
+	const char *eq = strchr(token, '=');
+	size_t keylen;
+
+	if (eq && eq[1])
+	{
+		keylen = (size_t)(eq - token);
+		if (!((keylen == 6 && !q_strncasecmp(token, "target", keylen)) ||
+			(keylen == 7 && !q_strncasecmp(token, "targets", keylen))))
+			return -1;
+		value = eq + 1;
+	}
+
+	if (!q_strcasecmp(value, "both") ||
+		!q_strcasecmp(value, "all") ||
+		!q_strcasecmp(value, "players"))
+		return PLAYERXRAY_TARGET_BOTH;
+
+	if (!q_strcasecmp(value, "enemy") ||
+		!q_strcasecmp(value, "enemies"))
+		return PLAYERXRAY_TARGET_ENEMY;
+
+	if (!q_strcasecmp(value, "team") ||
+		!q_strcasecmp(value, "teammates") ||
+		!q_strcasecmp(value, "ally") ||
+		!q_strcasecmp(value, "allies"))
+		return PLAYERXRAY_TARGET_TEAM;
+
+	return -1;
+}
+
+static int M_PlayerXray_ParseColorModeToken(const char *token)
+{
+	const char *value = token;
+	const char *eq = strchr(token, '=');
+	size_t keylen;
+
+	if (eq && eq[1])
+	{
+		keylen = (size_t)(eq - token);
+		if (!((keylen == 5 && !q_strncasecmp(token, "color", keylen)) ||
+			(keylen == 6 && !q_strncasecmp(token, "colors", keylen)) ||
+			(keylen == 9 && !q_strncasecmp(token, "colormode", keylen))))
+			return -1;
+		value = eq + 1;
+	}
+
+	if (!q_strcasecmp(value, "pcolor") ||
+		!q_strcasecmp(value, "pcolors") ||
+		!q_strcasecmp(value, "player") ||
+		!q_strcasecmp(value, "playercolor") ||
+		!q_strcasecmp(value, "playercolors"))
+		return PLAYERXRAY_COLOR_MATCH;
+
+	return -1;
+}
+
+static int M_PlayerXray_ParseMatchSizeToken(const char *token)
+{
+	const char *value = token;
+	const char *eq = strchr(token, '=');
+	size_t keylen;
+	qboolean keyed = false;
+	char *endptr;
+	long parsed;
+
+	if (eq && eq[1])
+	{
+		keylen = (size_t)(eq - token);
+		if (!(keylen == 8 && !q_strncasecmp(token, "gametype", keylen)))
+			return -1;
+		value = eq + 1;
+		keyed = true;
+	}
+
+	if (!q_strcasecmp(value, "1v1") || !q_strcasecmp(value, "1on1"))
+		return 1;
+	if (!q_strcasecmp(value, "2v2") || !q_strcasecmp(value, "2on2"))
+		return 2;
+	if (!q_strcasecmp(value, "3v3") || !q_strcasecmp(value, "3on3"))
+		return 3;
+	if (!q_strcasecmp(value, "4v4") || !q_strcasecmp(value, "4on4"))
+		return 4;
+	if (!q_strcasecmp(value, "5v5") || !q_strcasecmp(value, "5on5"))
+		return 5;
+
+	if (!keyed)
+		return -1;
+
+	parsed = strtol(value, &endptr, 10);
+	if (endptr == value || *endptr != '\0' || parsed < 1 || parsed > 5)
+		return -1;
+
+	return (int)parsed;
+}
+
+static void M_PlayerXray_GetSettings(playerxray_settings_t *settings)
+{
+	const char *text = r_player_xray.string;
+	qboolean saw_enemy_color = false;
+	qboolean saw_team_color = false;
+	qboolean saw_base_color = false;
+	qboolean saw_alpha = false;
+	qboolean saw_distance = false;
+	char token[64];
+	int consumed = 0;
+
+	memset(settings, 0, sizeof(*settings));
+	settings->alpha = 1.0f;
+	settings->target_mode = PLAYERXRAY_TARGET_BOTH;
+	settings->color_mode = PLAYERXRAY_COLOR_SPLIT;
+	M_PlayerXray_DefaultColor(false, &settings->enemy_color);
+	M_PlayerXray_DefaultColor(true, &settings->team_color);
+
+	if (!text || !text[0])
+		return;
+
+	while (sscanf(text, " %63s%n", token, &consumed) == 1)
+	{
+		int parsed_mode;
+		char *endptr;
+		float value;
+		plcolour_t parsed_color;
+
+		text += consumed;
+
+		if (M_PlayerXray_ParseNamedColorToken(token, "enemycolor", &settings->enemy_color))
+		{
+			saw_enemy_color = true;
+			continue;
+		}
+		if (M_PlayerXray_ParseNamedColorToken(token, "teamcolor", &settings->team_color))
+		{
+			saw_team_color = true;
+			continue;
+		}
+
+		parsed_mode = M_PlayerXray_ParseTargetToken(token);
+		if (parsed_mode >= 0)
+		{
+			settings->target_mode = parsed_mode;
+			continue;
+		}
+
+		parsed_mode = M_PlayerXray_ParseColorModeToken(token);
+		if (parsed_mode >= 0)
+		{
+			settings->color_mode = parsed_mode;
+			continue;
+		}
+
+		parsed_mode = M_PlayerXray_ParseMatchSizeToken(token);
+		if (parsed_mode >= 0)
+		{
+			settings->max_match_size = parsed_mode;
+			continue;
+		}
+
+		if (M_PlayerXray_ParseHexColorToken(token, &parsed_color))
+		{
+			saw_base_color = true;
+			if (!saw_enemy_color)
+				settings->enemy_color = parsed_color;
+			if (!saw_team_color)
+				settings->team_color = parsed_color;
+			continue;
+		}
+
+		value = (float)strtod(token, &endptr);
+		if (endptr == token || *endptr != '\0')
+			continue;
+
+		if (!saw_alpha && value >= 0.0f && value <= 1.0f)
+		{
+			settings->alpha = value;
+			saw_alpha = true;
+		}
+		else
+		{
+			settings->distance = q_max(0.0f, value);
+			saw_distance = true;
+		}
+	}
+
+	settings->alpha = CLAMP(0.0f, settings->alpha, 1.0f);
+
+	if (!saw_distance && (saw_base_color || (saw_alpha && settings->alpha > 0.0f)))
+		settings->distance = 4096.0f;
+
+	if (settings->distance <= 0.0f && settings->alpha <= 0.0f)
+		settings->alpha = 1.0f;
+}
+
+static void M_PlayerXray_ColorToHex(const plcolour_t *color, char *buffer, size_t buffer_size)
+{
+	plcolour_t temp = *color;
+	byte *rgb = CL_PLColours_ToRGB(&temp);
+
+	if (!rgb)
+	{
+		q_strlcpy(buffer, "0xFF0000", buffer_size);
+		return;
+	}
+
+	q_snprintf(buffer, buffer_size, "0x%02X%02X%02X", rgb[0], rgb[1], rgb[2]);
+}
+
+static int M_PlayerXray_ColorToBasicIndex(const plcolour_t *color)
+{
+	plcolour_t temp = *color;
+	byte *rgb = CL_PLColours_ToRGB(&temp);
+	int i;
+
+	if (!rgb)
+		return -1;
+
+	for (i = 0; i <= 13; ++i)
+	{
+		byte *pal = (byte *)&d_8to24table[(i << 4) + 8];
+		if (pal[0] == rgb[0] && pal[1] == rgb[1] && pal[2] == rgb[2])
+			return i;
+	}
+
+	return -1;
+}
+
+static const char *M_PlayerXray_ColorValue(const plcolour_t *color, qboolean rgb_active)
+{
+	static char value[16];
+	int basic = M_PlayerXray_ColorToBasicIndex(color);
+
+	if (!rgb_active && basic >= 0)
+	{
+		q_snprintf(value, sizeof(value), "%d", basic);
+		return value;
+	}
+
+	M_PlayerXray_ColorToHex(color, value, sizeof(value));
+	return value;
+}
+
+static int M_PlayerXray_GetMenuTarget(const playerxray_settings_t *settings)
+{
+	if (settings->distance <= 0.0f)
+		return PLAYERXRAY_MENU_OFF;
+
+	switch (settings->target_mode)
+	{
+	case PLAYERXRAY_TARGET_ENEMY:
+		return PLAYERXRAY_MENU_ENEMY;
+	case PLAYERXRAY_TARGET_TEAM:
+		return PLAYERXRAY_MENU_TEAM;
+	case PLAYERXRAY_TARGET_BOTH:
+	default:
+		return PLAYERXRAY_MENU_BOTH;
+	}
+}
+
+static const char *M_PlayerXray_TargetLabel(int menu_target)
+{
+	switch (menu_target)
+	{
+	case PLAYERXRAY_MENU_OFF:
+		return "off";
+	case PLAYERXRAY_MENU_ENEMY:
+		return "enemy";
+	case PLAYERXRAY_MENU_TEAM:
+		return "team";
+	case PLAYERXRAY_MENU_BOTH:
+	default:
+		return "both";
+	}
+}
+
+static const char *M_PlayerXray_ColorModeLabel(int color_mode)
+{
+	return (color_mode == PLAYERXRAY_COLOR_MATCH) ? "player colors" : "split";
+}
+
+static const char *M_PlayerXray_MatchSizeLabel(int max_match_size)
+{
+	switch (max_match_size)
+	{
+	case 1:
+		return "1v1";
+	case 2:
+		return "up to 2v2";
+	case 3:
+		return "up to 3v3";
+	case 4:
+		return "up to 4v4";
+	case 5:
+		return "5v5+";
+	default:
+		return "any";
+	}
+}
+
+static void M_PlayerXray_SetMenuTarget(playerxray_settings_t *settings, int menu_target)
+{
+	switch (menu_target)
+	{
+	case PLAYERXRAY_MENU_OFF:
+		settings->distance = 0.0f;
+		break;
+
+	case PLAYERXRAY_MENU_ENEMY:
+		settings->target_mode = PLAYERXRAY_TARGET_ENEMY;
+		if (settings->distance <= 0.0f)
+			settings->distance = 4096.0f;
+		break;
+
+	case PLAYERXRAY_MENU_TEAM:
+		settings->target_mode = PLAYERXRAY_TARGET_TEAM;
+		if (settings->distance <= 0.0f)
+			settings->distance = 4096.0f;
+		break;
+
+	case PLAYERXRAY_MENU_BOTH:
+	default:
+		settings->target_mode = PLAYERXRAY_TARGET_BOTH;
+		if (settings->distance <= 0.0f)
+			settings->distance = 4096.0f;
+		break;
+	}
+}
+
+static void M_PlayerXray_SetSettings(const playerxray_settings_t *settings)
+{
+	char value[160];
+	char enemy_hex[16];
+	char team_hex[16];
+	char match_token[24] = "";
+	const char *target_token;
+
+	M_PlayerXray_ColorToHex(&settings->enemy_color, enemy_hex, sizeof(enemy_hex));
+	M_PlayerXray_ColorToHex(&settings->team_color, team_hex, sizeof(team_hex));
+
+	switch (settings->target_mode)
+	{
+	case PLAYERXRAY_TARGET_ENEMY:
+		target_token = "enemy";
+		break;
+	case PLAYERXRAY_TARGET_TEAM:
+		target_token = "team";
+		break;
+	case PLAYERXRAY_TARGET_BOTH:
+	default:
+		target_token = "both";
+		break;
+	}
+
+	if (settings->max_match_size > 0)
+		q_snprintf(match_token, sizeof(match_token), " gametype=%d", settings->max_match_size);
+
+	q_snprintf(value, sizeof(value), "%.2f %.0f %s%s%s enemycolor=%s teamcolor=%s",
+		CLAMP(0.0f, settings->alpha, 1.0f),
+		q_max(0.0f, settings->distance),
+		target_token,
+		(settings->color_mode == PLAYERXRAY_COLOR_MATCH) ? " pcolor" : "",
+		match_token,
+		enemy_hex,
+		team_hex);
+
+	Cvar_Set("r_player_xray", value);
+}
+
+static void M_PlayerXray_AdjustColor(plcolour_t *color, qboolean *rgb_active, int dir)
+{
+	if (keydown[K_SHIFT])
+	{
+		vec3_t hsv;
+		plcolour_t temp = *color;
+
+		*rgb_active = true;
+		rgbtohsv(CL_PLColours_ToRGB(&temp), hsv);
+		hsv[0] += dir / 128.0f;
+		hsv[1] = 1.0f;
+		hsv[2] = 1.0f;
+		*color = M_PlayerXray_ColorFromRGB(0, 0, 0);
+		hsvtorgb(hsv[0], hsv[1], hsv[2], color->rgb);
+		return;
+	}
+
+	*rgb_active = false;
+	{
+		int basic = M_PlayerXray_ColorToBasicIndex(color);
+		if (basic < 0)
+			basic = 0;
+
+		basic += dir;
+		if (basic < 0)
+			basic = 13;
+		else if (basic > 13)
+			basic = 0;
+
+		color->type = 1;
+		color->basic = basic;
+	}
+}
+
+static const char *M_PlayerXray_SummaryValue(void)
+{
+	playerxray_settings_t settings;
+
+	M_PlayerXray_GetSettings(&settings);
+	return M_PlayerXray_TargetLabel(M_PlayerXray_GetMenuTarget(&settings));
+}
+
+static void M_Game_AdjustColor(int dir, qboolean isTeam)
+{
+	const char* current = isTeam ? gl_teamcolor.string : gl_enemycolor.string;
+
+	// If shift is held, handle RGB color mode
+	if (keydown[K_SHIFT])
+	{
+		if (isTeam)
+			team_rgb_active = true;
+		else
+			enemy_rgb_active = true;
+
+		plcolour_t color = CL_PLColours_Parse(current);
+		vec3_t hsv;
+		rgbtohsv(color.rgb, hsv);
+
+		hsv[0] += dir / 128.0;
+		hsv[1] = 1;
+		hsv[2] = 1;
+		color.type = 2;
+		color.basic = 0;
+		hsvtorgb(hsv[0], hsv[1], hsv[2], color.rgb);
+
+		const char* colorStr = CL_PLColours_ToString(color);
+		if (isTeam)
+		{
+			Cvar_Set("gl_teamcolor", colorStr);
+			snprintf(last_team_color, sizeof(last_team_color), "%s", colorStr);
+		}
+		else
+		{
+			Cvar_Set("gl_enemycolor", colorStr);
+			snprintf(last_enemy_color, sizeof(last_enemy_color), "%s", colorStr);
+		}
+		return;
+	}
+
+	// Not in RGB mode
+	if (isTeam)
+		team_rgb_active = false;
+	else
+		enemy_rgb_active = false;
+
+	// Handle empty string ("off") case
+	if (strcmp(current, "") == 0)
+	{
+		if (dir > 0)  // Going right from "off" -> 0
+		{
+			plcolour_t color;
+			color.type = 1;
+			color.basic = 0;
+			const char* colorStr = CL_PLColours_ToString(color);
+			if (isTeam)
+			{
+				Cvar_Set("gl_teamcolor", colorStr);
+				snprintf(last_team_color, sizeof(last_team_color), "%s", colorStr);
+			}
+			else
+			{
+				Cvar_Set("gl_enemycolor", colorStr);
+				snprintf(last_enemy_color, sizeof(last_enemy_color), "%s", colorStr);
+			}
+		}
+		return;
+	}
+
+	// Handle numeric colors
+	plcolour_t color = CL_PLColours_Parse(current);
+	color.type = 1;
+
+	// Calculate new basic color value
+	int newBasic = color.basic + dir;
+
+	// Handle cycling
+	if (newBasic < 0)  // Going left from 0 -> "off"
+	{
+		if (isTeam)
+			Cvar_Set("gl_teamcolor", "");
+		else
+			Cvar_Set("gl_enemycolor", "");
+		return;
+	}
+	else if (newBasic > 13)  // Going right from 13 -> 0
+	{
+		color.basic = 0;
+	}
+	else  // Normal case
+	{
+		color.basic = newBasic;
+	}
+
+	const char* colorStr = CL_PLColours_ToString(color);
+	if (isTeam)
+	{
+		Cvar_Set("gl_teamcolor", colorStr);
+		snprintf(last_team_color, sizeof(last_team_color), "%s", colorStr);
+	}
+	else
+	{
+		Cvar_Set("gl_enemycolor", colorStr);
+		snprintf(last_enemy_color, sizeof(last_enemy_color), "%s", colorStr);
+	}
+}
+
+static const char* M_Game_GetItemText(int index)
+{
+	static char buffer[64];
+
+	switch (index)
+	{
+	case GAME_ALWAYSRUN:
+		return "Always Run";
+	case GAME_ROLLANGLE:
+		return "Strafe Angle Tilt";
+	case GAME_FOV:
+		return "Field of View";
+	case GAME_FLASHES:
+		return "Screen Flashes";
+	case GAME_WEAPONBOB:
+		return "Weapon Bob";
+	case GAME_DAMAGEKICK:
+		return "Damage Kick";
+	case GAME_DAMAGETINT:
+		return "Gun Damage Tint";
+	case GAME_AUTOSWITCH:
+		return "Gun Auto Switch";
+	case GAME_CONSOLECHAT:
+		return "Console Chat";
+	case GAME_SWAPROCKETS:
+		return "R2G Swap Rockets";
+	case GAME_TRUELIGHTNING:
+		return "True Lightning";
+	case GAME_STRAIGHTSHAFT:
+		return "Straight Shaft";
+	case GAME_DEADBODYFILTER:
+		return "Deadbody Filter";
+	case GAME_MM1MUTE:
+		return "Mute MM1 Chat";
+	case GAME_VIEWMODEL:
+		return "View Model";
+	case GAME_TEAMCOLOR:
+		return "Force Team Color";
+	case GAME_ENEMYCOLOR:
+		return "Force Enemy Color";
+	case GAME_PLAYERXRAY:
+		return "Player Xray";
+	case GAME_TEXTURELESS:
+		return "Textureless";
+	default:
+		q_snprintf(buffer, sizeof(buffer), "Unknown Item %d", index);
+		return buffer;
+	}
+}
+
+static void M_Game_UpdateSearch(void)
+{
+	game_cursor = (enum game_e)M_Menu_UpdateSearchCursor(
+		GAME_ITEMS, (int)game_cursor, &numberOfGameItems,
+		M_Game_GetItemText, gamemenu.search.text, gamemenu.search.len);
+}
+
+static void M_Game_MoveCursor(int delta)
+{
+	game_cursor = (enum game_e)M_Menu_MoveSearchCursor(
+		GAME_ITEMS, numberOfGameItems, (int)game_cursor, delta,
+		M_Game_GetItemText, gamemenu.search.text, gamemenu.search.len);
+}
+
+void M_Menu_Game_f(void)
+{
+	key_dest = key_menu;
+	m_state = m_game;
+	m_entersound = true;
+	game_cursor = 0;
+	gamemenu.cursor = 0;
+	gamemenu.search.len = 0;
+	gamemenu.search.text[0] = 0;
+	numberOfGameItems = GAME_ITEMS;
+
+	IN_UpdateGrabs();
+}
+
+static void M_Game_AdjustSliders(int dir)
+{
+	int curr_alwaysrun, target_alwaysrun;
+	float f;
+	S_LocalSound("misc/menu3.wav");
+
+	switch (game_cursor)
+	{
+
+	case GAME_ALWAYSRUN:
+		if (cl_alwaysrun.value)
+			curr_alwaysrun = ALWAYSRUN_QUAKESPASM;
+		else if (cl_forwardspeed.value > 200)
+			curr_alwaysrun = ALWAYSRUN_VANILLA;
+		else
+			curr_alwaysrun = ALWAYSRUN_OFF;
+
+		target_alwaysrun = (ALWAYSRUN_ITEMS + curr_alwaysrun + dir) % ALWAYSRUN_ITEMS;
+
+		if (target_alwaysrun == ALWAYSRUN_VANILLA)
+		{
+			Cvar_SetValue("cl_alwaysrun", 0);
+			Cvar_SetValue("cl_forwardspeed", 400);
+			Cvar_SetValue("cl_backspeed", 400);
+		}
+		else if (target_alwaysrun == ALWAYSRUN_QUAKESPASM)
+		{
+			Cvar_SetValue("cl_alwaysrun", 1);
+			Cvar_SetValue("cl_forwardspeed", 200);
+			Cvar_SetValue("cl_backspeed", 200);
+		}
+		else // ALWAYSRUN_OFF
+		{
+			Cvar_SetValue("cl_alwaysrun", 0);
+			Cvar_SetValue("cl_forwardspeed", 200);
+			Cvar_SetValue("cl_backspeed", 200);
+		}
+		break;
+
+	case GAME_ROLLANGLE:
+		Cvar_SetValue("cl_rollangle", !cl_rollangle.value);
+		break;
+
+	case GAME_FOV:
+		f = scr_fov.value + dir;  // Changed from dir * 5 to just dir
+		f = CLAMP(60, f, 130);
+		Cvar_SetValue("fov", f);
+		break;
+
+	case GAME_FLASHES:
+		f = gl_cshiftpercent.value + dir;  // Changed from dir * 10 to just dir
+		f = CLAMP(0, f, 100);
+		Cvar_SetValue("gl_cshiftpercent", f);
+		break;
+
+	case GAME_WEAPONBOB:
+		Cvar_SetValue("cl_bob", !cl_bob.value * 0.02);
+		break;
+
+	case GAME_DAMAGEKICK:
+		if (v_kickroll.value == 0 || v_kickpitch.value == 0) // If off, turn on with defaults
+		{
+			Cvar_SetValue("v_kicktime", 0.5);
+			Cvar_SetValue("v_kickroll", 0.6);
+			Cvar_SetValue("v_kickpitch", 0.6);
+		}
+		else // Turn off
+		{
+			Cvar_SetValue("v_kicktime", 0);
+			Cvar_SetValue("v_kickroll", 0);
+			Cvar_SetValue("v_kickpitch", 0);
+		}
+		break;
+
+	case GAME_DAMAGETINT:
+	{
+		int current = cl_damagehue.value;
+		current = (current + 3 + dir) % 3;  // Cycle through 0,1,2
+		Cvar_SetValue("cl_damagehue", current);
+	}
+	break;
+
+	case GAME_AUTOSWITCH:
+	{
+		int newval = (w_switch.value == 0) ? 2 : 0;
+		Cvar_SetValue("w_switch", newval);
+		Cvar_SetValue("b_switch", newval);
+	}
+	break;
+
+	case GAME_CONSOLECHAT:
+	{
+		int current = cl_say.value;
+		current = (current + 3 + dir) % 3;  // Cycle through 0,1,2
+		Cvar_SetValue("cl_say", current);
+	}
+	break;
+
+	case GAME_SWAPROCKETS:
+		Cvar_SetValue("cl_r2g", !cl_r2g.value);
+		break;
+
+	case GAME_TRUELIGHTNING:
+		f = cl_truelightning.value + dir;
+		f = CLAMP(0, f, 100);
+		Cvar_SetValue("cl_truelightning", f);
+		break;
+
+	case GAME_STRAIGHTSHAFT:
+		f = cl_beams_polygons.value + dir * 0.5f;
+		f = CLAMP(0.0f, f, 10.0f);
+		Cvar_SetValue("cl_beams_polygons", f);
+		break;
+
+	case GAME_DEADBODYFILTER:
+		Cvar_SetValue("cl_deadbodyfilter", !cl_deadbodyfilter.value);
+		break;
+
+	case GAME_MM1MUTE:
+		Cvar_SetValue("con_mm1mute", !con_mm1mute.value);
+		break;
+
+	case GAME_VIEWMODEL:
+		f = r_drawviewmodel.value + dir * 0.1f;  // Change to 0.1 increments
+		f = CLAMP(0, f, 1);  // Clamp between 0 and 1
+		Cvar_SetValue("r_drawviewmodel", f);
+		break;
+
+	case GAME_TEAMCOLOR:
+		M_Game_AdjustColor(dir, true);
+		break;
+	case GAME_ENEMYCOLOR:
+		M_Game_AdjustColor(dir, false);
+		break;
+
+	case GAME_PLAYERXRAY:
+		M_Menu_PlayerXray_f();
+		break;
+
+	case GAME_TEXTURELESS:
+	{
+		qboolean textureless_is_currently_on = (gl_max_size.value == 1.0f);
+		float original_load24bit_value = gl_load24bit.value;
+
+		if (textureless_is_currently_on) // Currently ON, user wants to turn OFF
+		{
+			Cvar_SetValue("gl_max_size", 0.0f); // Primary action: turn Textureless OFF
+
+			if (original_load24bit_value == 2.0f)
+			{
+				Cvar_SetValue("gl_load24bit", 1.0f);
+			}
+			// If original_load24bit_value was 0, it remains 0 as per rule.
+			// If original_load24bit_value was 1, it remains 1 (no specific rule to change it on OFF).
+		}
+		else // Currently OFF, user wants to turn ON
+		{
+			Cvar_SetValue("gl_max_size", 1.0f); // Primary action: turn Textureless ON
+
+			if (original_load24bit_value == 1.0f)
+			{
+				Cvar_SetValue("gl_load24bit", 2.0f);
+			}
+			// If original_load24bit_value was 0, it remains 0 as per rule.
+			// If original_load24bit_value was 2, it remains 2 (no specific rule to change it on ON if not 0 or 1).
+		}
+		break;
+	}
+
+	case GAME_COUNT:
+		break;
+
+	default:
+		break;
+	}
+}
+
+void M_Game_Draw(void)
+{
+	//qpic_t* p;
+	float r;
+	enum game_e i;
+
+	game_cursor = (enum game_e)M_Menu_ClampCursorValue((int)game_cursor, GAME_ITEMS);
+
+	//p = Draw_CachePic("gfx/p_option.lmp");
+	//M_DrawPic((320 - p->width) / 2, 4, p);
+
+	const char* title = "Game Options";
+	M_PrintWhite((320 - 8 * strlen(title)) / 2, 4, title);
+
+	for (i = 0; i < GAME_ITEMS; i++)
+	{
+		int y = 20 + 8 * i;
+		const char* text = NULL;
+		const char* value = NULL;
+
+		switch (i)
+		{
+
+		case GAME_ALWAYSRUN:
+			text = "        Always Run";
+			if (cl_alwaysrun.value)
+				value = "qs/power bunnyhop";
+			else if (cl_forwardspeed.value > 200.0)
+				value = "traditional";
+			else
+				value = "off (slow)";
+			M_Print(178, y, value);
+			break;
+
+		case GAME_ROLLANGLE:
+			text = " Strafe Angle Tilt";
+			M_DrawCheckbox(178, y, cl_rollangle.value != 0);
+			break;
+
+		case GAME_FOV:
+			text = "     Field of View";
+			r = (scr_fov.value - 60) / 70.0;  // 70 is range (130-60)
+			M_DrawSlider(186, y, r, scr_fov.value, "%.0f");
+			break;
+
+		case GAME_FLASHES:
+			text = "    Screen Flashes";
+			r = gl_cshiftpercent.value / 100.0;
+			M_DrawSlider(186, y, r, gl_cshiftpercent.value, "%.0f%%");
+			break;
+
+		case GAME_WEAPONBOB:
+			text = "        Weapon Bob";
+			M_DrawCheckbox(178, y, cl_bob.value != 0);
+			break;
+
+		case GAME_DAMAGEKICK:
+			text = "       Damage Kick";
+			M_DrawCheckbox(178, y, (v_kickroll.value != 0 || v_kickpitch.value != 0));
+			break;
+
+		case GAME_DAMAGETINT:
+			text = "   Damage Gun Tint";
+			if (cl_damagehue.value == 0)
+				value = "off";
+			else if (cl_damagehue.value == 1)
+				value = "weapon";
+			else
+				value = "weapon+crosshair";
+			M_Print(178, y, value);
+			break;
+
+		case GAME_AUTOSWITCH:
+			text = "   Gun Auto Switch";
+			M_DrawCheckbox(178, y, w_switch.value != 0);
+			break;
+
+		case GAME_CONSOLECHAT:
+			text = "      Console Chat";
+			if (cl_say.value == 0)
+				value = "off";
+			else if (cl_say.value == 1)
+				value = "console";
+			else
+				value = "console+space";
+			M_Print(178, y, value);
+			break;
+
+		case GAME_SWAPROCKETS:
+			text = "  R2G Swap Rockets";
+			M_DrawCheckbox(178, y, cl_r2g.value != 0);
+			break;
+
+		case GAME_TRUELIGHTNING:
+			text = "    True Lightning";
+			r = cl_truelightning.value / 100.0;
+			M_DrawSlider(186, y, r, cl_truelightning.value, "%.0f%%");
+			break;
+
+		case GAME_STRAIGHTSHAFT:
+			text = "    Straight Shaft";
+			r = CLAMP(0.0f, cl_beams_polygons.value, 10.0f) / 10.0f;
+			M_DrawSlider(186, y, r, CLAMP(0.0f, cl_beams_polygons.value, 10.0f), "%.1f");
+			break;
+
+		case GAME_DEADBODYFILTER:
+			text = "   Deadbody Filter";
+			M_DrawCheckbox(178, y, cl_deadbodyfilter.value != 0);
+			break;
+		case GAME_MM1MUTE:
+			text = "     Mute MM1 Chat";
+			M_DrawCheckbox(178, y, con_mm1mute.value != 0);
+			break;
+
+		case GAME_VIEWMODEL:
+			text = " Visible Gun Model";
+			r = r_drawviewmodel.value;  // Already 0-1, no need to divide
+			M_DrawSlider(186, y, r, r_drawviewmodel.value * 100, "%.0f%%");  // Multiply by 100 just for display
+			break;
+
+		case GAME_TEAMCOLOR:
+			text = "  Force Team Color";
+			if (strcmp(gl_teamcolor.string, "") == 0)
+				value = "off";
+			else if (team_rgb_active)
+				value = va("%s", gl_teamcolor.string);
+			else
+			{
+				plcolour_t color = CL_PLColours_Parse(gl_teamcolor.string);
+				value = (color.type == 2) ? va("%s", gl_teamcolor.string) : va("%d", color.basic);
+			}
+			M_Print(178, y, value);
+			if (strcmp(gl_teamcolor.string, "") != 0)
+				Draw_FillPlayer(178 + (strlen(value) * 8) + 4, y + 2, 6, 6, CL_PLColours_Parse(gl_teamcolor.string), 1.0);
+			break;
+
+		case GAME_ENEMYCOLOR:
+			text = " Force Enemy Color";
+			if (strcmp(gl_enemycolor.string, "") == 0)
+				value = "off";
+			else if (enemy_rgb_active)
+				value = va("%s", gl_enemycolor.string);
+			else
+			{
+				plcolour_t color = CL_PLColours_Parse(gl_enemycolor.string);
+				value = (color.type == 2) ? va("%s", gl_enemycolor.string) : va("%d", color.basic);
+			}
+			M_Print(178, y, value);
+			if (strcmp(gl_enemycolor.string, "") != 0)
+				Draw_FillPlayer(178 + (strlen(value) * 8) + 4, y + 2, 6, 6, CL_PLColours_Parse(gl_enemycolor.string), 1.0);
+			break;
+
+		case GAME_PLAYERXRAY:
+			text = "       Player Xray";
+			value = M_PlayerXray_SummaryValue();
+			M_Print(178, y, value);
+			break;
+
+		case GAME_TEXTURELESS:
+			text = "       Textureless"; // Adjusted spacing
+			M_DrawCheckbox(178, y, gl_max_size.value == 1.0f);
+			break;
+
+		default:
+			break;
+		}
+
+		if (text)
+		{
+			if (gamemenu.search.len > 0 &&
+				q_strcasestr(text, gamemenu.search.text))
+			{
+				M_PrintHighlight(0, y, text,
+					gamemenu.search.text,
+					gamemenu.search.len);
+			}
+			else
+			{
+				M_Print(0, y, text);
+			}
+		}
+	}
+
+	// Draw cursor
+	M_DrawCharacter(168, 20 + game_cursor * 8, 12 + ((int)(realtime * 4) & 1));
+
+	if (game_cursor == GAME_TEAMCOLOR || game_cursor == GAME_ENEMYCOLOR)
+		M_PrintRGBA(74, 176, "+shift for RGB colors", CL_PLColours_Parse("0xffffff"), 0.6f, false);
+
+	// Draw search box if search is active
+	if (gamemenu.search.len > 0)
+	{
+		M_DrawTextBox(16, 170, 32, 1);
+		M_PrintHighlight(24, 178, gamemenu.search.text,
+			gamemenu.search.text,
+			gamemenu.search.len);
+		int cursor_x = 24 + 8 * gamemenu.search.len;
+		if (numberOfGameItems == 0)
+			M_DrawCharacter(cursor_x, 178, 11 ^ 128);
+		else
+			M_DrawCharacter(cursor_x, 178, 10 + ((int)(realtime * 4) & 1));
+	}
+}
+
+void M_Game_Key(int k)
+{
+	// Handle slider grab release
+	if (!keydown[K_MOUSE1])
+		game_slider_grab = false;
+
+	if (game_slider_grab)
+	{
+		switch (k)
+		{
+		case K_ESCAPE:
+		case K_BBUTTON:
+		case K_MOUSE4:
+		case K_MOUSE2:
+			game_slider_grab = false;
+			break;
+		}
+		return;
+	}
+
+	// Handle search functionality first
+	if (k == K_ESCAPE)
+	{
+		if (gamemenu.search.len > 0)
+		{
+			gamemenu.search.len = 0;
+			gamemenu.search.text[0] = 0;
+			M_Game_UpdateSearch();
+			return;
+		}
+		M_Menu_Options_f();
+		return;
+	}
+	else if (keydown[K_CTRL])
+	{
+		if ((k == 'u' || k == 'U') && gamemenu.search.len > 0)
+		{
+			// Clear entire search with Ctrl+U
+			gamemenu.search.len = 0;
+			gamemenu.search.text[0] = 0;
+			M_Game_UpdateSearch();
+			return;
+		}
+		else if (k == K_BACKSPACE && gamemenu.search.len > 0)
+		{
+			// Delete previous word with Ctrl+Backspace
+			listsearch_t temp;
+			temp.len = gamemenu.search.len;
+			Q_strcpy(temp.text, gamemenu.search.text);
+			M_DeletePrevWord(&temp);
+			Q_strcpy(gamemenu.search.text, temp.text);
+			gamemenu.search.len = temp.len;
+			M_Game_UpdateSearch();
+			return;
+	}
+	}
+	else if (k == K_BACKSPACE)
+	{
+		if (gamemenu.search.len > 0)
+		{
+			gamemenu.search.text[--gamemenu.search.len] = 0;
+			M_Game_UpdateSearch();
+			return;
+		}
+	}
+	else if (k >= 32 && k < 127)
+	{
+		if (gamemenu.search.len < sizeof(gamemenu.search.text) - 1)
+		{
+			gamemenu.search.text[gamemenu.search.len++] = k;
+			gamemenu.search.text[gamemenu.search.len] = 0;
+			M_Game_UpdateSearch();
+			return;
+		}
+	}
+
+	switch (k)
+	{
+	case K_ESCAPE:
+	case K_BBUTTON:
+	case K_MOUSE4:
+	case K_MOUSE2:
+		M_Menu_Options_f();
+		break;
+
+	case K_MOUSE1:
+		m_entersound = true;
+
+		// Check if click is in search box area
+		if (gamemenu.search.len > 0 && m_mousey >= 170)
+			break;
+
+		// Check if click is in valid menu area
+		if (m_mousey >= 20 && m_mousey < 20 + (GAME_ITEMS * 8))  // Changed from 48 to 20
+		{
+			game_cursor = (m_mousey - 20) / 8;  // Changed from 48 to 20
+
+			if (game_cursor == GAME_FOV ||
+				game_cursor == GAME_FLASHES ||
+				game_cursor == GAME_TRUELIGHTNING ||
+				game_cursor == GAME_STRAIGHTSHAFT ||
+				game_cursor == GAME_VIEWMODEL)
+			{
+				game_slider_grab = true;
+			}
+			else
+			{
+				M_Game_AdjustSliders(1);
+			}
+		}
+		break;
+
+	case K_ENTER:
+	case K_KP_ENTER:
+	case K_ABUTTON:
+		m_entersound = true;
+		M_Game_AdjustSliders(1);
+		break;
+
+	case K_UPARROW:
+		S_LocalSound("misc/menu1.wav");
+		M_Game_MoveCursor(-1);
+		break;
+
+	case K_DOWNARROW:
+		S_LocalSound("misc/menu1.wav");
+		M_Game_MoveCursor(1);
+		break;
+
+	case K_LEFTARROW:
+		M_Game_AdjustSliders(-1);
+		break;
+
+	case K_MWHEELDOWN:
+		if (game_cursor != GAME_PLAYERXRAY)
+			M_Game_AdjustSliders(-1);
+		break;
+
+	case K_RIGHTARROW:
+		M_Game_AdjustSliders(1);
+		break;
+
+	case K_MWHEELUP:
+		if (game_cursor != GAME_PLAYERXRAY)
+			M_Game_AdjustSliders(1);
+		break;
+	}
+}
+
+void M_Game_Mousemove(int cx, int cy)
+{
+	if (game_slider_grab)
+	{
+		if (!keydown[K_MOUSE1])
+		{
+			game_slider_grab = false;
+			return;
+		}
+
+		float f;
+		switch (game_cursor)
+		{
+		case GAME_FOV:
+			f = 60 + M_MouseToSliderFraction(cx - 187) * 70;  // 70 is range (130-60)
+			Cvar_SetValue("fov", CLAMP(60, (int)f, 130));
+			break;
+
+		case GAME_FLASHES:
+			f = M_MouseToSliderFraction(cx - 187) * 100;
+			Cvar_SetValue("gl_cshiftpercent", CLAMP(0, (int)f, 100));
+			break;
+
+		case GAME_TRUELIGHTNING:
+			f = M_MouseToSliderFraction(cx - 187) * 100;
+			Cvar_SetValue("cl_truelightning", CLAMP(0, (int)f, 100));
+			break;
+
+		case GAME_STRAIGHTSHAFT:
+			f = M_MouseToSliderFraction(cx - 187) * 10.0f;
+			f = (int)(f * 10.0f + 0.5f) / 10.0f;
+			Cvar_SetValue("cl_beams_polygons", CLAMP(0.0f, f, 10.0f));
+			break;
+
+		case GAME_VIEWMODEL:
+			f = M_MouseToSliderFraction(cx - 187);  // Already 0-1
+			Cvar_SetValue("r_drawviewmodel", CLAMP(0, f, 1));
+			break;
+
+			// Add cases for unhandled enumerations
+		case GAME_ALWAYSRUN:
+		case GAME_ROLLANGLE:
+		case GAME_WEAPONBOB:
+		case GAME_DAMAGEKICK:
+		case GAME_DAMAGETINT:
+		case GAME_AUTOSWITCH:
+		case GAME_CONSOLECHAT:
+		case GAME_SWAPROCKETS:
+		case GAME_DEADBODYFILTER:
+		case GAME_MM1MUTE:
+		case GAME_PLAYERXRAY:
+		case GAME_COUNT:
+			// No action needed for these cases in mouse movement
+			break;
+
+		default:
+			// Handle unexpected cases gracefully
+			break;
+		}
+		return;
+	}
+
+	// Don't process mouse movement if it's in the search box area
+	if (gamemenu.search.len > 0 && cy >= 170)
+		return;
+
+	// Calculate which menu item the mouse is over
+	int item = (cy - 20) / 8;
+
+	// Make sure the item is within valid range
+	if (item >= 0 && item < GAME_ITEMS)
+	{
+		// Update the cursor position
+		game_cursor = item;
+	}
+}
+
+static void M_PlayerXray_AdjustSetting(int dir)
+{
+	playerxray_settings_t settings;
+	int target;
+
+	M_PlayerXray_GetSettings(&settings);
+	S_LocalSound("misc/menu3.wav");
+
+	switch (playerxray_cursor)
+	{
+	case PLAYERXRAY_TARGETS:
+		target = M_PlayerXray_GetMenuTarget(&settings) + dir;
+		if (target < PLAYERXRAY_MENU_OFF)
+			target = PLAYERXRAY_MENU_TEAM;
+		else if (target > PLAYERXRAY_MENU_TEAM)
+			target = PLAYERXRAY_MENU_OFF;
+		M_PlayerXray_SetMenuTarget(&settings, target);
+		break;
+
+	case PLAYERXRAY_ALPHA:
+		settings.alpha = CLAMP(0.0f, settings.alpha + dir * 0.05f, 1.0f);
+		break;
+
+	case PLAYERXRAY_DISTANCE:
+		settings.distance = CLAMP(0.0f, settings.distance + dir * 256.0f, 8192.0f);
+		break;
+
+	case PLAYERXRAY_COLORMODE:
+		settings.color_mode = (settings.color_mode == PLAYERXRAY_COLOR_MATCH)
+			? PLAYERXRAY_COLOR_SPLIT
+			: PLAYERXRAY_COLOR_MATCH;
+		break;
+
+	case PLAYERXRAY_ENEMYCOLOR:
+		M_PlayerXray_AdjustColor(&settings.enemy_color, &playerxray_enemy_rgb_active, dir);
+		break;
+
+	case PLAYERXRAY_TEAMCOLOR:
+		M_PlayerXray_AdjustColor(&settings.team_color, &playerxray_team_rgb_active, dir);
+		break;
+
+	case PLAYERXRAY_MATCHSIZE:
+		settings.max_match_size += dir;
+		if (settings.max_match_size < 0)
+			settings.max_match_size = 5;
+		else if (settings.max_match_size > 5)
+			settings.max_match_size = 0;
+		break;
+
+	case PLAYERXRAY_COUNT:
+	default:
+		break;
+	}
+
+	M_PlayerXray_SetSettings(&settings);
+}
+
+void M_Menu_PlayerXray_f(void)
+{
+	key_dest = key_menu;
+	m_state = m_playerxray;
+	m_entersound = true;
+	playerxray_cursor = 0;
+	playerxray_slider_grab = false;
+	playerxray_enemy_rgb_active = false;
+	playerxray_team_rgb_active = false;
+
+	IN_UpdateGrabs();
+}
+
+void M_PlayerXray_Draw(void)
+{
+	qpic_t *p;
+	playerxray_settings_t settings;
+	float r;
+	int i;
+
+	M_PlayerXray_GetSettings(&settings);
+
+	p = Draw_CachePic("gfx/p_option.lmp");
+	M_DrawPic((320 - p->width) / 2, 4, p);
+
+	{
+		const char *title = "Player Xray";
+		M_PrintWhite((320 - 8 * strlen(title)) / 2, 32, title);
+	}
+
+	for (i = 0; i < PLAYERXRAY_ITEMS; ++i)
+	{
+		int y = 48 + 8 * i;
+		const char *text = NULL;
+		const char *value = NULL;
+
+		switch (i)
+		{
+		case PLAYERXRAY_TARGETS:
+			text = "         Targets";
+			value = M_PlayerXray_TargetLabel(M_PlayerXray_GetMenuTarget(&settings));
+			M_Print(178, y, value);
+			break;
+
+		case PLAYERXRAY_ALPHA:
+			text = "         Opacity";
+			r = settings.alpha;
+			M_DrawSlider(186, y, r, settings.alpha * 100.0f, "%.0f%%");
+			break;
+
+		case PLAYERXRAY_DISTANCE:
+			text = "           Range";
+			r = settings.distance / 8192.0f;
+			M_DrawSlider(186, y, r, settings.distance, "%.0f");
+			break;
+
+		case PLAYERXRAY_COLORMODE:
+			text = "      Color Mode";
+			M_Print(178, y, M_PlayerXray_ColorModeLabel(settings.color_mode));
+			break;
+
+		case PLAYERXRAY_ENEMYCOLOR:
+			text = "     Enemy Color";
+			value = M_PlayerXray_ColorValue(&settings.enemy_color, playerxray_enemy_rgb_active);
+			M_Print(178, y, value);
+			Draw_FillPlayer(178 + (strlen(value) * 8) + 4, y + 2, 6, 6, settings.enemy_color, 1.0f);
+			break;
+
+		case PLAYERXRAY_TEAMCOLOR:
+			text = "      Team Color";
+			value = M_PlayerXray_ColorValue(&settings.team_color, playerxray_team_rgb_active);
+			M_Print(178, y, value);
+			Draw_FillPlayer(178 + (strlen(value) * 8) + 4, y + 2, 6, 6, settings.team_color, 1.0f);
+			break;
+
+		case PLAYERXRAY_MATCHSIZE:
+			text = "      Match Size";
+			M_Print(178, y, M_PlayerXray_MatchSizeLabel(settings.max_match_size));
+			break;
+
+		default:
+			break;
+		}
+
+		if (text)
+			M_Print(16, y, text);
+	}
+
+	M_DrawCharacter(168, 48 + playerxray_cursor * 8, 12 + ((int)(realtime * 4) & 1));
+
+	if (playerxray_cursor == PLAYERXRAY_ENEMYCOLOR || playerxray_cursor == PLAYERXRAY_TEAMCOLOR)
+		M_PrintRGBA(74, 128, "+shift for RGB colors", CL_PLColours_Parse("0xffffff"), 0.6f, false);
+}
+
+void M_PlayerXray_Key(int k)
+{
+	if (!keydown[K_MOUSE1])
+		playerxray_slider_grab = false;
+
+	if (playerxray_slider_grab)
+	{
+		switch (k)
+		{
+		case K_ESCAPE:
+		case K_BBUTTON:
+		case K_MOUSE4:
+		case K_MOUSE2:
+			playerxray_slider_grab = false;
+			break;
+		}
+		return;
+	}
+
+	switch (k)
+	{
+	case K_ESCAPE:
+	case K_BBUTTON:
+	case K_MOUSE4:
+	case K_MOUSE2:
+		M_Menu_Game_f();
+		game_cursor = GAME_PLAYERXRAY;
+		break;
+
+	case K_MOUSE1:
+		m_entersound = true;
+		if (m_mousey >= 48 && m_mousey < 48 + (PLAYERXRAY_ITEMS * 8))
+		{
+			playerxray_cursor = (m_mousey - 48) / 8;
+			if (playerxray_cursor == PLAYERXRAY_ALPHA ||
+				playerxray_cursor == PLAYERXRAY_DISTANCE)
+			{
+				playerxray_slider_grab = true;
+			}
+			else
+			{
+				M_PlayerXray_AdjustSetting(1);
+			}
+		}
+		break;
+
+	case K_ENTER:
+	case K_KP_ENTER:
+	case K_ABUTTON:
+		m_entersound = true;
+		M_PlayerXray_AdjustSetting(1);
+		break;
+
+	case K_UPARROW:
+		S_LocalSound("misc/menu1.wav");
+		playerxray_cursor--;
+		if (playerxray_cursor < 0)
+			playerxray_cursor = PLAYERXRAY_ITEMS - 1;
+		break;
+
+	case K_DOWNARROW:
+		S_LocalSound("misc/menu1.wav");
+		playerxray_cursor++;
+		if (playerxray_cursor >= PLAYERXRAY_ITEMS)
+			playerxray_cursor = 0;
+		break;
+
+	case K_LEFTARROW:
+	case K_MWHEELDOWN:
+		M_PlayerXray_AdjustSetting(-1);
+		break;
+
+	case K_RIGHTARROW:
+	case K_MWHEELUP:
+		M_PlayerXray_AdjustSetting(1);
+		break;
+	}
+}
+
+void M_PlayerXray_Mousemove(int cx, int cy)
+{
+	if (playerxray_slider_grab)
+	{
+		playerxray_settings_t settings;
+		float f;
+
+		if (!keydown[K_MOUSE1])
+		{
+			playerxray_slider_grab = false;
+			return;
+		}
+
+		M_PlayerXray_GetSettings(&settings);
+
+		switch (playerxray_cursor)
+		{
+		case PLAYERXRAY_ALPHA:
+			settings.alpha = CLAMP(0.0f, M_MouseToSliderFraction(cx - 187), 1.0f);
+			break;
+
+		case PLAYERXRAY_DISTANCE:
+			f = CLAMP(0.0f, M_MouseToSliderFraction(cx - 187), 1.0f) * 8192.0f;
+			settings.distance = floorf((f / 128.0f) + 0.5f) * 128.0f;
+			break;
+
+		default:
+			break;
+		}
+
+		M_PlayerXray_SetSettings(&settings);
+		return;
+	}
+
+	{
+		int item = (cy - 48) / 8;
+		if (item >= 0 && item < PLAYERXRAY_ITEMS)
+			playerxray_cursor = item;
+	}
+}
+
+
+/*
+==================
+HUD Menu
+==================
+*/
+
+extern cvar_t scr_sbar, scr_showfps, scr_match_hud, scr_matchclock, scr_ping, scr_clock, 
+scr_showspeed, scr_sbarfacecolor, scr_showscores, scr_autoid, scr_movekeys, scr_conscale, 
+scr_sbaralphaqwammo, scr_obsitems, scr_scoreboard_teamsort;
+
+static enum hud_e
+{
+	HUD_CROSSHAIR,
+	HUD_SCALE,
+	HUD_SCRSIZE,
+	HUD_SBALPHA,
+	HUD_SBARSTYLE,
+	HUD_SHOWFPS,
+	HUD_MATCHSCORES,
+	HUD_MATCHCLOCK,
+	HUD_SHOWPING,
+	HUD_SHOWCLOCK,
+	HUD_SHOWSPEED,
+	HUD_SHOWSCORES,
+	HUD_AUTOID,
+	HUD_MOVEKEYS,
+	HUD_CONSOLEFONT,
+	HUD_OBSITEMS,
+	HUD_SCOREBOARD_SORT,
+	HUD_COUNT
+} hud_cursor;
+
+#define HUD_ITEMS (HUD_COUNT)
+int numberOfHUDItems = HUD_ITEMS;
+
+static struct
+{
+	int cursor;
+	struct {
+		char text[32];
+		int len;
+	} search;
+} hudmenu;
+
+static qboolean hud_slider_grab;
+float target_hud_scale_frac;
+
+static const char* M_HUD_GetItemText(int index)
+{
+	static char buffer[64];
+
+	switch (index)
+	{
+	case HUD_CROSSHAIR:
+		return "Crosshair";
+	case HUD_SCALE:
+		return "HUD Scale";
+	case HUD_SCRSIZE:
+		return "Screen Size";
+	case HUD_SBALPHA:
+		return "Statusbar Alpha";
+	case HUD_SBARSTYLE:
+		return "Status Bar Style";
+	case HUD_SHOWFPS:
+		return "Show FPS";
+	case HUD_MATCHSCORES:
+		return "Show Match Scores";
+	case HUD_MATCHCLOCK:
+		return "Match Clock";
+	case HUD_SHOWPING:
+		return "Show Ping";
+	case HUD_SHOWCLOCK:
+		return "Show Clock";
+	case HUD_SHOWSPEED:
+		return "Show Speed";
+	case HUD_SHOWSCORES:
+		return "Show Scores";
+	case HUD_AUTOID:
+		return "Player Auto ID";
+	case HUD_MOVEKEYS:
+		return "Movement Keys";
+	case HUD_CONSOLEFONT:
+		return "Console Font Size";
+	case HUD_OBSITEMS:
+		return "Observer Items";
+	case HUD_SCOREBOARD_SORT:
+		return "Scoreboard Sort";
+
+	default:
+		q_snprintf(buffer, sizeof(buffer), "Unknown Item %d", index);
+		return buffer;
+	}
+}
+
+void M_Menu_HUD_f(void)
+{
+	key_dest = key_menu;
+	m_state = m_hud;
+	m_entersound = true;
+	hud_cursor = 0;
+	hudmenu.cursor = 0;
+	hudmenu.search.len = 0;
+	hudmenu.search.text[0] = 0;
+	numberOfHUDItems = HUD_ITEMS;
+	hud_slider_grab = false;
+
+	IN_UpdateGrabs();
+}
+
+static void M_HUD_AdjustSliders(int dir)
+{
+	float f, l;
+	int value;
+	S_LocalSound("misc/menu3.wav");
+
+	switch (hud_cursor)
+	{
+	case HUD_SCALE:
+		l = ((vid.width + 31) / 32) / 10.0;
+		f = scr_sbarscale.value + dir * .1;
+		if (f < 1) f = 1;
+		else if (f > l) f = l;
+		Cvar_SetValue("scr_sbarscale", f);  // Only adjust sbar scale
+		break;
+
+	case HUD_SCRSIZE:
+		f = scr_viewsize.value + dir * 10;
+		if (f > 130) f = 130;
+		else if (f < 30) f = 30;
+		Cvar_SetValue("viewsize", f);
+		break;
+
+	case HUD_SBALPHA:
+		f = scr_sbaralpha.value + dir * 0.05;
+		if (f < 0) f = 0;
+		else if (f > 1) f = 1;
+		Cvar_SetValue("scr_sbaralpha", f);
+		break;
+	case HUD_SBARSTYLE:
+		value = scr_sbar.value + dir;
+		if (value > 3) value = 1;
+		if (value < 1) value = 3;
+		Cvar_SetValue("scr_sbar", value);
+		break;
+
+	case HUD_SHOWFPS:
+		Cvar_SetValue("scr_showfps", !scr_showfps.value);
+		break;
+
+	case HUD_MATCHSCORES:
+		Cvar_SetValue("scr_match_hud", !scr_match_hud.value);
+		break;
+
+	case HUD_MATCHCLOCK:
+		Cvar_SetValue("scr_matchclock", !scr_matchclock.value);
+		break;
+
+	case HUD_SHOWPING:
+		Cvar_SetValue("scr_ping", !scr_ping.value);
+		break;
+
+	case HUD_SHOWCLOCK:
+		value = scr_clock.value + dir;
+		if (value > 8) value = 0;  // Changed from 4 to 8
+		if (value < 0) value = 8;  // Changed from 4 to 8
+		Cvar_SetValue("scr_clock", value);
+		break;
+
+	case HUD_SHOWSPEED:
+		value = scr_showspeed.value + dir;
+		if (value > 2) value = 0;
+		if (value < 0) value = 2;
+		Cvar_SetValue("scr_showspeed", value);
+		break;
+
+	case HUD_SHOWSCORES:
+		Cvar_SetValue("scr_showscores", !scr_showscores.value);
+		break;
+
+	case HUD_AUTOID:
+		value = scr_autoid.value + dir;
+		if (value > 2) value = 0;
+		if (value < 0) value = 2;
+		Cvar_SetValue("scr_autoid", value);
+		break;
+
+	case HUD_MOVEKEYS:
+		Cvar_SetValue("scr_movekeys", !scr_movekeys.value);
+		break;
+
+	case HUD_CONSOLEFONT:
+		f = scr_conscale.value + dir * 0.5;
+		if (f < 1) f = 1;
+		else if (f > 6) f = 6;
+		Cvar_SetValue("scr_conscale", f);
+		break;
+
+	case HUD_OBSITEMS:
+		Cvar_SetValue("scr_obsitems", !scr_obsitems.value);
+		break;
+
+	case HUD_SCOREBOARD_SORT:
+		value = scr_scoreboard_teamsort.value + dir;
+		if (value > 1) value = 0;
+		if (value < 0) value = 1;
+		Cvar_SetValue("scr_scoreboard_teamsort", value);
+		break;
+
+	default:
+		break;
+	}
+}
+
+void M_HUD_Draw(void)
+{
+	qpic_t* p;
+	float r, l;
+	const char* value;
+
+	p = Draw_CachePic("gfx/p_option.lmp");
+	M_DrawPic((320 - p->width) / 2, 4, p);
+
+	const char* title = "HUD Options";
+	M_PrintWhite((320 - 8 * strlen(title)) / 2, 32, title);
+
+	for (int i = 0; i < HUD_ITEMS; i++)
+	{
+		int y = 48 + 8 * i;
+		const char* text = NULL;
+
+		switch (i)
+		{
+		case HUD_CROSSHAIR:
+			text = "         Crosshair";
+			M_Print(178, y-2, "...");
+			break;
+		case HUD_SCALE:
+			text = "         HUD Scale";
+			l = (vid.width / 320.0) - 1;
+			r = l > 0 ? (scr_sbarscale.value - 1) / l : 0;  // Changed from conscale to sbarscale
+			if (hud_slider_grab && hud_cursor == HUD_SCALE)
+				r = target_hud_scale_frac;
+			M_DrawSlider(186, y, r, scr_sbarscale.value, "%.1f");  // Changed from conscale to sbarscale
+			break;
+
+		case HUD_SCRSIZE:
+			text = "       Screen Size";
+			r = (scr_viewsize.value - 30) / (130 - 30);
+			M_DrawSlider(186, y, r, scr_viewsize.value, "%.0f");
+			break;
+
+		case HUD_SBALPHA:
+			text = "   Statusbar Alpha";
+			r = scr_sbaralpha.value;
+			M_DrawSlider(186, y, r, 100.0f * r, "%.0f%%");
+			break;
+
+		case HUD_SBARSTYLE:
+			text = "  Status Bar Style";
+			switch ((int)scr_sbar.value)
+			{
+			case 1: value = "classic"; break;
+			case 2: value = "quakeworld"; break;
+			case 3: value = "modern/remaster"; break;
+			default: value = "unknown"; break;
+			}
+			M_Print(178, y, value);
+			break;
+
+		case HUD_SHOWFPS:
+			text = "          Show FPS";
+			M_DrawCheckbox(178, y, scr_showfps.value);
+			break;
+
+		case HUD_MATCHSCORES:
+			text = " Show Match Scores";
+			M_DrawCheckbox(178, y, scr_match_hud.value);
+			break;
+
+		case HUD_MATCHCLOCK:
+			text = "       Match Clock";
+			M_DrawCheckbox(178, y, scr_matchclock.value);
+			break;
+
+		case HUD_SHOWPING:
+			text = "         Show Ping";
+			M_DrawCheckbox(178, y, scr_ping.value);
+			break;
+
+		case HUD_SHOWCLOCK:
+			text = "        Show Clock";
+			switch ((int)scr_clock.value)
+			{
+			case 0: value = "off"; break;
+			case 1: value = "level time"; break;
+			case 2: value = "12hr clock"; break;
+			case 3: value = "24hr clock"; break;
+			case 4: value = "date only"; break;
+			case 5: value = "date + 12hr"; break;
+			case 6: value = "date + 24hr"; break;
+			case 7: value = "score/12hr"; break;
+			case 8: value = "score/24hr"; break;
+			default: value = "unknown"; break;
+			}
+			M_Print(178, y, value);
+			break;
+
+		case HUD_SHOWSPEED:
+			text = "        Show Speed";
+			switch ((int)scr_showspeed.value)
+			{
+			case 0: value = "off"; break;
+			case 1: value = "numbers"; break;
+			case 2: value = "visual meter"; break;
+			default: value = "unknown"; break;
+			}
+			M_Print(178, y, value);
+			break;
+
+		case HUD_SHOWSCORES:
+			text = "       Show Scores";
+			M_DrawCheckbox(178, y, scr_showscores.value);
+			break;
+
+		case HUD_AUTOID:
+			text = "    Player Auto ID";
+			switch ((int)scr_autoid.value)
+			{
+			case 0: value = "off"; break;
+			case 1: value = "on"; break;
+			case 2: value = "on+prewar+pmode"; break;
+			default: value = "Unknown"; break;
+			}
+			M_Print(178, y, value);
+			break;
+
+		case HUD_MOVEKEYS:
+			text = "     Movement Keys";
+			M_DrawCheckbox(178, y, scr_movekeys.value);
+			break;
+
+		case HUD_CONSOLEFONT:
+			text = " Console Font Size";
+			r = (scr_conscale.value - 1) / 5.0; // Scale to 1-6 range
+			M_DrawSlider(186, y, r, scr_conscale.value, "%.1f");
+			break;
+
+		case HUD_OBSITEMS:
+			text = "    Observer Items";
+			M_DrawCheckbox(178, y, scr_obsitems.value);
+			break;
+
+		case HUD_SCOREBOARD_SORT:
+			text = "   Scoreboard Sort";
+			switch ((int)scr_scoreboard_teamsort.value)
+			{
+			case 0: value = "frag totals"; break;
+			case 1: value = "teams totals"; break;
+			default: value = "frag totals"; break;
+			}
+			M_Print(178, y, value);
+			break;
+
+		}
+
+		if (text)
+		{
+			if (hudmenu.search.len > 0 &&
+				q_strcasestr(text, hudmenu.search.text))
+			{
+				M_PrintHighlight(0, y, text,
+					hudmenu.search.text,
+					hudmenu.search.len);
+			}
+			else
+			{
+				M_Print(0, y, text);
+			}
+		}
+	}
+
+	// Draw search box if active
+	if (hudmenu.search.len > 0)
+	{
+		M_DrawTextBox(16, 174, 32, 1);
+		M_PrintHighlight(24, 182, hudmenu.search.text,
+			hudmenu.search.text,
+			hudmenu.search.len);
+		int cursor_x = 24 + 8 * hudmenu.search.len;
+		if (numberOfHUDItems == 0)
+			M_DrawCharacter(cursor_x, 182, 11 ^ 128);
+		else
+			M_DrawCharacter(cursor_x, 182, 10 + ((int)(realtime * 4) & 1));
+	}
+
+	// Draw cursor
+	M_DrawCharacter(168, 48 + hud_cursor * 8, 12 + ((int)(realtime * 4) & 1));
+}
+
+void M_HUD_Key(int k)
+{
+	// Handle slider grab release
+	if (!keydown[K_MOUSE1])
+		hud_slider_grab = false;
+
+	if (hud_slider_grab)
+	{
+		switch (k)
+		{
+		case K_ESCAPE:
+		case K_BBUTTON:
+		case K_MOUSE4:
+		case K_MOUSE2:
+			hud_slider_grab = false;
+			break;
+		}
+		return;
+	}
+
+	// Handle search functionality first
+	if (k == K_ESCAPE)
+	{
+		if (hudmenu.search.len > 0)
+		{
+			hudmenu.search.len = 0;
+			hudmenu.search.text[0] = 0;
+			numberOfHUDItems = HUD_ITEMS;
+			return;
+		}
+		M_Menu_Options_f();
+		return;
+	}
+	else if (keydown[K_CTRL])
+	{
+		if ((k == 'u' || k == 'U') && hudmenu.search.len > 0)
+		{
+			// Clear entire search with Ctrl+U
+			hudmenu.search.len = 0;
+			hudmenu.search.text[0] = 0;
+			numberOfHUDItems = HUD_ITEMS;
+			return;
+		}
+		else if (k == K_BACKSPACE && hudmenu.search.len > 0)
+		{
+			// Delete previous word with Ctrl+Backspace
+			listsearch_t temp;
+			temp.len = hudmenu.search.len;
+			Q_strcpy(temp.text, hudmenu.search.text);
+			M_DeletePrevWord(&temp);
+			Q_strcpy(hudmenu.search.text, temp.text);
+			hudmenu.search.len = temp.len;
+
+			// Update filtering based on new search text
+			if (hudmenu.search.len > 0)
+			{
+				numberOfHUDItems = 0;
+				for (int i = 0; i < HUD_ITEMS; i++)
+				{
+					const char* itemtext = M_HUD_GetItemText(i);
+					if (itemtext && q_strcasestr(itemtext, hudmenu.search.text))
+					{
+						numberOfHUDItems++;
+						if (numberOfHUDItems == 1)
+							hud_cursor = i;
+					}
+				}
+			}
+			else
+			{
+				numberOfHUDItems = HUD_ITEMS;
+			}
+			return;
+		}
+	}
+	else if (k == K_BACKSPACE)
+	{
+		if (hudmenu.search.len > 0)
+		{
+			hudmenu.search.text[--hudmenu.search.len] = 0;
+			if (hudmenu.search.len > 0)
+			{
+				numberOfHUDItems = 0;
+				for (int i = 0; i < HUD_ITEMS; i++)
+				{
+					const char* itemtext = M_HUD_GetItemText(i);
+					if (itemtext && q_strcasestr(itemtext, hudmenu.search.text))
+					{
+						numberOfHUDItems++;
+						if (numberOfHUDItems == 1)
+							hud_cursor = i;
+					}
+				}
+			}
+			else
+			{
+				numberOfHUDItems = HUD_ITEMS;
+			}
+			return;
+		}
+	}
+	else if (k >= 32 && k < 127)
+	{
+		if (hudmenu.search.len < sizeof(hudmenu.search.text) - 1)
+		{
+			hudmenu.search.text[hudmenu.search.len++] = k;
+			hudmenu.search.text[hudmenu.search.len] = 0;
+
+			numberOfHUDItems = 0;
+			for (int i = 0; i < HUD_ITEMS; i++)
+			{
+				const char* itemtext = M_HUD_GetItemText(i);
+				if (itemtext && q_strcasestr(itemtext, hudmenu.search.text))
+				{
+					numberOfHUDItems++;
+					if (numberOfHUDItems == 1)
+						hud_cursor = i;
+				}
+			}
+			return;
+		}
+	}
+
+	switch (k)
+	{
+	case K_ESCAPE:
+	case K_BBUTTON:
+	case K_MOUSE4:
+	case K_MOUSE2:
+		M_Menu_Options_f();
+		break;
+
+	case K_ENTER:
+	case K_KP_ENTER:
+	case K_ABUTTON:
+		m_entersound = true;
+		switch (hud_cursor)
+		{
+		case HUD_CROSSHAIR:
+			M_Menu_Crosshair_f();
+			break;
+		case HUD_SBARSTYLE:
+		{
+			int value = scr_sbar.value + 1;
+			if (value > 3) value = 1;
+			Cvar_SetValue("scr_sbar", value);
+			break;
+		}
+		case HUD_SHOWFPS:
+			Cvar_SetValue("scr_showfps", !scr_showfps.value);
+			break;
+		case HUD_MATCHSCORES:
+			Cvar_SetValue("scr_match_hud", !scr_match_hud.value);
+			break;
+		case HUD_MATCHCLOCK:
+			Cvar_SetValue("scr_matchclock", !scr_matchclock.value);
+			break;
+		case HUD_SHOWPING:
+			Cvar_SetValue("scr_ping", !scr_ping.value);
+			break;
+		case HUD_SHOWCLOCK:
+		{
+			int value = scr_clock.value + 1;
+			if (value > 8) value = 0;
+			Cvar_SetValue("scr_clock", value);
+			break;
+		}
+		case HUD_OBSITEMS:
+			Cvar_SetValue("scr_obsitems", !scr_obsitems.value);
+			break;
+		case HUD_SCOREBOARD_SORT:
+		{
+			int val = scr_scoreboard_teamsort.value + 1;
+			if (val > 1) val = 0;
+			Cvar_SetValue("scr_scoreboard_teamsort", val);
+		}
+		break;
+		default:
+			M_HUD_AdjustSliders(1);
+			break;
+		}
+		break;
+
+	case K_MOUSE1:
+		m_entersound = true;
+
+		// Check if click is in search box area
+		if (hudmenu.search.len > 0 && m_mousey >= 170)
+			break;
+
+		// Check if click is in valid menu area
+		if (m_mousey >= 48 && m_mousey < 48 + (HUD_ITEMS * 8))
+		{
+			hud_cursor = (m_mousey - 48) / 8;
+
+			if (hud_cursor == HUD_CROSSHAIR)
+			{
+				M_Menu_Crosshair_f();
+				break;
+			}
+
+			if (hud_cursor == HUD_SCALE ||
+				hud_cursor == HUD_SCRSIZE ||
+				hud_cursor == HUD_SBALPHA ||
+				hud_cursor == HUD_CONSOLEFONT)
+			{
+				hud_slider_grab = true;
+			}
+			else if (hud_cursor == HUD_SBARSTYLE)
+			{
+				int value = scr_sbar.value + 1;
+				if (value > 3) value = 1;
+				Cvar_SetValue("scr_sbar", value);
+			}
+			else if (hud_cursor == HUD_SHOWFPS)
+			{
+				Cvar_SetValue("scr_showfps", !scr_showfps.value);
+			}
+			else if (hud_cursor == HUD_MATCHSCORES)
+			{
+				Cvar_SetValue("scr_match_hud", !scr_match_hud.value);
+			}
+			else if (hud_cursor == HUD_MATCHCLOCK)
+			{
+				Cvar_SetValue("scr_matchclock", !scr_matchclock.value);
+			}
+			else if (hud_cursor == HUD_SHOWPING)
+			{
+				Cvar_SetValue("scr_ping", !scr_ping.value);
+			}
+			else if (hud_cursor == HUD_SHOWCLOCK)
+			{
+				int value = scr_clock.value + 1;
+				if (value > 8) value = 0;
+				Cvar_SetValue("scr_clock", value);
+			}
+			else if (hud_cursor == HUD_OBSITEMS)
+			{
+				Cvar_SetValue("scr_obsitems", !scr_obsitems.value);
+			}
+			else if (hud_cursor == HUD_SCOREBOARD_SORT)
+			{
+				int val = scr_scoreboard_teamsort.value + 1;
+				if (val > 1) val = 0;
+				Cvar_SetValue("scr_scoreboard_teamsort", val);
+			}
+			else if (hud_cursor == HUD_SHOWSPEED)
+			{
+				int value = scr_showspeed.value + 1;
+				if (value > 2) value = 0;
+				Cvar_SetValue("scr_showspeed", value);
+			}
+			else if (hud_cursor == HUD_SHOWSCORES)
+			{
+				Cvar_SetValue("scr_showscores", !scr_showscores.value);
+			}
+			else if (hud_cursor == HUD_AUTOID)
+			{
+				int value = scr_autoid.value + 1;
+				if (value > 2) value = 0;
+				Cvar_SetValue("scr_autoid", value);
+			}
+			else if (hud_cursor == HUD_MOVEKEYS)
+			{
+				Cvar_SetValue("scr_movekeys", !scr_movekeys.value);
+			}
+			else
+			{
+				M_HUD_AdjustSliders(1);
+			}
+		}
+		break;
+
+	case K_UPARROW:
+		S_LocalSound("misc/menu1.wav");
+		if (hud_cursor <= 0)
+			hud_cursor = numberOfHUDItems - 1;
+		else
+			hud_cursor--;
+		break;
+
+	case K_DOWNARROW:
+		S_LocalSound("misc/menu1.wav");
+		hud_cursor++;
+		if (hud_cursor >= numberOfHUDItems)
+			hud_cursor = 0;
+		break;
+
+	case K_LEFTARROW:
+		M_HUD_AdjustSliders(-1);
+		break;
+
+	case K_MWHEELDOWN:
+		if (hud_cursor != HUD_CROSSHAIR)
+			M_HUD_AdjustSliders(-1);
+		break;
+
+	case K_RIGHTARROW:
+		M_HUD_AdjustSliders(1);
+		break;
+
+	case K_MWHEELUP:
+		if (hud_cursor != HUD_CROSSHAIR)
+			M_HUD_AdjustSliders(1);
+		break;
+	}
+}
+
+void M_HUD_Mousemove(int cx, int cy)
+{
+	if (hud_slider_grab)
+	{
+		if (!keydown[K_MOUSE1])
+		{
+			hud_slider_grab = false;
+			return;
+		}
+
+		float f, l;
+		switch (hud_cursor)
+		{
+		case HUD_SCALE:
+			target_hud_scale_frac = M_MouseToSliderFraction(cx - 187);
+			l = (vid.width / 320.0) - 1;
+			f = l > 0 ? target_hud_scale_frac * l + 1 : 1;
+			Cvar_SetValue("scr_sbarscale", f);
+			break;
+
+		case HUD_SCRSIZE:
+			f = M_MouseToSliderFraction(cx - 187);
+			f = f * (130 - 30) + 30;
+			if (f >= 100)
+				f = floor(f / 10 + 0.5) * 10;
+			Cvar_SetValue("viewsize", f);
+			break;
+
+		case HUD_SBALPHA:
+			f = M_MouseToSliderFraction(cx - 187);
+			Cvar_SetValue("scr_sbaralpha", f);
+			break;
+
+		case HUD_CONSOLEFONT:
+			f = M_MouseToSliderFraction(cx - 187);
+			f = f * 5.0 + 1.0;
+			f = CLAMP(1.0, f, 6.0);
+			Cvar_SetValue("scr_conscale", f);
+			break;
+
+			// Add cases for unhandled enumerations
+		case HUD_SBARSTYLE:
+		case HUD_SHOWFPS:
+		case HUD_MATCHSCORES:
+		case HUD_MATCHCLOCK:
+		case HUD_SHOWPING:
+		case HUD_SHOWCLOCK:
+		case HUD_SHOWSPEED:
+		case HUD_SHOWSCORES:
+		case HUD_AUTOID:
+		case HUD_MOVEKEYS:
+		case HUD_OBSITEMS:
+		case HUD_SCOREBOARD_SORT:
+		case HUD_COUNT:
+			// No action needed for these cases in mouse movement
+			break;
+
+		default:
+			// Handle unexpected cases gracefully
+			break;
+		}
+		return;
+	}
+
+	// Don't process mouse movement if it's in the search box area
+	if (hudmenu.search.len > 0 && cy >= 170)
+		return;
+
+	// Calculate which menu item the mouse is over
+	int item = (cy - 48) / 8;
+
+	// Make sure the item is within valid range
+	if (item >= 0 && item < HUD_ITEMS)
+	{
+		// Update the cursor position
+		hud_cursor = item;
+	}
+}
+
+/*
+==================
+Crosshair Menu
+==================
+*/
+
+qboolean crosshair_menu;
+
+extern cvar_t scr_crosshairalpha, scr_crosshaircolor, scr_crosshairoutline, scr_crosshairscale, crosshair,
+scr_crosshair_x, scr_crosshair_y;
+
+static enum crosshair_e
+{
+	CROSSHAIR_TOGGLE,
+	CROSSHAIR_ALPHA,
+	CROSSHAIR_COLOR,
+	CROSSHAIR_COLOR_PICKER,
+	CROSSHAIR_OUTLINE,
+	CROSSHAIR_SCALE,
+	CROSSHAIR_X,
+	CROSSHAIR_Y,
+	CROSSHAIR_COUNT
+} crosshair_cursor;
+
+#define CROSSHAIR_ITEMS (CROSSHAIR_COUNT)
+int numberOfCrosshairItems = CROSSHAIR_ITEMS;
+
+static struct
+{
+	int cursor;
+	struct {
+		char text[32];
+		int len;
+	} search;
+} crosshairmenu;
+
+
+void renderCircle(float cx, float cy, float r, int num_segments, float line_width);
+void renderSmoothDot(float cx, float cy, float size);
+
+void M_DrawMenuCrosshair(int x, int y)
+{
+	float base_scale = CLAMP(1.0f, scr_crosshairscale.value, 10.0f);
+	float menu_scale = q_min((float)glwidth / 320.0f, (float)glheight / 200.0f);
+	menu_scale = CLAMP(1.0f, scr_menuscale.value, menu_scale);
+
+	// Adjust scale to match viewport
+	float s = (base_scale / menu_scale) / 1.0f;
+
+	plcolour_t color;
+	if (strcmp(scr_crosshaircolor.string, "") == 0)
+		color = CL_PLColours_Parse("0xffffff");
+	else
+		color = CL_PLColours_Parse(scr_crosshaircolor.string);
+
+	plcolour_t outline = CL_PLColours_Parse("0x000000");
+	float alpha = scr_crosshairalpha.value;
+
+	// Save current GL state
+	glPushAttrib(GL_ALL_ATTRIB_BITS);
+
+	// Set up scaling matrix for all crosshairs
+	glPushMatrix();
+	glTranslatef(x, y, 0);
+	glScalef(s, s, 1.0);
+
+	// Regular crosshairs 1-5
+
+	if (crosshair.value == 1)
+		Draw_CharacterRGBA(-4, -4, '+', color, alpha);
+
+	if (crosshair.value == 2)
+	{
+		if (scr_crosshairoutline.value)
+			Draw_FillPlayer(-2, -2, 4, 4, outline, alpha);
+		Draw_FillPlayer(-1, -1, 2, 2, color, alpha);
+	}
+
+	if (crosshair.value == 3)
+	{
+		if (scr_crosshairoutline.value)
+		{
+			Draw_FillPlayer(-2, 5, 4, 12, outline, alpha);
+			Draw_FillPlayer(-17, -2, 12, 4, outline, alpha);
+			Draw_FillPlayer(5, -2, 12, 4, outline, alpha);
+			Draw_FillPlayer(-2, -17, 4, 12, outline, alpha);
+		}
+		Draw_FillPlayer(-1, 6, 2, 10, color, alpha);
+		Draw_FillPlayer(-16, -1, 10, 2, color, alpha);
+		Draw_FillPlayer(6, -1, 10, 2, color, alpha);
+		Draw_FillPlayer(-1, -16, 2, 10, color, alpha);
+	}
+
+	if (crosshair.value == 4)
+	{
+		if (scr_crosshairoutline.value)
+		{
+			Draw_FillPlayer(-2, -10, 4, 20, outline, alpha);
+			Draw_FillPlayer(-10, -2, 20, 4, outline, alpha);
+		}
+		Draw_FillPlayer(-1, -9, 2, 18, color, alpha);
+		Draw_FillPlayer(-9, -1, 18, 2, color, alpha);
+	}
+
+	if (crosshair.value == 5)
+	{
+		if (scr_crosshairoutline.value)
+		{
+			Draw_FillPlayer(-3, -10, 6, 20, outline, alpha);
+			Draw_FillPlayer(-10, -3, 20, 6, outline, alpha);
+		}
+		Draw_FillPlayer(-2, -9, 4, 18, color, alpha);
+		Draw_FillPlayer(-9, -2, 18, 4, color, alpha);
+	}
+
+	if (crosshair.value >= 6)
+	{
+		glDisable(GL_TEXTURE_2D);
+		glEnable(GL_BLEND);        // for alpha
+		glDisable(GL_ALPHA_TEST);  // for alpha
+
+		float r, g, b;
+		float ro, go, bo;
+
+		// --- Handle 'color' (main crosshair color), respecting type like in Draw_FillPlayer() ---
+		if (color.type == 2)
+		{
+			// Already an RGB color
+			r = color.rgb[0] / 255.0f;
+			g = color.rgb[1] / 255.0f;
+			b = color.rgb[2] / 255.0f;
+		}
+		else
+		{
+			// Basic color index
+			byte* pal = (byte*)&d_8to24table[(color.basic << 4) + 8];
+			r = pal[0] / 255.0f;
+			g = pal[1] / 255.0f;
+			b = pal[2] / 255.0f;
+		}
+
+		// --- Handle 'outline' color, same approach ---
+		if (outline.type == 2)
+		{
+			ro = outline.rgb[0] / 255.0f;
+			go = outline.rgb[1] / 255.0f;
+			bo = outline.rgb[2] / 255.0f;
+		}
+		else
+		{
+			byte* pal = (byte*)&d_8to24table[(outline.basic << 4) + 8];
+			ro = pal[0] / 255.0f;
+			go = pal[1] / 255.0f;
+			bo = pal[2] / 255.0f;
+		}
+
+		float dotSize = 3.0f * (s * 4);
+		float outlineWidth = 4.0f;
+		float outlineSize = dotSize + outlineWidth;
+		float scaledLineWidth = s * 4 * 1.9f;
+
+		// Crosshair #6: a smooth circle "dot"
+		if (crosshair.value == 6)
+		{
+			if (scr_crosshairoutline.value)
+			{
+				// Outline first
+				glColor4f(ro, go, bo, alpha);
+				renderSmoothDot(0.0f, 0.0f, outlineSize);
+			}
+			// Main fill
+			glColor4f(r, g, b, alpha);
+			renderSmoothDot(0.0f, 0.0f, dotSize);
+		}
+		// Crosshair #7: a circle ring plus center dot
+		else if (crosshair.value == 7)
+		{
+			// The circle ring is translucent
+			glColor4f(r, g, b, alpha / 12);
+			renderCircle(0.0f, 0.0f, 10.0f, 200, scaledLineWidth);
+
+			if (scr_crosshairoutline.value)
+			{
+				// Outline first
+				glColor4f(ro, go, bo, 1.0f);
+				renderSmoothDot(0.0f, 0.0f, outlineSize);
+			}
+			// Main fill
+			glColor4f(r, g, b, 1.0f);
+			renderSmoothDot(0.0f, 0.0f, dotSize);
+		}
+
+		glDisable(GL_BLEND);
+		glEnable(GL_ALPHA_TEST);
+		glEnable(GL_TEXTURE_2D);
+	}
+
+	// Restore matrix and GL state
+	glPopMatrix();
+	glPopAttrib();
+}
+
+static plcolour_t Tools_ColorFromRGB(byte r, byte g, byte b);
+static void Tools_SetColorFromRGB(byte r, byte g, byte b);
+
+static qboolean crosshair_rgb_active;
+static char last_crosshair_color[10];
+
+static void M_Crosshair_AdjustColor(int dir)
+{
+	if (keydown[K_SHIFT])
+	{
+		crosshair_rgb_active = true;
+		plcolour_t color = CL_PLColours_Parse(scr_crosshaircolor.string);
+		vec3_t hsv;
+		rgbtohsv(color.rgb, hsv);  // Remove ToRGB call, use rgb directly
+
+		hsv[0] += dir / 128.0;
+		hsv[1] = 1;
+		hsv[2] = 1;
+		color.type = 2;
+		color.basic = 0;
+		hsvtorgb(hsv[0], hsv[1], hsv[2], color.rgb);
+
+		const char* colorStr = CL_PLColours_ToString(color);  // Pass color directly, not pointer
+		Cvar_Set("scr_crosshaircolor", colorStr);
+		snprintf(last_crosshair_color, sizeof(last_crosshair_color), "%s", colorStr); // Safely copy
+	}
+	else
+	{
+		crosshair_rgb_active = false;
+		plcolour_t color = CL_PLColours_Parse(scr_crosshaircolor.string);
+		color.type = 1;
+
+		if (color.basic + dir < 0)
+			color.basic = 13;
+		else if (color.basic + dir > 13)
+			color.basic = 0;
+		else
+			color.basic += dir;
+
+		const char* colorStr = CL_PLColours_ToString(color);  // Pass color directly, not pointer
+		Cvar_Set("scr_crosshaircolor", colorStr);
+		snprintf(last_crosshair_color, sizeof(last_crosshair_color), "%s", colorStr); // Safely copy
+	}
+}
+
+static qboolean crosshair_slider_grab;
+
+static const char* M_Crosshair_GetItemText(int index)
+{
+	static char buffer[64];
+
+	switch (index)
+	{
+	case CROSSHAIR_TOGGLE:
+		return "Use Crosshair";
+	case CROSSHAIR_ALPHA:
+		return "Crosshair Alpha";
+	case CROSSHAIR_OUTLINE:
+		return "Crosshair Outline";
+	case CROSSHAIR_SCALE:
+		return "Crosshair Scale";
+	case CROSSHAIR_X:
+		return "Horizontal (X) Adjustment";
+	case CROSSHAIR_Y:
+		return "Vertical (Y) Adjustment";
+	default:
+		q_snprintf(buffer, sizeof(buffer), "Unknown Item %d", index);
+		return buffer;
+	}
+}
+
+void M_Menu_Crosshair_f(void)
+{
+	key_dest = key_menu;
+	m_state = m_crosshair;
+	m_entersound = true;
+	crosshair_cursor = 0;
+	crosshairmenu.cursor = 0;
+	crosshairmenu.search.len = 0;
+	crosshairmenu.search.text[0] = 0;
+	numberOfCrosshairItems = CROSSHAIR_ITEMS;
+	crosshair_menu = true;
+
+	IN_UpdateGrabs();
+}
+
+static void M_Crosshair_AdjustSliders(int dir)
+{
+	float f;
+	S_LocalSound("misc/menu3.wav");
+
+	switch (crosshair_cursor)
+	{
+	case CROSSHAIR_TOGGLE:
+		if (dir > 0)
+		{
+			// Cycle through crosshair styles 0-7
+			f = crosshair.value + 1;
+			if (f > 7) f = 0;
+		}
+		else
+		{
+			f = crosshair.value - 1;
+			if (f < 0) f = 7;
+		}
+		Cvar_SetValue("crosshair", f);
+		break;
+	case CROSSHAIR_ALPHA:
+		f = scr_crosshairalpha.value + dir * 0.1;
+		if (f > 1) f = 1;
+		else if (f < 0) f = 0;
+		Cvar_SetValue("scr_crosshairalpha", f);
+		break;
+
+case CROSSHAIR_COLOR:
+	M_Crosshair_AdjustColor(dir);
+	break;
+case CROSSHAIR_COLOR_PICKER:
+	colorpicker_return_fn = M_Menu_Crosshair_f;
+	/* seed picker with current crosshair color */
+	{
+		plcolour_t c = CL_PLColours_Parse(scr_crosshaircolor.string);
+		byte rgb[3];
+		byte* pal;
+		if (c.type == 2)
+		{
+			rgb[0] = c.rgb[0];
+			rgb[1] = c.rgb[1];
+			rgb[2] = c.rgb[2];
+		}
+		else
+		{
+			pal = (byte*)&d_8to24table[(c.basic << 4) + 8];
+			rgb[0] = pal[0];
+			rgb[1] = pal[1];
+			rgb[2] = pal[2];
+		}
+		Tools_SetColorFromRGB(rgb[0], rgb[1], rgb[2]);
+	}
+	M_Menu_ColorPicker_f();
+	break;
+
+	case CROSSHAIR_OUTLINE:
+		Cvar_SetValue("scr_crosshairoutline", !scr_crosshairoutline.value);
+		break;
+
+	case CROSSHAIR_SCALE:
+		f = scr_crosshairscale.value + dir * 0.1;
+		if (f > 10) f = 10;
+		else if (f < 1) f = 1;
+		Cvar_SetValue("scr_crosshairscale", f);
+		break;
+
+	case CROSSHAIR_X:
+		f = scr_crosshair_x.value + dir * 1.0;
+		if (f > 10) f = 10;
+		else if (f < -10) f = -10;
+		Cvar_SetValue("scr_crosshair_x", f);
+		break;
+	case CROSSHAIR_Y:
+		f = scr_crosshair_y.value + dir * 1.0;
+		if (f > 10) f = 10;
+		else if (f < -10) f = -10;
+		Cvar_SetValue("scr_crosshair_y", f);
+		break;
+
+	default:
+		break;
+	}
+}
+
+void M_Crosshair_Draw(void)
+{
+	qpic_t* p;
+	float r;
+	enum crosshair_e i;
+
+	p = Draw_CachePic("gfx/p_option.lmp");
+	M_DrawPic((320 - p->width) / 2, 4, p);
+
+	const char* title = "Crosshair Options";
+	M_PrintWhite((320 - 8 * strlen(title)) / 2, 32, title);
+
+	for (i = 0; i < CROSSHAIR_ITEMS; i++)
+	{
+		int y = 48 + 8 * i;
+		const char* text = NULL;
+		const char* value = NULL;
+
+		switch (i)
+		{
+		case CROSSHAIR_TOGGLE:
+			text = "       Crosshair";
+			if (crosshair.value == 0)
+				value = "Off";
+			else
+				value = va("Style %d", (int)crosshair.value);
+			M_Print(178, y, value);
+			break;
+		case CROSSHAIR_ALPHA:
+			text = "           Alpha";
+			r = scr_crosshairalpha.value;
+			M_DrawSlider(186, y, r, scr_crosshairalpha.value, "%.1f");
+			break;
+
+		case CROSSHAIR_COLOR:
+			text = "           Color";
+			if (crosshair_rgb_active)
+			{
+				value = va("%s", scr_crosshaircolor.string);
+			}
+			else
+			{
+				plcolour_t color = CL_PLColours_Parse(scr_crosshaircolor.string);
+				if (color.type == 2)  // RGB color
+					value = va("%s", scr_crosshaircolor.string);
+				else  // Basic color
+					value = va("%d", color.basic);
+			}
+			M_Print(178, y, value);
+			break;
+		case CROSSHAIR_COLOR_PICKER:
+			text = "    Color Picker";
+			{
+				/* rainbow swatch like the picker hue bar */
+				int swatch_x = 179;
+				int swatch_y = y + 1;
+				int swatch_w = 48;
+				int swatch_h = 6;
+
+				for (int xx = 0; xx < swatch_w; xx += 1)
+				{
+					float hue = (float)xx / (float)(swatch_w - 1);
+					byte rgb[3];
+					hsvtorgb(hue, 1.0f, 1.0f, rgb);
+					Draw_FillPlayer(swatch_x + xx, swatch_y, 1, swatch_h,
+						Tools_ColorFromRGB(rgb[0], rgb[1], rgb[2]), 1.0f);
+				}
+
+				plcolour_t border = Tools_ColorFromRGB(40, 40, 40);
+				Draw_FillPlayer(swatch_x - 1, swatch_y - 1, swatch_w + 2, 1, border, 1.0f);
+				Draw_FillPlayer(swatch_x - 1, swatch_y + swatch_h, swatch_w + 2, 1, border, 1.0f);
+				Draw_FillPlayer(swatch_x - 1, swatch_y, 1, swatch_h, border, 1.0f);
+				Draw_FillPlayer(swatch_x + swatch_w, swatch_y, 1, swatch_h, border, 1.0f);
+			}
+			break;
+
+		case CROSSHAIR_OUTLINE:
+			text = "         Outline";
+			M_DrawCheckbox(178, y, scr_crosshairoutline.value);
+			break;
+
+		case CROSSHAIR_SCALE:
+			text = "           Scale";
+			r = (scr_crosshairscale.value - 1.0f) / 9.0f;  // Map 1-10 to 0-1 for slider
+			M_DrawSlider(186, y, r, scr_crosshairscale.value, "%.1f");
+			break;
+
+		case CROSSHAIR_X:
+			text = "        X-Adjust";
+			{ // Use a block to scope temp variables
+				float current_x_val = scr_crosshair_x.value;
+				float display_x_val = roundf(current_x_val);
+				if (display_x_val == -0.0f) { // Check for negative zero
+					display_x_val = 0.0f;     // Convert to positive zero
+				}
+				r = (current_x_val + 10.0f) / 20.0f; // Slider position based on actual cvar value
+				M_DrawSlider(186, y, r, display_x_val, "%.0f"); // Display corrected value
+			}
+			break;
+		case CROSSHAIR_Y:
+			text = "        Y-Adjust";
+			{ // Use a block to scope temp variables
+				float current_y_val = scr_crosshair_y.value;
+				float display_y_val = roundf(current_y_val);
+				if (display_y_val == -0.0f) { // Check for negative zero
+					display_y_val = 0.0f;     // Convert to positive zero
+				}
+				r = (current_y_val + 10.0f) / 20.0f; // Slider position based on actual cvar value
+				M_DrawSlider(186, y, r, display_y_val, "%.0f"); // Display corrected value
+			}
+			break;
+
+		default:
+			break;
+		}
+
+		if (text)
+		{
+			if (crosshairmenu.search.len > 0 &&
+				q_strcasestr(text, crosshairmenu.search.text))
+			{
+				M_PrintHighlight(16, y, text,
+					crosshairmenu.search.text,
+					crosshairmenu.search.len);
+			}
+			else
+			{
+				M_Print(16, y, text);
+			}
+		}
+
+	}
+
+	if (crosshair.value > 0)
+		M_DrawMenuCrosshair(160 + (int)scr_crosshair_x.value, 100 + (int)scr_crosshair_y.value);
+
+	// Draw cursor
+	M_DrawCharacter(168, 48 + crosshair_cursor * 8, 12 + ((int)(realtime * 4) & 1));
+
+	if (crosshair_cursor == CROSSHAIR_COLOR)
+		M_PrintRGBA(74, 120, "+shift for RGB colors", CL_PLColours_Parse("0xffffff"), 0.6f, false);
+
+	// Draw search box if search is active
+	if (crosshairmenu.search.len > 0)
+	{
+		M_DrawTextBox(16, 170, 32, 1);
+		M_PrintHighlight(24, 178, crosshairmenu.search.text,
+			crosshairmenu.search.text,
+			crosshairmenu.search.len);
+		int cursor_x = 24 + 8 * crosshairmenu.search.len;
+		if (numberOfCrosshairItems == 0)
+			M_DrawCharacter(cursor_x, 178, 11 ^ 128);
+		else
+			M_DrawCharacter(cursor_x, 178, 10 + ((int)(realtime * 4) & 1));
+	}
+}
+
+void M_Crosshair_Key(int k)
+{
+	// Handle slider grab release
+	if (!keydown[K_MOUSE1])
+		crosshair_slider_grab = false;
+
+	if (crosshair_slider_grab)
+	{
+		switch (k)
+		{
+		case 'c':
+		case 'C':
+			if (keydown[K_CTRL])
+			{
+				if (last_crosshair_color[0] != '\0')
+					SDL_SetClipboardText(last_crosshair_color);
+				const char* soundFile = COM_FileExists("sound/qssm/copy.wav", NULL) ? "qssm/copy.wav" : "player/tornoff2.wav";
+				S_LocalSound(soundFile);
+			}
+			break;
+		case K_ESCAPE:
+		case K_BBUTTON:
+		case K_MOUSE4:
+		case K_MOUSE2:
+			crosshair_slider_grab = false;
+			break;
+		}
+		return;
+	}
+
+	// Handle search functionality first
+	if (k == K_ESCAPE)
+	{
+		if (crosshairmenu.search.len > 0)
+		{
+			crosshairmenu.search.len = 0;
+			crosshairmenu.search.text[0] = 0;
+			numberOfCrosshairItems = CROSSHAIR_ITEMS;
+			return;
+		}
+		crosshair_menu = false;
+		M_Menu_Options_f();
+		return;
+	}
+	else if (k == K_BACKSPACE)
+	{
+		if (crosshairmenu.search.len > 0)
+		{
+			crosshairmenu.search.text[--crosshairmenu.search.len] = 0;
+			if (crosshairmenu.search.len > 0)
+			{
+				numberOfCrosshairItems = 0;
+				for (int i = 0; i < CROSSHAIR_ITEMS; i++)
+				{
+					const char* itemtext = M_Crosshair_GetItemText(i);
+					if (itemtext && q_strcasestr(itemtext, crosshairmenu.search.text))
+					{
+						numberOfCrosshairItems++;
+						if (numberOfCrosshairItems == 1)
+							crosshair_cursor = i;
+					}
+				}
+			}
+			else
+			{
+				numberOfCrosshairItems = CROSSHAIR_ITEMS;
+			}
+			return;
+		}
+	}
+
+	switch (k)
+	{
+	case K_ESCAPE:
+	case K_BBUTTON:
+	case K_MOUSE4:
+	case K_MOUSE2:
+		M_Menu_Options_f();
+		break;
+
+	case K_MOUSE1:
+		m_entersound = true;
+
+		// Check if click is in search box area
+		if (crosshairmenu.search.len > 0 && m_mousey >= 170)
+			break;
+
+		// Check if click is in valid menu area
+		if (m_mousey >= 48 && m_mousey < 48 + (CROSSHAIR_ITEMS * 8))
+		{
+			crosshair_cursor = (m_mousey - 48) / 8;
+
+			if (crosshair_cursor == CROSSHAIR_ALPHA || crosshair_cursor == CROSSHAIR_SCALE || crosshair_cursor == CROSSHAIR_X || crosshair_cursor == CROSSHAIR_Y)
+			{
+				crosshair_slider_grab = true;
+			}
+			else
+			{
+				M_Crosshair_AdjustSliders(1);
+			}
+		}
+		break;
+
+	case K_ENTER:
+	case K_KP_ENTER:
+	case K_ABUTTON:
+		m_entersound = true;
+		M_Crosshair_AdjustSliders(1);
+		break;
+
+	case K_UPARROW:
+		S_LocalSound("misc/menu1.wav");
+		crosshair_cursor--;
+		if (crosshair_cursor < 0)
+			crosshair_cursor = numberOfCrosshairItems - 1;
+		break;
+
+	case K_DOWNARROW:
+		S_LocalSound("misc/menu1.wav");
+		crosshair_cursor++;
+		if (crosshair_cursor >= numberOfCrosshairItems)
+			crosshair_cursor = 0;
+		break;
+
+	case K_LEFTARROW:
+	case K_MWHEELDOWN:
+		M_Crosshair_AdjustSliders(-1);
+		break;
+
+	case K_RIGHTARROW:
+	case K_MWHEELUP:
+		M_Crosshair_AdjustSliders(1);
+		break;
+	}
+}
+
+void M_Crosshair_Mousemove(int cx, int cy)
+{
+	if (crosshair_slider_grab)
+	{
+		if (!keydown[K_MOUSE1])
+		{
+			crosshair_slider_grab = false;
+			return;
+		}
+
+		float f;
+		switch (crosshair_cursor)
+		{
+		case CROSSHAIR_ALPHA:
+			f = M_MouseToSliderFraction(cx - 187);
+			Cvar_SetValue("scr_crosshairalpha", f);
+			break;
+		case CROSSHAIR_SCALE:
+			f = 1.0f + M_MouseToSliderFraction(cx - 187) * 9.0f;
+			Cvar_SetValue("scr_crosshairscale", f);
+			break;
+		case CROSSHAIR_X:
+			f = -10.0f + M_MouseToSliderFraction(cx - 187) * 20.0f;
+			Cvar_SetValue("scr_crosshair_x", f);
+			break;
+		case CROSSHAIR_Y:
+			f = -10.0f + M_MouseToSliderFraction(cx - 187) * 20.0f;
+			Cvar_SetValue("scr_crosshair_y", f);
+			break;
+		default:
+			break;
+		}
+		return;
+	}
+
+	// Don't process mouse movement if it's in the search box area
+	if (crosshairmenu.search.len > 0 && cy >= 170)
+		return;
+
+	// Calculate which menu item the mouse is over
+	int item = (cy - 48) / 8;
+
+	// Make sure the item is within valid range
+	if (item >= 0 && item < CROSSHAIR_ITEMS)
+	{
+		// Update the cursor position
+		crosshair_cursor = item;
+	}
+}
+
+/*
+==================
+Console Menu
+==================
+*/
+
+extern cvar_t scr_conscale, scr_consize, scr_conspeed, scr_conalpha, cl_contentfilter, con_typing, scr_conback, scr_concolor;
+
+static enum console_e
+{
+	CONSOLE_FONTSIZE,
+	CONSOLE_HEIGHT,
+	CONSOLE_SPEED,
+	CONSOLE_TRANSPARENCY,
+	CONSOLE_CONBACK,
+	CONSOLE_CONCOLOR,
+	CONSOLE_CONTENTFILTER,
+	CONSOLE_TYPING,
+	CONSOLE_COUNT
+} console_cursor;
+
+#define CONSOLE_ITEMS (CONSOLE_COUNT)
+#define CONSOLE_CONBACK_BOX_X 178
+#define CONSOLE_CONBACK_BOX_WIDTH 14
+#define CONSOLE_CONBACK_TEXT_X (CONSOLE_CONBACK_BOX_X + 8)
+int numberOfConsoleItems = CONSOLE_ITEMS;
+
+static struct
+{
+	int cursor;
+	struct {
+		char text[32];
+		int len;
+	} search;
+} consolemenu;
+
+static qboolean console_slider_grab;
+static qboolean console_field_editing;
+static menu_textfield_t console_conback_field;
+static char console_conback_buffer[MAX_QPATH];
+static qboolean console_rgb_active;
+static const char* M_Console_GetItemText(int index);
+static void M_Console_UpdateSearchResults(void);
+
+static menu_textfield_t *M_Console_GetFieldForCursor(void)
+{
+	switch (console_cursor)
+	{
+	case CONSOLE_CONBACK:
+		return &console_conback_field;
+	default:
+		return NULL;
+	}
+}
+
+static void M_Console_ClearTextSelections(void)
+{
+	M_TextField_ClearSelection(&console_conback_field);
+}
+
+static void M_Console_InitTextFields(void)
+{
+	q_strlcpy(console_conback_buffer, scr_conback.string, sizeof(console_conback_buffer));
+	M_TextField_Init(&console_conback_field, console_conback_buffer, sizeof(console_conback_buffer) - 1, false);
+	console_field_editing = false;
+	console_rgb_active = false;
+}
+
+static void M_Console_ClearSearch(void)
+{
+	consolemenu.search.len = 0;
+	consolemenu.search.text[0] = 0;
+	M_Console_UpdateSearchResults();
+}
+
+static void M_Console_UpdateSearchResults(void)
+{
+	console_cursor = (enum console_e)M_Menu_UpdateSearchCursor(
+		CONSOLE_ITEMS, (int)console_cursor, &numberOfConsoleItems,
+		M_Console_GetItemText, consolemenu.search.text, consolemenu.search.len);
+}
+
+static int M_Console_GetItemY(int index)
+{
+	int y = 48 + index * 8;
+
+	if (index >= CONSOLE_CONBACK)
+		y += 8;
+	if (index >= CONSOLE_CONCOLOR)
+		y += 8;
+
+	return y;
+}
+
+static int M_Console_GetItemAtY(int cy)
+{
+	for (int i = 0; i < CONSOLE_ITEMS; ++i)
+	{
+		int y = M_Console_GetItemY(i);
+		int top = (i == CONSOLE_CONBACK) ? y - 8 : y;
+		int bottom = y + 8;
+
+		if (cy >= top && cy < bottom)
+			return i;
+	}
+
+	return -1;
+}
+
+static void M_Console_BeginFieldEdit(void)
+{
+	menu_textfield_t* field = M_Console_GetFieldForCursor();
+
+	if (!field)
+		return;
+
+	M_Console_ClearSearch();
+
+	q_strlcpy(console_conback_buffer, scr_conback.string, sizeof(console_conback_buffer));
+	M_TextField_Init(&console_conback_field, console_conback_buffer, sizeof(console_conback_buffer) - 1, false);
+	field = &console_conback_field;
+
+	field->cursor = (int)strlen(field->text);
+	field->sel_start = -1;
+	console_field_editing = true;
+}
+
+static void M_Console_EndFieldEdit(qboolean apply_changes)
+{
+	menu_textfield_t* field = M_Console_GetFieldForCursor();
+
+	if (!field)
+	{
+		console_field_editing = false;
+		return;
+	}
+
+	if (apply_changes)
+	{
+		Cvar_Set("scr_conback", console_conback_buffer);
+	}
+	else
+	{
+		q_strlcpy(console_conback_buffer, scr_conback.string, sizeof(console_conback_buffer));
+	}
+
+	field->cursor = (int)strlen(field->text);
+	field->sel_start = -1;
+	M_TextField_ClampCursor(field);
+	console_field_editing = false;
+}
+
+static int M_Console_GetFieldViewStart(const menu_textfield_t* field)
+{
+	int len = (int)strlen(field->text);
+
+	if (len <= CONSOLE_CONBACK_BOX_WIDTH)
+		return 0;
+
+	return CLAMP(0, field->cursor - CONSOLE_CONBACK_BOX_WIDTH, len - CONSOLE_CONBACK_BOX_WIDTH);
+}
+
+static void M_Console_MouseClickField(menu_textfield_t* field, int mouse_x)
+{
+	int view_start = M_Console_GetFieldViewStart(field);
+
+	M_TextField_MouseClick(field, mouse_x, CONSOLE_CONBACK_TEXT_X - view_start * 8);
+}
+
+static void M_Console_DrawField(int y, menu_textfield_t* field, const char* placeholder)
+{
+	int view_start = M_Console_GetFieldViewStart(field);
+	int sel_begin, sel_end;
+
+	M_DrawTextBox(CONSOLE_CONBACK_BOX_X, y - 8, CONSOLE_CONBACK_BOX_WIDTH, 1);
+
+	if (M_TextField_GetSelection(field, &sel_begin, &sel_end))
+	{
+		int visible_begin = CLAMP(view_start, sel_begin, view_start + CONSOLE_CONBACK_BOX_WIDTH);
+		int visible_end = CLAMP(view_start, sel_end, view_start + CONSOLE_CONBACK_BOX_WIDTH);
+
+		if (visible_begin < visible_end)
+		{
+			Draw_Fill(CONSOLE_CONBACK_TEXT_X + (visible_begin - view_start) * 8, y,
+				(visible_end - visible_begin) * 8, 8, 170, 0.4f);
+		}
+	}
+
+	if (field->text[0])
+	{
+		char visible_text[CONSOLE_CONBACK_BOX_WIDTH + 1];
+
+		q_strlcpy(visible_text, field->text + view_start, sizeof(visible_text));
+		M_PrintWhite(CONSOLE_CONBACK_TEXT_X, y, visible_text);
+	}
+	else if (!(console_field_editing && field == M_Console_GetFieldForCursor()))
+		M_PrintRGBA(CONSOLE_CONBACK_TEXT_X, y, placeholder, CL_PLColours_Parse("0xffffff"), 0.5f, false);
+
+	if (console_field_editing && field == M_Console_GetFieldForCursor())
+	{
+		menu_textfield_t visible_field = *field;
+
+		visible_field.cursor = CLAMP(0, field->cursor - view_start, CONSOLE_CONBACK_BOX_WIDTH);
+		M_TextField_DrawCursor(&visible_field, CONSOLE_CONBACK_TEXT_X, y);
+	}
+}
+
+static void M_Console_AdjustColor(int dir)
+{
+	const char* current = scr_concolor.string;
+
+	if (keydown[K_SHIFT])
+	{
+		plcolour_t color;
+		vec3_t hsv;
+
+		console_rgb_active = true;
+		color = CL_PLColours_Parse(current[0] ? current : "0xffffff");
+		rgbtohsv(color.rgb, hsv);
+
+		hsv[0] += dir / 128.0f;
+		hsv[1] = 1.0f;
+		hsv[2] = 1.0f;
+		color.type = 2;
+		color.basic = 0;
+		hsvtorgb(hsv[0], hsv[1], hsv[2], color.rgb);
+		Cvar_Set("scr_concolor", CL_PLColours_ToString(color));
+		return;
+	}
+
+	console_rgb_active = false;
+
+	if (strcmp(current, "") == 0)
+	{
+		if (dir > 0)
+		{
+			plcolour_t color;
+			color.type = 1;
+			color.basic = 0;
+			Cvar_Set("scr_concolor", CL_PLColours_ToString(color));
+		}
+		else if (dir < 0)
+		{
+			plcolour_t color;
+			color.type = 1;
+			color.basic = 13;
+			Cvar_Set("scr_concolor", CL_PLColours_ToString(color));
+		}
+		return;
+	}
+
+	{
+		plcolour_t color = CL_PLColours_Parse(current);
+		int newBasic;
+
+		color.type = 1;
+		newBasic = color.basic + dir;
+
+		if (newBasic < 0)
+		{
+			Cvar_Set("scr_concolor", "");
+			return;
+		}
+		else if (newBasic > 13)
+		{
+			Cvar_Set("scr_concolor", "");
+			return;
+		}
+		else
+			color.basic = newBasic;
+
+		Cvar_Set("scr_concolor", CL_PLColours_ToString(color));
+	}
+}
+
+static const char* M_Console_GetItemText(int index)
+{
+	static char buffer[64];
+
+	switch (index)
+	{
+	case CONSOLE_FONTSIZE:
+		return "Font Size";
+	case CONSOLE_HEIGHT:
+		return "Console Height";
+	case CONSOLE_SPEED:
+		return "Down/Up Speed";
+	case CONSOLE_TRANSPARENCY:
+		return "Transparency";
+	case CONSOLE_CONBACK:
+		return "Background Image";
+	case CONSOLE_CONCOLOR:
+		return "Background Color";
+	case CONSOLE_CONTENTFILTER:
+		return "Content Filter";
+	case CONSOLE_TYPING:
+		return "Typing Status";
+	default:
+		q_snprintf(buffer, sizeof(buffer), "Unknown Item %d", index);
+		return buffer;
+	}
+}
+
+void M_Menu_Console_f(void)
+{
+	key_dest = key_menu;
+	m_state = m_console;
+	m_entersound = true;
+	console_cursor = 0;
+	consolemenu.cursor = 0;
+	consolemenu.search.len = 0;
+	consolemenu.search.text[0] = 0;
+	numberOfConsoleItems = CONSOLE_ITEMS;
+	M_Console_InitTextFields();
+
+	IN_UpdateGrabs();
+}
+
+static void M_Console_AdjustSliders(int dir)
+{
+	float f;
+	int val;
+
+	if (console_cursor == CONSOLE_CONBACK)
+		return;
+
+	S_LocalSound("misc/menu3.wav");
+
+	switch (console_cursor)
+	{
+	case CONSOLE_FONTSIZE:
+		f = scr_conscale.value + dir;
+		if (f > 6) f = 6;
+		else if (f < 1) f = 1;
+		Cvar_SetValue("scr_conscale", f);
+		break;
+
+	case CONSOLE_HEIGHT:
+		f = scr_consize.value + dir * 0.1;
+		if (f > 1) f = 1;
+		else if (f < 0) f = 0;
+		Cvar_SetValue("scr_consize", f);
+		break;
+
+	case CONSOLE_SPEED:
+		f = scr_conspeed.value + dir * 100;
+		if (f > 10000) f = 10000;
+		else if (f < 100) f = 100;
+		Cvar_SetValue("scr_conspeed", f);
+		break;
+
+	case CONSOLE_TRANSPARENCY:
+		f = scr_conalpha.value + dir * 0.1;
+		if (f > 1) f = 1;
+		else if (f < 0) f = 0;
+		Cvar_SetValue("scr_conalpha", f);
+		break;
+
+	case CONSOLE_CONCOLOR:
+		M_Console_AdjustColor(dir);
+		break;
+
+	case CONSOLE_CONTENTFILTER:
+		val = (int)cl_contentfilter.value + dir;
+		if (val > 2) val = 0;
+		else if (val < 0) val = 2;
+		Cvar_SetValue("cl_contentfilter", val);
+		break;
+
+	case CONSOLE_TYPING:
+		Cvar_SetValue("con_typing", !con_typing.value);
+		break;
+	default:
+		break;
+	}
+}
+
+void M_Console_Draw(void)
+{
+	qpic_t* p;
+	float r;
+	enum console_e i;
+	const char* filter_text;
+	const char* value;
+
+	M_TextField_CheckMouseRelease();
+	console_cursor = (enum console_e)M_Menu_ClampCursorValue((int)console_cursor, CONSOLE_ITEMS);
+
+	p = Draw_CachePic("gfx/p_option.lmp");
+	M_DrawPic((320 - p->width) / 2, 4, p);
+
+	const char* title = "Console Options";
+	M_PrintWhite((320 - 8 * strlen(title)) / 2, 32, title);
+
+	for (i = 0; i < CONSOLE_ITEMS; i++)
+	{
+		int y = M_Console_GetItemY(i);
+		const char* text = NULL;
+
+		switch (i)
+		{
+		case CONSOLE_FONTSIZE:
+			text = "       Font Size";
+			r = (scr_conscale.value - 1) / 5;
+			M_DrawSlider(186, y, r, scr_conscale.value, "%.0f");
+			break;
+
+		case CONSOLE_HEIGHT:
+			text = "          Height";
+			r = scr_consize.value;
+			M_DrawSlider(186, y, r, scr_consize.value * 100, "%.0f%%");
+			break;
+
+		case CONSOLE_SPEED:
+			text = "           Speed";
+			r = (scr_conspeed.value - 100) / 9900;  // Simplified calculation
+			M_DrawSlider(186, y, r, scr_conspeed.value, "%.0f");
+			break;
+
+		case CONSOLE_TRANSPARENCY:
+			text = "    Transparency";
+			r = scr_conalpha.value;
+			M_DrawSlider(186, y, r, scr_conalpha.value * 100, "%.0f%%");
+			break;
+
+		case CONSOLE_CONBACK:
+			text = "Background Image";
+			M_Console_DrawField(y, &console_conback_field, "default");
+			break;
+
+		case CONSOLE_CONCOLOR:
+			text = "Background Color";
+			if (strcmp(scr_concolor.string, "") == 0)
+				value = "default";
+			else if (console_rgb_active)
+				value = va("%s", scr_concolor.string);
+			else
+			{
+				plcolour_t color = CL_PLColours_Parse(scr_concolor.string);
+				value = (color.type == 2) ? va("%s", scr_concolor.string) : va("%d", color.basic);
+			}
+			M_Print(178, y, value);
+			if (strcmp(scr_concolor.string, "") != 0)
+				Draw_FillPlayer(178 + (strlen(value) * 8) + 4, y + 2, 6, 6, CL_PLColours_Parse(scr_concolor.string), 1.0f);
+			break;
+
+		case CONSOLE_CONTENTFILTER:
+			text = "  Content Filter";
+			switch ((int)cl_contentfilter.value)
+			{
+			case 0: filter_text = "off"; break;
+			case 1: filter_text = "partial"; break;
+			case 2: filter_text = "full"; break;
+			default: filter_text = "unknown"; break;
+			}
+			M_Print(178, y, filter_text);
+			break;
+
+		case CONSOLE_TYPING:
+			text = "   Typing Status";
+			M_DrawCheckbox(178, y, con_typing.value != 0);
+			break;
+
+		default:
+			break;
+		}
+
+		if (text)
+		{
+			if (consolemenu.search.len > 0 &&
+				q_strcasestr(text, consolemenu.search.text))
+			{
+				M_PrintHighlight(16, y, text,
+					consolemenu.search.text,
+					consolemenu.search.len);
+			}
+			else
+			{
+				M_Print(16, y, text);
+			}
+		}
+	}
+
+	// Draw cursor
+	M_DrawCharacter(168, M_Console_GetItemY(console_cursor), 12 + ((int)(realtime * 4) & 1));
+
+	if (console_field_editing)
+	{
+		const char* hint = "Enter applies, Esc cancels";
+		M_PrintRGBA((320 - (int)strlen(hint) * 8) / 2, 144, hint, CL_PLColours_Parse("0xffffff"), 0.5f, false);
+	}
+	else if (console_cursor == CONSOLE_CONCOLOR)
+		M_PrintRGBA(74, 144, "+shift for RGB colors", CL_PLColours_Parse("0xffffff"), 0.6f, false);
+
+	// Draw search box if search is active
+	if (consolemenu.search.len > 0)
+	{
+		M_DrawTextBox(16, 170, 32, 1);
+		M_PrintHighlight(24, 178, consolemenu.search.text,
+			consolemenu.search.text,
+			consolemenu.search.len);
+		int cursor_x = 24 + 8 * consolemenu.search.len;
+		if (numberOfConsoleItems == 0)
+			M_DrawCharacter(cursor_x, 178, 11 ^ 128);
+		else
+			M_DrawCharacter(cursor_x, 178, 10 + ((int)(realtime * 4) & 1));
+	}
+}
+
+void M_Console_Key(int k)
+{
+	// Handle slider grab release
+	if (!keydown[K_MOUSE1])
+		console_slider_grab = false;
+
+	if (console_slider_grab)
+	{
+		switch (k)
+		{
+		case K_ESCAPE:
+		case K_BBUTTON:
+		case K_MOUSE4:
+		case K_MOUSE2:
+			console_slider_grab = false;
+			break;
+		}
+		return;
+	}
+
+	if (console_field_editing)
+	{
+		menu_textfield_t* active_field = M_Console_GetFieldForCursor();
+
+		if (active_field && M_TextField_Key(active_field, k))
+			return;
+		if (k >= 32 && k < 127)
+			return;
+
+		switch (k)
+		{
+		case K_ESCAPE:
+		case K_BBUTTON:
+		case K_MOUSE4:
+		case K_MOUSE2:
+			M_Console_EndFieldEdit(false);
+			return;
+
+		case K_ENTER:
+		case K_KP_ENTER:
+		case K_ABUTTON:
+			S_LocalSound("misc/menu3.wav");
+			M_Console_EndFieldEdit(true);
+			return;
+
+		case K_UPARROW:
+			M_Console_EndFieldEdit(true);
+			S_LocalSound("misc/menu1.wav");
+			console_cursor--;
+			if (console_cursor < 0)
+				console_cursor = CONSOLE_ITEMS - 1;
+			return;
+
+		case K_DOWNARROW:
+		case K_TAB:
+			M_Console_EndFieldEdit(true);
+			S_LocalSound("misc/menu1.wav");
+			console_cursor++;
+			if (console_cursor >= CONSOLE_ITEMS)
+				console_cursor = 0;
+			return;
+
+			case K_MOUSE1:
+				if (active_field && M_TextField_MouseInRow(m_mousey, M_Console_GetItemY(CONSOLE_CONBACK)))
+				{
+					M_Console_MouseClickField(active_field, m_mousex);
+					return;
+				}
+			M_Console_EndFieldEdit(true);
+			break;
+
+		default:
+			break;
+		}
+	}
+
+	// Handle search functionality first
+	if (k == K_ESCAPE)
+	{
+		if (consolemenu.search.len > 0)
+		{
+			M_Console_ClearSearch();
+			return;
+		}
+		M_Menu_Options_f();
+		return;
+	}
+	else if (keydown[K_CTRL])
+	{
+		if ((k == 'u' || k == 'U') && consolemenu.search.len > 0)
+		{
+			// Clear entire search with Ctrl+U
+			M_Console_ClearSearch();
+			return;
+		}
+		else if (k == K_BACKSPACE && consolemenu.search.len > 0)
+		{
+			// Delete previous word with Ctrl+Backspace
+			listsearch_t temp;
+			temp.len = consolemenu.search.len;
+			Q_strcpy(temp.text, consolemenu.search.text);
+			M_DeletePrevWord(&temp);
+			Q_strcpy(consolemenu.search.text, temp.text);
+			consolemenu.search.len = temp.len;
+			M_Console_UpdateSearchResults();
+			return;
+		}
+	}
+	else if (k == K_BACKSPACE)
+	{
+		if (consolemenu.search.len > 0)
+		{
+			consolemenu.search.text[--consolemenu.search.len] = 0;
+			M_Console_UpdateSearchResults();
+			return;
+		}
+	}
+	else if (k >= 32 && k < 127)
+	{
+		if (consolemenu.search.len < sizeof(consolemenu.search.text) - 1)
+		{
+			consolemenu.search.text[consolemenu.search.len++] = k;
+			consolemenu.search.text[consolemenu.search.len] = 0;
+			M_Console_UpdateSearchResults();
+			return;
+		}
+	}
+
+	switch (k)
+	{
+	case K_ESCAPE:
+	case K_BBUTTON:
+	case K_MOUSE4:
+	case K_MOUSE2:
+		M_Menu_Options_f();
+		break;
+
+	case K_ENTER:
+	case K_KP_ENTER:
+	case K_ABUTTON:
+		m_entersound = true;
+		if (M_Console_GetFieldForCursor())
+			M_Console_BeginFieldEdit();
+		else if (console_cursor == CONSOLE_FONTSIZE ||
+			console_cursor == CONSOLE_HEIGHT ||
+			console_cursor == CONSOLE_SPEED ||
+			console_cursor == CONSOLE_TRANSPARENCY)
+			console_slider_grab = true;
+		else
+			M_Console_AdjustSliders(1);
+		break;
+
+	case K_MOUSE1:
+		m_entersound = true;
+
+		if (consolemenu.search.len > 0 && m_mousey >= 170)
+			break;
+
+		{
+			int item = M_Console_GetItemAtY(m_mousey);
+
+			if (item >= 0)
+		{
+				console_cursor = item;
+
+				if (M_Console_GetFieldForCursor())
+				{
+						menu_textfield_t* field;
+						M_Console_BeginFieldEdit();
+						field = M_Console_GetFieldForCursor();
+						if (field)
+							M_Console_MouseClickField(field, m_mousex);
+					}
+				else if (console_cursor == CONSOLE_FONTSIZE ||
+					console_cursor == CONSOLE_HEIGHT ||
+					console_cursor == CONSOLE_SPEED ||
+					console_cursor == CONSOLE_TRANSPARENCY)
+					console_slider_grab = true;
+				else
+					M_Console_AdjustSliders(1);
+			}
+		}
+		break;
+
+	case K_UPARROW:
+		S_LocalSound("misc/menu1.wav");
+		console_cursor = (enum console_e)M_Menu_MoveSearchCursor(
+			CONSOLE_ITEMS, numberOfConsoleItems, (int)console_cursor, -1,
+			M_Console_GetItemText, consolemenu.search.text, consolemenu.search.len);
+		break;
+
+	case K_DOWNARROW:
+		S_LocalSound("misc/menu1.wav");
+		console_cursor = (enum console_e)M_Menu_MoveSearchCursor(
+			CONSOLE_ITEMS, numberOfConsoleItems, (int)console_cursor, 1,
+			M_Console_GetItemText, consolemenu.search.text, consolemenu.search.len);
+		break;
+
+	case K_LEFTARROW:
+	case K_MWHEELDOWN:
+		M_Console_AdjustSliders(-1);
+		break;
+
+	case K_RIGHTARROW:
+	case K_MWHEELUP:
+		M_Console_AdjustSliders(1);
+		break;
+	}
+}
+
+void M_Console_Char(int k)
+{
+	menu_textfield_t* active_field;
+
+	if (!console_field_editing)
+		return;
+
+	active_field = M_Console_GetFieldForCursor();
+	if (active_field)
+		M_TextField_Char(active_field, k);
+}
+
+qboolean M_Console_TextEntry(void)
+{
+	return console_field_editing && M_Console_GetFieldForCursor() != NULL;
+}
+
+void M_Console_Mousemove(int cx, int cy)
+{
+	if (textfield_mouse_dragging &&
+		textfield_drag_field == &console_conback_field)
+	{
+		M_TextField_MouseDrag(cx);
+		return;
+	}
+
+	if (console_field_editing)
+		return;
+
+	if (console_slider_grab)
+	{
+		if (!keydown[K_MOUSE1])
+		{
+			console_slider_grab = false;
+			return;
+		}
+
+		float f;
+		switch (console_cursor)
+		{
+		case CONSOLE_FONTSIZE:
+			f = 1.f + M_MouseToSliderFraction(cx - 187) * 5.f;
+			f = (int)f;  // Round to nearest integer
+			Cvar_SetValue("scr_conscale", CLAMP(1, f, 6));
+			break;
+
+		case CONSOLE_HEIGHT:
+			f = M_MouseToSliderFraction(cx - 187);
+			Cvar_SetValue("scr_consize", CLAMP(0, f, 1));
+			break;
+
+		case CONSOLE_SPEED:
+			f = 100.f + M_MouseToSliderFraction(cx - 187) * 9900.f;
+			f = floor(f / 100) * 100;  // Round down to nearest 100
+			Cvar_SetValue("scr_conspeed", CLAMP(100, f, 10000));
+			break;
+
+		case CONSOLE_TRANSPARENCY:
+			f = M_MouseToSliderFraction(cx - 187);
+			Cvar_SetValue("scr_conalpha", CLAMP(0, f, 1));
+			break;
+
+		default:
+			break;
+		}
+		return;
+	}
+
+	// Don't process mouse movement if it's in the search box area
+	if (consolemenu.search.len > 0 && cy >= 170)
+		return;
+
+	// Calculate which menu item the mouse is over
+	int item = M_Console_GetItemAtY(cy);
+
+	// Make sure the item is within valid range
+	if (item >= 0)
+	{
+		int old_cursor = console_cursor;
+		console_cursor = item;
+		if (console_cursor != old_cursor)
+			M_Console_ClearTextSelections();
+	}
+}
+
+#define TOOLS_BACKGROUND_TOP 16
+#define TOOLS_BACKGROUND_HEIGHT 184
+
+#define TOOLS_PICKER_WIDTH 192
+#define TOOLS_PICKER_HEIGHT 96
+#define TOOLS_SLIDER_HEIGHT 12
+#define TOOLS_SLIDER_GAP 12
+#define TOOLS_INFO_TOP_GAP 12
+#define TOOLS_HINT_GAP 8
+
+#define TOOLS_PICKER_Y 24
+#define TOOLS_SLIDER_Y (TOOLS_PICKER_Y + TOOLS_PICKER_HEIGHT + TOOLS_SLIDER_GAP)
+#define TOOLS_INFO_Y (TOOLS_SLIDER_Y + TOOLS_SLIDER_HEIGHT + TOOLS_INFO_TOP_GAP)
+#define TOOLS_HINT_Y (TOOLS_INFO_Y + Tools_TextBoxPixelHeight(1) + TOOLS_HINT_GAP)
+
+#define TOOLS_HEX_BOX_WIDTH 11
+#define TOOLS_RGB_BOX_WIDTH 17
+#define TOOLS_SWATCH_WIDTH 32
+#define TOOLS_SWATCH_GAP 8
+#define TOOLS_INFO_GAP 16
+
+#define TOOLS_SAT_STEP (1.0f / (TOOLS_PICKER_WIDTH - 1))
+#define TOOLS_VAL_STEP (1.0f / (TOOLS_PICKER_HEIGHT - 1))
+#define TOOLS_HUE_STEP (1.0f / (TOOLS_PICKER_WIDTH - 1))
+
+enum
+{
+	TOOLS_FOCUS_AREA,
+	TOOLS_FOCUS_HUE
+};
+
+static struct
+{
+	float hue;
+	float saturation;
+	float value;
+	int focus;
+	qboolean dragging_area;
+	qboolean dragging_hue;
+	qboolean initialized;
+} toolsmenu;
+static double toolsmenu_hex_flash_until;
+static double toolsmenu_rgb_flash_until;
+
+typedef struct
+{
+	qboolean attempted;
+	qboolean ready;
+	GLuint program;
+	GLint u_ring_color;
+	GLint u_fill_color;
+	GLint u_radius;
+	GLint u_ring_width;
+	GLint u_aa_width;
+} tools_circle_shader_t;
+
+static tools_circle_shader_t tools_circle_shader;
+
+static void ColorPicker_ReturnToParent(void)
+{
+	void (*return_fn)(void) = colorpicker_return_fn;
+	colorpicker_return_fn = NULL;
+
+	/* If we came from the crosshair menu, commit the current picker color to the crosshair color cvar */
+	if (return_fn == M_Menu_Crosshair_f)
+	{
+		byte rgb[3];
+		hsvtorgb(toolsmenu.hue, toolsmenu.saturation, toolsmenu.value, rgb);
+		plcolour_t c = Tools_ColorFromRGB(rgb[0], rgb[1], rgb[2]);
+		Cvar_Set("scr_crosshaircolor", CL_PLColours_ToString(c));
+		q_strlcpy(last_crosshair_color, CL_PLColours_ToString(c), sizeof(last_crosshair_color));
+	}
+
+	if (return_fn)
+		return_fn();
+	else
+		M_Menu_Options_f();
+}
+
+static float Tools_Clamp01(float value)
+{
+	if (value < 0.0f)
+		return 0.0f;
+	if (value > 1.0f)
+		return 1.0f;
+	return value;
+}
+
+static float Tools_WrapHue(float value)
+{
+	while (value < 0.0f)
+		value += 1.0f;
+	while (value >= 1.0f)
+		value -= 1.0f;
+	return value;
+}
+
+static int Tools_TextBoxPixelWidth(int width)
+{
+	return (width + 2) * 8;
+}
+
+static int Tools_TextBoxPixelHeight(int lines)
+{
+	return (lines + 2) * 8;
+}
+
+static int Tools_GetLayoutOriginX(void)
+{
+	int total_width = TOOLS_SWATCH_WIDTH + TOOLS_SWATCH_GAP + TOOLS_PICKER_WIDTH;
+	return (320 - total_width) / 2;
+}
+
+static int Tools_GetSwatchX(void)
+{
+	return Tools_GetLayoutOriginX();
+}
+
+static int Tools_GetPickerX(void)
+{
+	return Tools_GetLayoutOriginX() + TOOLS_SWATCH_WIDTH + TOOLS_SWATCH_GAP;
+}
+
+static int Tools_GetPickerY(void)
+{
+	return TOOLS_PICKER_Y;
+}
+
+static int Tools_GetSliderX(void)
+{
+	return Tools_GetPickerX();
+}
+
+static int Tools_GetSliderY(void)
+{
+	return TOOLS_SLIDER_Y;
+}
+
+static int Tools_GetHexBoxX(void)
+{
+	int hex_width = Tools_TextBoxPixelWidth(TOOLS_HEX_BOX_WIDTH);
+	int rgb_width = Tools_TextBoxPixelWidth(TOOLS_RGB_BOX_WIDTH);
+	int total_width = hex_width + TOOLS_INFO_GAP + rgb_width;
+	return (320 - total_width) / 2;
+}
+
+static int Tools_GetRgbBoxX(void)
+{
+	return Tools_GetHexBoxX()
+		+ Tools_TextBoxPixelWidth(TOOLS_HEX_BOX_WIDTH)
+		+ TOOLS_INFO_GAP;
+}
+
+static int Tools_GetInfoRowY(void)
+{
+	return TOOLS_INFO_Y;
+}
+
+static int Tools_GetHintY(void)
+{
+	return TOOLS_HINT_Y;
+}
+
+static plcolour_t Tools_ColorFromRGB(byte r, byte g, byte b)
+{
+	plcolour_t c;
+	c.type = 2;
+	c.rgb[0] = r;
+	c.rgb[1] = g;
+	c.rgb[2] = b;
+	c.basic = 0;
+	return c;
+}
+
+static qboolean Tools_PointInRect(int mx, int my, int x, int y, int w, int h)
+{
+	return (mx >= x && mx < x + w && my >= y && my < y + h);
+}
+
+static void Tools_DrawBackground(void)
+{
+	/* no background tint for color picker */
+}
+
+static qboolean Tools_MouseOverPicker(void)
+{
+	return Tools_PointInRect(m_mousex, m_mousey,
+		Tools_GetPickerX(), Tools_GetPickerY(),
+		TOOLS_PICKER_WIDTH, TOOLS_PICKER_HEIGHT);
+}
+
+static qboolean Tools_MouseOverSlider(void)
+{
+	return Tools_PointInRect(m_mousex, m_mousey,
+		Tools_GetSliderX(), Tools_GetSliderY(),
+		TOOLS_PICKER_WIDTH, TOOLS_SLIDER_HEIGHT);
+}
+
+static qboolean Tools_MouseOverHexBox(void)
+{
+	return Tools_PointInRect(m_mousex, m_mousey,
+		Tools_GetHexBoxX(), Tools_GetInfoRowY(),
+		Tools_TextBoxPixelWidth(TOOLS_HEX_BOX_WIDTH),
+		Tools_TextBoxPixelHeight(1));
+}
+
+static qboolean Tools_MouseOverRgbBox(void)
+{
+	return Tools_PointInRect(m_mousex, m_mousey,
+		Tools_GetRgbBoxX(), Tools_GetInfoRowY(),
+		Tools_TextBoxPixelWidth(TOOLS_RGB_BOX_WIDTH),
+		Tools_TextBoxPixelHeight(1));
+}
+
+static void Tools_RGBToHSV(byte r, byte g, byte b, float* h, float* s, float* v)
+{
+	float rf = r / 255.0f;
+	float gf = g / 255.0f;
+	float bf = b / 255.0f;
+	float maxc = q_max(rf, q_max(gf, bf));
+	float minc = q_min(rf, q_min(gf, bf));
+	float delta = maxc - minc;
+
+	*v = maxc;
+
+	if (delta < 0.00001f)
+	{
+		*s = 0.0f;
+		*h = 0.0f;
+		return;
+	}
+
+	if (maxc > 0.0f)
+		*s = delta / maxc;
+	else
+		*s = 0.0f;
+
+	if (rf >= maxc)
+		*h = (gf - bf) / delta;
+	else if (gf >= maxc)
+		*h = 2.0f + (bf - rf) / delta;
+	else
+		*h = 4.0f + (rf - gf) / delta;
+
+	*h /= 6.0f;
+	if (*h < 0.0f)
+		*h += 1.0f;
+}
+
+static void Tools_SetColorFromRGB(byte r, byte g, byte b)
+{
+	float h, s, v;
+	Tools_RGBToHSV(r, g, b, &h, &s, &v);
+	toolsmenu.hue = Tools_WrapHue(h);
+	toolsmenu.saturation = Tools_Clamp01(s);
+	toolsmenu.value = Tools_Clamp01(v);
+}
+
+static void Tools_EnsureInitialized(void)
+{
+	if (toolsmenu.initialized)
+		return;
+
+	Tools_SetColorFromRGB(0x66, 0x23, 0x23);
+	toolsmenu.focus = TOOLS_FOCUS_AREA;
+	toolsmenu.initialized = true;
+}
+
+static void Tools_UpdateAreaFromMouse(int mx, int my)
+{
+	float sx = (mx - Tools_GetPickerX()) / (float)(TOOLS_PICKER_WIDTH - 1);
+	float vy = 1.0f - (my - Tools_GetPickerY()) / (float)(TOOLS_PICKER_HEIGHT - 1);
+	toolsmenu.saturation = Tools_Clamp01(sx);
+	toolsmenu.value = Tools_Clamp01(vy);
+}
+
+static void Tools_UpdateHueFromMouse(int mx)
+{
+	float hue = (mx - Tools_GetSliderX()) / (float)(TOOLS_PICKER_WIDTH - 1);
+	toolsmenu.hue = Tools_Clamp01(hue);
+}
+
+static void Tools_ColorToFloat4(plcolour_t color, float alpha, float out_rgba[4])
+{
+	if (color.type == 2)
+	{
+		out_rgba[0] = color.rgb[0] / 255.0f;
+		out_rgba[1] = color.rgb[1] / 255.0f;
+		out_rgba[2] = color.rgb[2] / 255.0f;
+	}
+	else
+	{
+		byte* pal = (byte*)&d_8to24table[(color.basic << 4) + 8];
+		out_rgba[0] = pal[0] / 255.0f;
+		out_rgba[1] = pal[1] / 255.0f;
+		out_rgba[2] = pal[2] / 255.0f;
+	}
+
+	out_rgba[3] = alpha;
+}
+
+static void Tools_SetGLColour(plcolour_t color, float alpha)
+{
+	float r, g, b;
+
+	if (color.type == 2)
+	{
+		r = color.rgb[0] / 255.0f;
+		g = color.rgb[1] / 255.0f;
+		b = color.rgb[2] / 255.0f;
+	}
+	else
+	{
+		byte* pal = (byte*)&d_8to24table[(color.basic << 4) + 8];
+		r = pal[0] / 255.0f;
+		g = pal[1] / 255.0f;
+		b = pal[2] / 255.0f;
+	}
+
+	glColor4f(r, g, b, alpha);
+}
+
+static qboolean Tools_InitCircleShader(void)
+{
+	if (tools_circle_shader.attempted)
+		return tools_circle_shader.ready;
+
+	tools_circle_shader.attempted = true;
+
+	if (!gl_glsl_able || !GL_CreateShaderFunc || !GL_ShaderSourceFunc
+		|| !GL_CompileShaderFunc || !GL_GetShaderivFunc || !GL_CreateProgramFunc
+		|| !GL_AttachShaderFunc || !GL_LinkProgramFunc || !GL_GetProgramivFunc
+		|| !GL_DeleteShaderFunc || !GL_DeleteProgramFunc || !GL_UseProgramFunc
+		|| !GL_GetUniformLocationFunc || !GL_Uniform4fFunc || !GL_Uniform1fFunc)
+	{
+		return false;
+	}
+
+	const GLchar* vert_source =
+		"#version 110\n"
+		"varying vec2 v_offset;\n"
+		"void main()\n"
+		"{\n"
+		"\tgl_Position = gl_ModelViewProjectionMatrix * gl_Vertex;\n"
+		"\tv_offset = gl_MultiTexCoord0.xy;\n"
+		"}\n";
+
+	const GLchar* frag_source =
+		"#version 110\n"
+		"varying vec2 v_offset;\n"
+		"uniform vec4 u_ring_color;\n"
+		"uniform vec4 u_fill_color;\n"
+		"uniform float u_radius;\n"
+		"uniform float u_ring_width;\n"
+		"uniform float u_aa_width;\n"
+		"\n"
+		"float band(float dist, float start, float end, float aa)\n"
+		"{\n"
+		"\tfloat a = smoothstep(start - aa, start + aa, dist);\n"
+		"\tfloat b = smoothstep(end - aa, end + aa, dist);\n"
+		"\treturn clamp(a - b, 0.0, 1.0);\n"
+		"}\n"
+		"\n"
+		"void main()\n"
+		"{\n"
+		"\tfloat dist = length(v_offset);\n"
+		"\tfloat ring_start = max(u_radius - u_ring_width, 0.0);\n"
+		"\tfloat fill_radius = max(ring_start, 0.0);\n"
+		"\n"
+		"\tfloat ring_mask = band(dist, ring_start, u_radius, u_aa_width);\n"
+		"\tfloat fill_mask = clamp(1.0 - smoothstep(fill_radius - u_aa_width,\n"
+		"\t\tfill_radius + u_aa_width, dist), 0.0, 1.0);\n"
+		"\n"
+		"\tfloat total = ring_mask + fill_mask;\n"
+		"\tif (total <= 0.0)\n"
+		"\t\tdiscard;\n"
+		"\n"
+		"\tvec4 color = vec4(0.0);\n"
+		"\tcolor += u_ring_color * ring_mask;\n"
+		"\tcolor += u_fill_color * fill_mask;\n"
+		"\n"
+		"\tcolor.rgb /= max(total, 1e-5);\n"
+		"\tcolor.a = clamp(total, 0.0, 1.0);\n"
+		"\tgl_FragColor = color;\n"
+		"}\n";
+
+	GLuint vert = GL_CreateShaderFunc(GL_VERTEX_SHADER);
+	GL_ShaderSourceFunc(vert, 1, &vert_source, NULL);
+	GL_CompileShaderFunc(vert);
+
+	GLint compiled = GL_FALSE;
+	GL_GetShaderivFunc(vert, GL_COMPILE_STATUS, &compiled);
+	if (!compiled)
+	{
+		GL_DeleteShaderFunc(vert);
+		return false;
+	}
+
+	GLuint frag = GL_CreateShaderFunc(GL_FRAGMENT_SHADER);
+	GL_ShaderSourceFunc(frag, 1, &frag_source, NULL);
+	GL_CompileShaderFunc(frag);
+	GL_GetShaderivFunc(frag, GL_COMPILE_STATUS, &compiled);
+	if (!compiled)
+	{
+		GL_DeleteShaderFunc(vert);
+		GL_DeleteShaderFunc(frag);
+		return false;
+	}
+
+	GLuint program = GL_CreateProgramFunc();
+	GL_AttachShaderFunc(program, vert);
+	GL_AttachShaderFunc(program, frag);
+	GL_LinkProgramFunc(program);
+
+	GLint linked = GL_FALSE;
+	GL_GetProgramivFunc(program, GL_LINK_STATUS, &linked);
+	if (!linked)
+	{
+		GL_DeleteShaderFunc(vert);
+		GL_DeleteShaderFunc(frag);
+		GL_DeleteProgramFunc(program);
+		return false;
+	}
+
+	GL_DeleteShaderFunc(vert);
+	GL_DeleteShaderFunc(frag);
+
+	tools_circle_shader.program = program;
+	tools_circle_shader.u_ring_color = GL_GetUniformLocationFunc(program, "u_ring_color");
+	tools_circle_shader.u_fill_color = GL_GetUniformLocationFunc(program, "u_fill_color");
+	tools_circle_shader.u_radius = GL_GetUniformLocationFunc(program, "u_radius");
+	tools_circle_shader.u_ring_width = GL_GetUniformLocationFunc(program, "u_ring_width");
+	tools_circle_shader.u_aa_width = GL_GetUniformLocationFunc(program, "u_aa_width");
+
+	tools_circle_shader.ready = tools_circle_shader.u_ring_color >= 0
+		&& tools_circle_shader.u_fill_color >= 0
+		&& tools_circle_shader.u_radius >= 0
+		&& tools_circle_shader.u_ring_width >= 0
+		&& tools_circle_shader.u_aa_width >= 0;
+
+	if (!tools_circle_shader.ready)
+	{
+		GL_DeleteProgramFunc(program);
+		memset(&tools_circle_shader, 0, sizeof(tools_circle_shader));
+		tools_circle_shader.attempted = true;
+		tools_circle_shader.ready = false;
+		return false;
+	}
+
+	return true;
+}
+
+static qboolean Tools_DrawPickerMarkerWithShader(float center_x, float center_y, int radius,
+	plcolour_t ring, plcolour_t fill)
+{
+	if (!tools_circle_shader.ready && !Tools_InitCircleShader())
+		return false;
+
+	float ring_rgba[4];
+	float fill_rgba[4];
+	Tools_ColorToFloat4(ring, 1.0f, ring_rgba);
+	Tools_ColorToFloat4(fill, 1.0f, fill_rgba);
+
+	float radius_f = (float)radius;
+	float ring_width = q_max(0.5f, radius_f * 0.10f);
+	float aa_width = 0.25f;
+	float extent = radius_f + ring_width + aa_width;
+
+	glPushAttrib(GL_ENABLE_BIT | GL_LINE_BIT | GL_POINT_BIT | GL_COLOR_BUFFER_BIT | GL_HINT_BIT);
+
+	glDisable(GL_TEXTURE_2D);
+	glEnable(GL_BLEND);
+	glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+	glDisable(GL_ALPHA_TEST);
+
+	GL_UseProgramFunc(tools_circle_shader.program);
+	GL_Uniform4fFunc(tools_circle_shader.u_ring_color,
+		ring_rgba[0], ring_rgba[1], ring_rgba[2], ring_rgba[3]);
+	GL_Uniform4fFunc(tools_circle_shader.u_fill_color,
+		fill_rgba[0], fill_rgba[1], fill_rgba[2], fill_rgba[3]);
+	GL_Uniform1fFunc(tools_circle_shader.u_radius, radius_f);
+	GL_Uniform1fFunc(tools_circle_shader.u_ring_width, ring_width);
+	GL_Uniform1fFunc(tools_circle_shader.u_aa_width, aa_width);
+
+	glBegin(GL_TRIANGLE_STRIP);
+
+	glTexCoord2f(-extent, -extent);
+	glVertex2f(center_x - extent, center_y - extent);
+
+	glTexCoord2f(extent, -extent);
+	glVertex2f(center_x + extent, center_y - extent);
+
+	glTexCoord2f(-extent, extent);
+	glVertex2f(center_x - extent, center_y + extent);
+
+	glTexCoord2f(extent, extent);
+	glVertex2f(center_x + extent, center_y + extent);
+
+	glEnd();
+
+	GL_UseProgramFunc(0);
+
+	glPopAttrib();
+	return true;
+}
+
+static void Tools_DrawPickerMarker(float center_x, float center_y, int radius,
+	plcolour_t ring, plcolour_t fill)
+{
+	if (radius <= 0)
+		return;
+
+	if (Tools_DrawPickerMarkerWithShader(center_x, center_y, radius, ring, fill))
+		return;
+
+	glPushAttrib(GL_ENABLE_BIT | GL_LINE_BIT | GL_POINT_BIT | GL_COLOR_BUFFER_BIT | GL_HINT_BIT);
+
+	glDisable(GL_TEXTURE_2D);
+	glEnable(GL_BLEND);
+	glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+	glDisable(GL_ALPHA_TEST);
+	Tools_SetGLColour(ring, 1.0f);
+	renderCircle(center_x, center_y, (float)radius, 128, 1.0f);
+
+	float fill_size = q_max(1.0f, (float)(radius - 1) * 1.0f);
+	Tools_SetGLColour(fill, 1.0f);
+	renderSmoothDot(center_x, center_y, fill_size);
+
+	glPopAttrib();
+}
+
+static void Tools_DrawPicker(const byte current_rgb[3])
+{
+	int picker_x = Tools_GetPickerX();
+	int picker_y = Tools_GetPickerY();
+
+	for (int y = 0; y < TOOLS_PICKER_HEIGHT; y += 2)
+	{
+		float value = 1.0f - (float)y / (float)(TOOLS_PICKER_HEIGHT - 1);
+		int draw_h = q_min(2, TOOLS_PICKER_HEIGHT - y);
+
+		for (int x = 0; x < TOOLS_PICKER_WIDTH; x += 2)
+		{
+			float saturation = (float)x / (float)(TOOLS_PICKER_WIDTH - 1);
+			byte rgb[3];
+			hsvtorgb(toolsmenu.hue, saturation, value, rgb);
+
+			Draw_FillPlayer(picker_x + x,
+				picker_y + y,
+				q_min(2, TOOLS_PICKER_WIDTH - x),
+				draw_h,
+				Tools_ColorFromRGB(rgb[0], rgb[1], rgb[2]),
+				1);
+		}
+	}
+
+	int marker_x = picker_x + (int)(toolsmenu.saturation * (TOOLS_PICKER_WIDTH - 1) + 0.5f);
+	int marker_y = picker_y + (int)((1.0f - toolsmenu.value) * (TOOLS_PICKER_HEIGHT - 1) + 0.5f);
+	marker_x = q_max(picker_x, q_min(marker_x, picker_x + TOOLS_PICKER_WIDTH - 1));
+	marker_y = q_max(picker_y, q_min(marker_y, picker_y + TOOLS_PICKER_HEIGHT - 1));
+
+	int brightness = (current_rgb[0] + current_rgb[1] + current_rgb[2]) / 3;
+	plcolour_t ring = brightness > 140
+		? Tools_ColorFromRGB(0, 0, 0)
+		: Tools_ColorFromRGB(255, 255, 255);
+
+	int marker_radius = 4;
+	plcolour_t fill = Tools_ColorFromRGB(current_rgb[0], current_rgb[1], current_rgb[2]);
+	Tools_DrawPickerMarker(marker_x + 0.5f, marker_y + 0.5f, marker_radius,
+		ring, fill);
+}
+
+static void Tools_DrawHueSlider(void)
+{
+	int slider_x = Tools_GetSliderX();
+	int slider_y = Tools_GetSliderY();
+
+	for (int x = 0; x < TOOLS_PICKER_WIDTH; x += 2)
+	{
+		float hue = (float)x / (float)(TOOLS_PICKER_WIDTH - 1);
+		byte rgb[3];
+		hsvtorgb(hue, 1.0f, 1.0f, rgb);
+
+		Draw_FillPlayer(slider_x + x,
+			slider_y,
+			q_min(2, TOOLS_PICKER_WIDTH - x),
+			TOOLS_SLIDER_HEIGHT,
+			Tools_ColorFromRGB(rgb[0], rgb[1], rgb[2]),
+			1);
+	}
+
+	int hue_x = slider_x + (int)(toolsmenu.hue * (TOOLS_PICKER_WIDTH - 1) + 0.5f);
+	hue_x = q_max(slider_x, q_min(hue_x, slider_x + TOOLS_PICKER_WIDTH - 1));
+	{
+		byte hrgb[3];
+		hsvtorgb(toolsmenu.hue, 1.0f, 1.0f, hrgb);
+		plcolour_t fill = Tools_ColorFromRGB(hrgb[0], hrgb[1], hrgb[2]);
+		int brightness = (hrgb[0] + hrgb[1] + hrgb[2]) / 3;
+		plcolour_t ring = brightness > 140
+			? Tools_ColorFromRGB(0, 0, 0)
+			: Tools_ColorFromRGB(255, 255, 255);
+
+		float center_x = hue_x + 0.5f;
+		float center_y = slider_y + (TOOLS_SLIDER_HEIGHT / 2.0f);
+		Tools_DrawPickerMarker(center_x, center_y, 4, ring, fill);
+	}
+}
+
+static void Tools_DrawSwatch(const byte rgb[3])
+{
+	int swatch_x = Tools_GetSwatchX();
+	int swatch_y = Tools_GetPickerY();
+	int swatch_h = TOOLS_PICKER_HEIGHT;
+
+	Draw_FillPlayer(swatch_x, swatch_y, TOOLS_SWATCH_WIDTH, swatch_h,
+		Tools_ColorFromRGB(rgb[0], rgb[1], rgb[2]), 1);
+}
+
+static void Tools_DrawInfo(const byte rgb[3])
+{
+	char hex_line[32];
+	char rgb_line[32];
+
+	q_snprintf(hex_line, sizeof(hex_line), "HEX #%02X%02X%02X", rgb[0], rgb[1], rgb[2]);
+	q_snprintf(rgb_line, sizeof(rgb_line), "RGB %d, %d, %d", rgb[0], rgb[1], rgb[2]);
+
+	int info_y = Tools_GetInfoRowY();
+	int hex_box_x = Tools_GetHexBoxX();
+	int rgb_box_x = Tools_GetRgbBoxX();
+
+	M_DrawTextBox(hex_box_x, info_y, TOOLS_HEX_BOX_WIDTH, 1);
+	if (realtime < toolsmenu_hex_flash_until)
+		M_PrintWhite(hex_box_x + 8, info_y + 8, hex_line);
+	else
+		M_Print(hex_box_x + 8, info_y + 8, hex_line);
+
+	M_DrawTextBox(rgb_box_x, info_y, TOOLS_RGB_BOX_WIDTH, 1);
+	if (realtime < toolsmenu_rgb_flash_until)
+		M_PrintWhite(rgb_box_x + 8, info_y + 8, rgb_line);
+	else
+		M_Print(rgb_box_x + 8, info_y + 8, rgb_line);
+
+	const char* hint = "Click boxes above to copy";
+	int hint_x = (320 - (int)strlen(hint) * 8) / 2;
+	M_Print(hint_x, Tools_GetHintY(), hint);
+}
+
+static void Tools_CopyHexToClipboard(void)
+{
+	byte rgb[3];
+	hsvtorgb(toolsmenu.hue, toolsmenu.saturation, toolsmenu.value, rgb);
+	char hex_line[16];
+	q_snprintf(hex_line, sizeof(hex_line), "#%02X%02X%02X", rgb[0], rgb[1], rgb[2]);
+	SDL_SetClipboardText(hex_line);
+	toolsmenu_hex_flash_until = realtime + 1.0;
+	{
+		const char* soundFile = COM_FileExists("sound/qssm/copy.wav", NULL) ? "qssm/copy.wav" : "player/tornoff2.wav";
+		S_LocalSound(soundFile);
+	}
+}
+
+static void Tools_CopyRgbToClipboard(void)
+{
+	byte rgb[3];
+	hsvtorgb(toolsmenu.hue, toolsmenu.saturation, toolsmenu.value, rgb);
+	char buf[32];
+	q_snprintf(buf, sizeof(buf), "%d,%d,%d", rgb[0], rgb[1], rgb[2]);
+	SDL_SetClipboardText(buf);
+	toolsmenu_rgb_flash_until = realtime + 1.0;
+	{
+		const char* soundFile = COM_FileExists("sound/qssm/copy.wav", NULL) ? "qssm/copy.wav" : "player/tornoff2.wav";
+		S_LocalSound(soundFile);
+	}
+}
+
+void M_Menu_ColorPicker_f(void)
+{
+	key_dest = key_menu;
+	m_state = m_colorpicker;
+	m_entersound = true;
+
+	if (!colorpicker_return_fn)
+		colorpicker_return_fn = M_Menu_Options_f;
+
+	Tools_EnsureInitialized();
+	/* Non-crosshair callers start from a fresh random hue */
+	if (colorpicker_return_fn != M_Menu_Crosshair_f)
+	{
+		toolsmenu.hue = (float)rand() / (float)RAND_MAX;
+		toolsmenu.saturation = 1.0f;
+		toolsmenu.value = 1.0f;
+	}
+	/* If opened from setup or other menus, keep current hue/sat/val; if opened from crosshair, it was seeded before entry */
+	toolsmenu.dragging_area = false;
+	toolsmenu.dragging_hue = false;
+	toolsmenu_hex_flash_until = 0;
+	toolsmenu_rgb_flash_until = 0;
+
+	IN_UpdateGrabs();
+}
+
+void M_ColorPicker_Draw(void)
+{
+	Tools_DrawBackground();
+
+	byte rgb[3];
+	hsvtorgb(toolsmenu.hue, toolsmenu.saturation, toolsmenu.value, rgb);
+
+	Tools_DrawSwatch(rgb);
+	Tools_DrawPicker(rgb);
+	Tools_DrawHueSlider();
+	Tools_DrawInfo(rgb);
+}
+
+void M_ColorPicker_Key(int k)
+{
+	switch (k)
+	{
+	case K_ESCAPE:
+	case K_BBUTTON:
+	case K_MOUSE4:
+	case K_MOUSE2:
+		ColorPicker_ReturnToParent();
+		break;
+
+	case K_LEFTARROW:
+		if (toolsmenu.focus == TOOLS_FOCUS_AREA)
+			toolsmenu.saturation = Tools_Clamp01(toolsmenu.saturation - TOOLS_SAT_STEP);
+		else
+			toolsmenu.hue = Tools_WrapHue(toolsmenu.hue - TOOLS_HUE_STEP);
+		S_LocalSound("misc/menu3.wav");
+		break;
+
+	case K_RIGHTARROW:
+		if (toolsmenu.focus == TOOLS_FOCUS_AREA)
+			toolsmenu.saturation = Tools_Clamp01(toolsmenu.saturation + TOOLS_SAT_STEP);
+		else
+			toolsmenu.hue = Tools_WrapHue(toolsmenu.hue + TOOLS_HUE_STEP);
+		S_LocalSound("misc/menu3.wav");
+		break;
+
+	case K_MWHEELDOWN:
+		if (Tools_MouseOverPicker())
+		{
+			toolsmenu.focus = TOOLS_FOCUS_AREA;
+			toolsmenu.saturation = Tools_Clamp01(toolsmenu.saturation - TOOLS_SAT_STEP);
+			S_LocalSound("misc/menu3.wav");
+		}
+		else if (Tools_MouseOverSlider())
+		{
+			toolsmenu.focus = TOOLS_FOCUS_HUE;
+			toolsmenu.hue = Tools_WrapHue(toolsmenu.hue - TOOLS_HUE_STEP);
+			S_LocalSound("misc/menu3.wav");
+		}
+		break;
+
+	case K_MWHEELUP:
+		if (Tools_MouseOverPicker())
+		{
+			toolsmenu.focus = TOOLS_FOCUS_AREA;
+			toolsmenu.saturation = Tools_Clamp01(toolsmenu.saturation + TOOLS_SAT_STEP);
+			S_LocalSound("misc/menu3.wav");
+		}
+		else if (Tools_MouseOverSlider())
+		{
+			toolsmenu.focus = TOOLS_FOCUS_HUE;
+			toolsmenu.hue = Tools_WrapHue(toolsmenu.hue + TOOLS_HUE_STEP);
+			S_LocalSound("misc/menu3.wav");
+		}
+		break;
+
+	case K_UPARROW:
+		if (toolsmenu.focus == TOOLS_FOCUS_AREA)
+			toolsmenu.value = Tools_Clamp01(toolsmenu.value + TOOLS_VAL_STEP);
+		else
+			toolsmenu.hue = Tools_WrapHue(toolsmenu.hue + TOOLS_HUE_STEP);
+		S_LocalSound("misc/menu3.wav");
+		break;
+
+	case K_DOWNARROW:
+		if (toolsmenu.focus == TOOLS_FOCUS_AREA)
+			toolsmenu.value = Tools_Clamp01(toolsmenu.value - TOOLS_VAL_STEP);
+		else
+			toolsmenu.hue = Tools_WrapHue(toolsmenu.hue - TOOLS_HUE_STEP);
+		S_LocalSound("misc/menu3.wav");
+		break;
+
+	case K_ENTER:
+	case K_KP_ENTER:
+	case K_ABUTTON:
+		Tools_CopyHexToClipboard();
+		S_LocalSound("misc/menu1.wav");
+		break;
+
+	case K_MOUSE1:
+		if (Tools_MouseOverPicker())
+		{
+			Tools_UpdateAreaFromMouse(m_mousex, m_mousey);
+			toolsmenu.dragging_area = true;
+			toolsmenu.focus = TOOLS_FOCUS_AREA;
+			S_LocalSound("misc/menu3.wav");
+		}
+		else if (Tools_MouseOverSlider())
+		{
+			Tools_UpdateHueFromMouse(m_mousex);
+			toolsmenu.dragging_hue = true;
+			toolsmenu.focus = TOOLS_FOCUS_HUE;
+			S_LocalSound("misc/menu3.wav");
+		}
+		else if (Tools_MouseOverHexBox())
+		{
+			Tools_CopyHexToClipboard();
+		}
+		else if (Tools_MouseOverRgbBox())
+			Tools_CopyRgbToClipboard();
+		break;
+	}
+}
+
+void M_ColorPicker_Mousemove(int cx, int cy)
+{
+	if (toolsmenu.dragging_area)
+	{
+		if (!keydown[K_MOUSE1])
+		{
+			toolsmenu.dragging_area = false;
+			return;
+		}
+
+		Tools_UpdateAreaFromMouse(cx, cy);
+		return;
+	}
+
+	if (toolsmenu.dragging_hue)
+	{
+		if (!keydown[K_MOUSE1])
+		{
+			toolsmenu.dragging_hue = false;
+			return;
+		}
+
+		Tools_UpdateHueFromMouse(cx);
+	}
+}
+
+/*
+==================
+Misc Menu
+==================
+*/
+
+extern cvar_t pr_checkextension, r_replacemodels, gl_load24bit, cl_nopext, r_lerpmodels, r_lerpmove,
+sys_throttle, r_particles, sv_nqplayerphysics, cl_nopred, cl_autodemo, cl_smartspawn, cl_bobbing, cl_onload,
+cl_pong, scr_hints, cl_portpingprobe_enable;
+
+static enum extras_e
+{
+	EXTRAS_YIELD,
+	EXTRAS_NETEXTENSIONS,
+	EXTRAS_QCEXTENSIONS,
+	EXTRAS_PREDICTION,
+	EXTRAS_AUTODEMO,
+	EXTRAS_PORTPINGPROBE,
+	EXTRAS_SPAWNTRAINER,
+	EXTRAS_ITEMBOB,
+	EXTRAS_RESETCONFIG,
+	EXTRAS_PONG,
+	EXTRAS_HINTS,
+	EXTRAS_VERSION,
+	EXTRAS_COUNT
+} extras_cursor;
+
+#define EXTRAS_ITEMS (EXTRAS_COUNT)
+
+int numberOfExtrasItems = EXTRAS_ITEMS; // woods #mousemenu
+
+static struct
+{
+	int cursor;
+	struct {
+		char text[32];
+		int len;
+	} search;
+} extrasmenu;
+
+static const char* M_Extras_GetItemText(int index) // Add this helper function
+{
+	static char buffer[64];
+
+	switch (index)
+	{
+	case EXTRAS_YIELD:
+		return "System Throttle";
+	case EXTRAS_NETEXTENSIONS:
+		return "Protocol Exts";
+	case EXTRAS_QCEXTENSIONS:
+		return "QC Extensions";
+	case EXTRAS_PREDICTION:
+		return "Prediction";
+	case EXTRAS_AUTODEMO:
+		return "Auto Demo";
+	case EXTRAS_PORTPINGPROBE:
+		return "Port Ping Probe";
+	case EXTRAS_SPAWNTRAINER:
+		return "Spawn Trainer";
+	case EXTRAS_ITEMBOB:
+		return "Q3 Item Bobbing";
+	case EXTRAS_RESETCONFIG:
+		return "Reset Config";
+	case EXTRAS_PONG:
+		return "Quake Pong";
+	case EXTRAS_HINTS:
+		return "Paused Hints";
+	case EXTRAS_VERSION:
+		return "Version Info";
+	default:
+		q_snprintf(buffer, sizeof(buffer), "Unknown Item %d", index);
+		return buffer;
+	}
+}
+
+static void M_Extras_UpdateSearch(void)
+{
+	extras_cursor = (enum extras_e)M_Menu_UpdateSearchCursor(
+		EXTRAS_ITEMS, (int)extras_cursor, &numberOfExtrasItems,
+		M_Extras_GetItemText, extrasmenu.search.text, extrasmenu.search.len);
+}
+
+static void M_Extras_MoveCursor(int delta)
+{
+	extras_cursor = (enum extras_e)M_Menu_MoveSearchCursor(
+		EXTRAS_ITEMS, numberOfExtrasItems, (int)extras_cursor, delta,
+		M_Extras_GetItemText, extrasmenu.search.text, extrasmenu.search.len);
+}
+
+void M_Menu_Extras_f(void)
+{
+	key_dest = key_menu;
+	m_state = m_extras;
+	m_entersound = true;
+	extras_cursor = 0;
+	extrasmenu.cursor = 0;
+	extrasmenu.search.len = 0;
+	extrasmenu.search.text[0] = 0;
+	numberOfExtrasItems = EXTRAS_ITEMS;
+
+	IN_UpdateGrabs();
+}
+
+static void M_Extras_AdjustSliders (int dir)
+{
+	int m;
+	S_LocalSound ("misc/menu3.wav");
+
+	switch (extras_cursor)
+	{
+	case EXTRAS_YIELD:
+		if (fabs(sys_throttle.value - 0.02) < 0.001)      // Check if close to 0.02
+			Cvar_SetValue("sys_throttle", -1);
+		else if (sys_throttle.value < -0.9)               // Check if it's -1
+			Cvar_SetValue("sys_throttle", 0);
+		else
+			Cvar_SetValue("sys_throttle", 0.02);
+		break;
+	case EXTRAS_NETEXTENSIONS:
+		Cvar_SetValueQuick (&cl_nopext, !cl_nopext.value);
+		break;
+	case EXTRAS_QCEXTENSIONS:
+		Cvar_SetValueQuick (&pr_checkextension, !pr_checkextension.value);
+		break;
+	case EXTRAS_PREDICTION:
+		m = ((!!cl_nopred.value)<<1)|(!!sv_nqplayerphysics.value);
+		m += dir;
+		if ((m&3)==2)
+			m += dir; //boo! don't like that combo. skip it
+		m &= 3;
+		Cvar_SetValueQuick (&cl_nopred, (m>>1)&1);
+		Cvar_SetValueQuick (&sv_nqplayerphysics, (m>>0)&1);
+		break;
+	case EXTRAS_AUTODEMO:
+		m = cl_autodemo.value + dir;
+		if (m < 0) m = 4;
+		if (m > 4) m = 0;
+		Cvar_SetValue("cl_autodemo", m);
+		break;
+	case EXTRAS_PORTPINGPROBE:
+		Cvar_SetValueQuick(&cl_portpingprobe_enable, !cl_portpingprobe_enable.value);
+		break;
+	case EXTRAS_SPAWNTRAINER:
+		Cvar_SetValue("cl_smartspawn", !cl_smartspawn.value);
+		break;
+	case EXTRAS_ITEMBOB:
+		Cvar_SetValue("cl_bobbing", !cl_bobbing.value);
+		break;
+	case EXTRAS_RESETCONFIG:
+		if (!SCR_ModalMessage("Are you sure you want to\nreset your configuration?\n (^mn^m/^my^m)\n", 0.0f))
+			break;
+		// Execute config reset commands
+		Cbuf_AddText("resetcfg\n");              // Reset archived cvars to defaults
+		Cbuf_AddText("writeconfig config.cfg\n"); // Persist reset config to disk
+		M_Menu_Options_f();           // Return to Options menu
+		break;
+	case EXTRAS_PONG: // Added Quake Pong toggle
+		Cvar_SetValueQuick(&cl_pong, !cl_pong.value);
+		break;
+	case EXTRAS_HINTS: // Added Paused Hints toggle
+		Cvar_SetValueQuick(&scr_hints, !scr_hints.value);
+		break;
+	case EXTRAS_VERSION:
+		M_Menu_Version_f();
+		break;
+	case EXTRAS_ITEMS:	//not a real option
+		break;
+	}
+}
+
+void M_Extras_Draw(void)
+{
+	qpic_t* p;
+	enum extras_e i;
+
+	extras_cursor = (enum extras_e)M_Menu_ClampCursorValue((int)extras_cursor, EXTRAS_ITEMS);
+
+	p = Draw_CachePic("gfx/p_option.lmp");
+	M_DrawPic((320 - p->width) / 2, 4, p);
+
+	const char* title = "Miscellaneous Options";
+	M_PrintWhite((320 - 8 * strlen(title)) / 2, 32, title);
+
+	for (i = 0; i < EXTRAS_ITEMS; i++)
+	{
+		int y = 48 + 8 * i;
+		const char* text = NULL;
+		const char* value = NULL;
+
+		switch (i)
+		{
+		case EXTRAS_YIELD:
+			text = "   System Throttle";
+			if (fabs(sys_throttle.value - 0.02) < 0.001)
+				value = "on";
+			else if (sys_throttle.value == 0)
+				value = "when idle";
+			else if (sys_throttle.value < -0.9)
+				value = "off+when minimized";
+			else
+				value = "unknown";
+			break;
+
+
+		case EXTRAS_NETEXTENSIONS:
+			text = "     Protocol Exts";
+			value = cl_nopext.value ? "blocked" : "enabled";
+			break;
+
+		case EXTRAS_QCEXTENSIONS:
+			text = "     QC Extensions";
+			value = pr_checkextension.value ? "enabled" : "blocked";
+			break;
+
+		case EXTRAS_PREDICTION:
+			text = "        Prediction";
+			if (!cl_nopred.value && !sv_nqplayerphysics.value)
+				value = "on (override ssqc)";
+			else if (!cl_nopred.value && sv_nqplayerphysics.value)
+				value = "on (compat phys)";
+			else if (cl_nopred.value && !sv_nqplayerphysics.value)
+				value = "off (override ssqc)";
+			else
+				value = "off";
+			break;
+
+		case EXTRAS_AUTODEMO:
+			text = "         Auto Demo";
+			switch ((int)cl_autodemo.value)
+			{
+			case 0: value = "off"; break;
+			case 1: value = "all maps"; break;
+			case 2: value = "crx matches only"; break;
+			case 3: value = "all maps (online)"; break;
+			case 4: value = "all maps (split)"; break;
+			default: value = "unknown"; break;
+			}
+			break;
+
+		case EXTRAS_PORTPINGPROBE:
+			text = "   Port Ping Probe";
+			value = cl_portpingprobe_enable.value ? "on" : "off";
+			break;
+
+		case EXTRAS_SPAWNTRAINER:
+			text = "     Spawn Trainer";
+			value = cl_smartspawn.value ? "on (jump only)" : "off (jump or fire)";
+			break;
+
+		case EXTRAS_ITEMBOB:
+			text = "   Q3 Item Bobbing";
+			value = cl_bobbing.value ? "on" : "off";
+			break;
+
+		case EXTRAS_RESETCONFIG:
+			text = "      Reset Config";
+			value = "confirm";
+			break;
+
+
+		case EXTRAS_PONG: // Added Quake Pong display
+			text = "        Quake Pong";
+			value = cl_pong.value ? "on" : "off";
+			break;
+
+		case EXTRAS_HINTS: // Added Paused Hints display
+			text = "      Paused Hints";
+			value = scr_hints.value ? "on" : "off";
+			break;
+
+		case EXTRAS_VERSION:
+			text = "      Version Info";
+			value = "...";
+			break;
+
+		default:
+			break;
+		}
+
+		if (text)
+		{
+			if (extrasmenu.search.len > 0 &&
+				q_strcasestr(text, extrasmenu.search.text))
+			{
+				M_PrintHighlight(8, y, text,
+					extrasmenu.search.text,
+					extrasmenu.search.len);
+			}
+			else
+			{
+				M_Print(8, y, text);
+			}
+
+			M_Print(168, y, value);
+		}
+	}
+
+	// Draw cursor
+	M_DrawCharacter(160, 48 + extras_cursor * 8, 12 + ((int)(realtime * 4) & 1));
+
+	// Draw search box if search is active
+	if (extrasmenu.search.len > 0)
+	{
+		M_DrawTextBox(16, 170, 32, 1);
+		M_PrintHighlight(24, 178, extrasmenu.search.text,
+			extrasmenu.search.text,
+			extrasmenu.search.len);
+		int cursor_x = 24 + 8 * extrasmenu.search.len;
+		if (numberOfExtrasItems == 0)
+			M_DrawCharacter(cursor_x, 178, 11 ^ 128);
+		else
+			M_DrawCharacter(cursor_x, 178, 10 + ((int)(realtime * 4) & 1));
+	}
+}
+
+void M_Extras_Key(int k)
+{
+	if (k == K_ESCAPE)
+	{
+		if (extrasmenu.search.len > 0)
+		{
+			extrasmenu.search.len = 0;
+			extrasmenu.search.text[0] = 0;
+			M_Extras_UpdateSearch();
+			return;
+		}
+		M_Menu_Options_f();
+		return;
+	}
+	else if (keydown[K_CTRL])
+	{
+		if ((k == 'u' || k == 'U') && extrasmenu.search.len > 0)
+		{
+			// Clear entire search with Ctrl+U
+			extrasmenu.search.len = 0;
+			extrasmenu.search.text[0] = 0;
+			M_Extras_UpdateSearch();
+			return;
+		}
+		else if (k == K_BACKSPACE && extrasmenu.search.len > 0)
+		{
+			// Delete previous word with Ctrl+Backspace
+			listsearch_t temp;
+			temp.len = extrasmenu.search.len;
+			Q_strcpy(temp.text, extrasmenu.search.text);
+			M_DeletePrevWord(&temp);
+			Q_strcpy(extrasmenu.search.text, temp.text);
+			extrasmenu.search.len = temp.len;
+			M_Extras_UpdateSearch();
+			return;
+		}
+	}
+	else if (k == K_BACKSPACE)
+	{
+		if (extrasmenu.search.len > 0)
+		{
+			extrasmenu.search.text[--extrasmenu.search.len] = 0;
+			M_Extras_UpdateSearch();
+			return;
+		}
+	}
+	else if (k >= 32 && k < 127)
+	{
+		if (extrasmenu.search.len < sizeof(extrasmenu.search.text) - 1)
+		{
+			extrasmenu.search.text[extrasmenu.search.len++] = k;
+			extrasmenu.search.text[extrasmenu.search.len] = 0;
+			M_Extras_UpdateSearch();
+			return;
+		}
+	}
+
+	switch (k)
+	{
+	case K_ESCAPE:
+	case K_BBUTTON:
+	case K_MOUSE4:
+	case K_MOUSE2:
+		M_Menu_Options_f();
+		break;
+
+	case K_ENTER:
+	case K_KP_ENTER:
+	case K_ABUTTON:
+	case K_MOUSE1:
+		m_entersound = true;
+		M_Extras_AdjustSliders(1);
+		break;
+
+	case K_UPARROW:
+		S_LocalSound("misc/menu1.wav");
+		M_Extras_MoveCursor(-1);
+		break;
+
+	case K_DOWNARROW:
+		S_LocalSound("misc/menu1.wav");
+		M_Extras_MoveCursor(1);
+		break;
+
+	case K_LEFTARROW:
+		M_Extras_AdjustSliders(-1);
+		break;
+
+	case K_MWHEELDOWN:
+		if (extras_cursor != EXTRAS_VERSION)
+			M_Extras_AdjustSliders(-1);
+		break;
+
+	case K_RIGHTARROW:
+		M_Extras_AdjustSliders(1);
+		break;
+
+	case K_MWHEELUP:
+		if (extras_cursor != EXTRAS_VERSION)
+			M_Extras_AdjustSliders(1);
+		break;
+	}
+}
+
+void M_Extras_Mousemove(int cx, int cy)
+{
+	// Don't process mouse movement if it's in the search box area
+	if (extrasmenu.search.len > 0 && cy >= 170)
+		return;
+
+	// Calculate which menu item the mouse is over
+	int item = (cy - 48) / 8;
+
+	// Make sure the item is within valid range and mouse is in the menu area
+	if (item >= 0 && item < EXTRAS_ITEMS && cy >= 48 && cy < 48 + (EXTRAS_ITEMS * 8))
+	{
+		// Update cursor position regardless of search state
+		extras_cursor = item;
+	}
+}
+
+/*
+==================
+Version Menu
+==================
+*/
+
+#define MAX_VIS_VERSION	17
+#define VERSION_GITHUB_URL "https://api.github.com/repos/timbergeron/QSS-M/releases/latest"
+
+typedef struct
+{
+	char		text[160];
+	qboolean	is_header;
+} versionline_t;
+
+static struct
+{
+	SDL_mutex	*mutex;
+	versionremoteinfo_t release;
+	versionremoteinfo_t commit;
+} versiongithub;
+
+static struct
+{
+	menulist_t		list;
+	int				x, y, cols;
+	int				prev_cursor;
+	qboolean		scrollbar_grab;
+	menuticker_t	ticker;
+	versionline_t	*lines;
+	int				*filtered_indices;
+	char			status_message[64];
+	double			status_time;
+	int				github_release_line_index;
+	int				github_commit_line_index;
+} versionmenu;
+
+static void M_Version_Refilter(void);
+
+typedef struct
+{
+	char	*memory;
+	size_t	size;
+} versionhttpmem_t;
+
+#define VERSION_GITHUB_RELEASE_URL VERSION_GITHUB_URL
+#define VERSION_GITHUB_COMMIT_URL "https://api.github.com/repos/timbergeron/QSS-M/commits?path=Quake/quakedef.h&per_page=1"
+#define VERSION_GITHUB_QUAKEDEF_URL_FMT "https://raw.githubusercontent.com/timbergeron/QSS-M/%s/Quake/quakedef.h"
+
+static int M_Version_Compare(int l_major, int l_minor, int l_patch,
+	int r_major, int r_minor, int r_patch)
+{
+	if (l_major != r_major)
+		return (l_major > r_major) ? 1 : -1;
+	if (l_minor != r_minor)
+		return (l_minor > r_minor) ? 1 : -1;
+	if (l_patch != r_patch)
+		return (l_patch > r_patch) ? 1 : -1;
+	return 0;
+}
+
+static int M_Version_ParseTag(const char* tag, int* major, int* minor, int* patch)
+{
+	if (!tag)
+		return 0;
+	if (*tag == 'v' || *tag == 'V')
+		tag++;
+	return sscanf(tag, "%d.%d.%d", major, minor, patch) == 3;
+}
+
+static void M_Version_GitHubEnsureMutex(void)
+{
+	if (!versiongithub.mutex)
+		versiongithub.mutex = SDL_CreateMutex();
+}
+
+static void M_Version_RemoteInfo_Init(versionremoteinfo_t* info, int state)
+{
+	info->state = state;
+	info->comparison = 2;
+	info->version[0] = '\0';
+	info->detail[0] = '\0';
+	info->error[0] = '\0';
+}
+
+static size_t M_Version_GitHubWriteCallback(void* contents, size_t size, size_t nmemb, void* userp)
+{
+	size_t realsize = size * nmemb;
+	versionhttpmem_t* mem = (versionhttpmem_t*)userp;
+	char* ptr = (char*)realloc(mem->memory, mem->size + realsize + 1);
+
+	if (!ptr)
+		return 0;
+
+	mem->memory = ptr;
+	memcpy(mem->memory + mem->size, contents, realsize);
+	mem->size += realsize;
+	mem->memory[mem->size] = '\0';
+
+	return realsize;
+}
+
+static qboolean M_Version_GitHubHttpGet(const char* url, versionhttpmem_t* mem, char* error, size_t errorsz)
+{
+	CURL* curl;
+	CURLcode res;
+	long http_code = 0;
+
+	mem->memory = (char*)malloc(1);
+	mem->size = 0;
+	if (!mem->memory)
+	{
+		q_strlcpy(error, "out of memory", errorsz);
+		return false;
+	}
+	mem->memory[0] = '\0';
+
+	curl = curl_easy_init();
+	if (!curl)
+	{
+		q_strlcpy(error, "curl init failed", errorsz);
+		free(mem->memory);
+		mem->memory = NULL;
+		return false;
+	}
+
+	curl_easy_setopt(curl, CURLOPT_URL, url);
+	curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, M_Version_GitHubWriteCallback);
+	curl_easy_setopt(curl, CURLOPT_WRITEDATA, mem);
+	curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT, 3L);
+	curl_easy_setopt(curl, CURLOPT_TIMEOUT, 5L);
+	curl_easy_setopt(curl, CURLOPT_LOW_SPEED_TIME, 3L);
+	curl_easy_setopt(curl, CURLOPT_LOW_SPEED_LIMIT, 10L);
+	curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1L);
+	curl_easy_setopt(curl, CURLOPT_MAXREDIRS, 5L);
+	curl_easy_setopt(curl, CURLOPT_NOSIGNAL, 1L);
+	curl_easy_setopt(curl, CURLOPT_ACCEPT_ENCODING, "");
+	curl_easy_setopt(curl, CURLOPT_USERAGENT, ENGINE_NAME_AND_VER);
+	curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 1L);
+	curl_easy_setopt(curl, CURLOPT_SSL_VERIFYHOST, 2L);
+#if CURL_AT_LEAST_VERSION(7, 85, 0)
+	curl_easy_setopt(curl, CURLOPT_PROTOCOLS_STR, "http,https");
+	curl_easy_setopt(curl, CURLOPT_REDIR_PROTOCOLS_STR, "http,https");
+#else
+	curl_easy_setopt(curl, CURLOPT_PROTOCOLS, CURLPROTO_HTTP | CURLPROTO_HTTPS);
+	curl_easy_setopt(curl, CURLOPT_REDIR_PROTOCOLS, CURLPROTO_HTTP | CURLPROTO_HTTPS);
+#endif
+
+	res = curl_easy_perform(curl);
+	curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &http_code);
+	curl_easy_cleanup(curl);
+
+	if (res != CURLE_OK)
+	{
+		q_strlcpy(error, curl_easy_strerror(res), errorsz);
+		free(mem->memory);
+		mem->memory = NULL;
+		return false;
+	}
+
+	if (http_code < 200 || http_code >= 300)
+	{
+		q_snprintf(error, errorsz, "HTTP %ld", http_code);
+		free(mem->memory);
+		mem->memory = NULL;
+		return false;
+	}
+
+	return true;
+}
+
+static qboolean M_Version_ParseQuakedefInt(const char* text, const char* macro, int* out)
+{
+	char pattern[64];
+	const char* pos;
+
+	q_snprintf(pattern, sizeof(pattern), "#define %s", macro);
+	pos = strstr(text, pattern);
+	if (!pos)
+		return false;
+
+	return sscanf(pos + strlen(pattern), "%d", out) == 1;
+}
+
+static void M_Version_ParseQuakedefSuffix(const char* text, char* out, size_t outsz)
+{
+	char pattern[64];
+	const char* pos;
+	const char* begin;
+	const char* end;
+	size_t len;
+
+	out[0] = '\0';
+	q_snprintf(pattern, sizeof(pattern), "#define %s", "QSSM_VER_SUFFIX");
+	pos = strstr(text, pattern);
+	if (!pos)
+		return;
+
+	begin = strchr(pos + strlen(pattern), '"');
+	if (!begin)
+		return;
+	end = strchr(begin + 1, '"');
+	if (!end)
+		return;
+
+	len = (size_t)(end - begin - 1);
+	if (len >= outsz)
+		len = outsz - 1;
+	memcpy(out, begin + 1, len);
+	out[len] = '\0';
+}
+
+static qboolean M_Version_ParseQuakedefVersion(const char* text, char* out, size_t outsz, int* comparison)
+{
+	int major, minor, patch;
+	char suffix[32];
+
+	if (!M_Version_ParseQuakedefInt(text, "QSSM_VER_MAJOR", &major) ||
+		!M_Version_ParseQuakedefInt(text, "QSSM_VER_MINOR", &minor) ||
+		!M_Version_ParseQuakedefInt(text, "QSSM_VER_PATCH", &patch))
+	{
+		return false;
+	}
+
+	M_Version_ParseQuakedefSuffix(text, suffix, sizeof(suffix));
+	q_snprintf(out, outsz, "%d.%d.%d%s", major, minor, patch, suffix);
+	*comparison = M_Version_Compare(QSSM_VER_MAJOR, QSSM_VER_MINOR, QSSM_VER_PATCH,
+		major, minor, patch);
+	return true;
+}
+
+static void M_Version_GitHubFetchRelease(versionremoteinfo_t* info)
+{
+	versionhttpmem_t mem = {0};
+
+	M_Version_RemoteInfo_Init(info, VERSIONGITHUB_ERROR);
+	if (!M_Version_GitHubHttpGet(VERSION_GITHUB_RELEASE_URL, &mem, info->error, sizeof(info->error)))
+		return;
+
+	{
+		json_t* json = JSON_Parse(mem.memory);
+		if (!json || !json->root || json->root->type != JSON_OBJECT)
+		{
+			if (json)
+				JSON_Free(json);
+			free(mem.memory);
+			q_strlcpy(info->error, "invalid JSON", sizeof(info->error));
+			return;
+		}
+
+		{
+			const char* latest_tag = JSON_FindString(json->root, "tag_name");
+			if (!latest_tag || !latest_tag[0])
+			{
+				JSON_Free(json);
+				free(mem.memory);
+				q_strlcpy(info->error, "missing tag_name", sizeof(info->error));
+				return;
+			}
+
+			q_strlcpy(info->version, latest_tag, sizeof(info->version));
+
+			{
+				int major, minor, patch;
+				if (M_Version_ParseTag(latest_tag, &major, &minor, &patch))
+					info->comparison = M_Version_Compare(QSSM_VER_MAJOR, QSSM_VER_MINOR, QSSM_VER_PATCH,
+						major, minor, patch);
+			}
+		}
+
+		info->state = VERSIONGITHUB_READY;
+		JSON_Free(json);
+	}
+
+	free(mem.memory);
+}
+
+static void M_Version_GitHubFetchCommit(versionremoteinfo_t* info)
+{
+	versionhttpmem_t mem = {0};
+	versionhttpmem_t filemem = {0};
+	char rawurl[256];
+
+	M_Version_RemoteInfo_Init(info, VERSIONGITHUB_ERROR);
+	if (!M_Version_GitHubHttpGet(VERSION_GITHUB_COMMIT_URL, &mem, info->error, sizeof(info->error)))
+		return;
+
+	{
+		json_t* json = JSON_Parse(mem.memory);
+		if (!json || !json->root || json->root->type != JSON_ARRAY || !json->root->firstchild)
+		{
+			if (json)
+				JSON_Free(json);
+			free(mem.memory);
+			q_strlcpy(info->error, "invalid commit JSON", sizeof(info->error));
+			return;
+		}
+
+		{
+			const char* sha = JSON_FindString(json->root->firstchild, "sha");
+			if (!sha || !sha[0])
+			{
+				JSON_Free(json);
+				free(mem.memory);
+				q_strlcpy(info->error, "missing sha", sizeof(info->error));
+				return;
+			}
+
+			q_strlcpy(info->detail, sha, 8);
+			q_snprintf(rawurl, sizeof(rawurl), VERSION_GITHUB_QUAKEDEF_URL_FMT, sha);
+		}
+
+		JSON_Free(json);
+	}
+
+	free(mem.memory);
+
+	if (!M_Version_GitHubHttpGet(rawurl, &filemem, info->error, sizeof(info->error)))
+		return;
+
+	if (!M_Version_ParseQuakedefVersion(filemem.memory, info->version, sizeof(info->version), &info->comparison))
+	{
+		free(filemem.memory);
+		q_strlcpy(info->error, "missing QSSM version", sizeof(info->error));
+		return;
+	}
+
+	free(filemem.memory);
+	info->state = VERSIONGITHUB_READY;
+}
+
+static int M_Version_GitHubThread(void* unused)
+{
+	versionremoteinfo_t release;
+	versionremoteinfo_t commit;
+
+	(void)unused;
+
+	M_Version_GitHubFetchRelease(&release);
+	M_Version_GitHubFetchCommit(&commit);
+
+	M_Version_GitHubEnsureMutex();
+	if (!versiongithub.mutex)
+		return 0;
+
+	SDL_LockMutex(versiongithub.mutex);
+	versiongithub.release = release;
+	versiongithub.commit = commit;
+	SDL_UnlockMutex(versiongithub.mutex);
+
+	return 0;
+}
+
+void M_Version_GetGitHubInfo(versionremoteinfo_t* release, versionremoteinfo_t* commit)
+{
+	M_Version_GitHubEnsureMutex();
+
+	if (release)
+		M_Version_RemoteInfo_Init(release, VERSIONGITHUB_IDLE);
+	if (commit)
+		M_Version_RemoteInfo_Init(commit, VERSIONGITHUB_IDLE);
+
+	if (!versiongithub.mutex)
+		return;
+
+	SDL_LockMutex(versiongithub.mutex);
+	if (release)
+		*release = versiongithub.release;
+	if (commit)
+		*commit = versiongithub.commit;
+	SDL_UnlockMutex(versiongithub.mutex);
+}
+
+qboolean M_Version_WaitForGitHubInfo(versionremoteinfo_t* release, versionremoteinfo_t* commit, Uint32 timeout_ms)
+{
+	Uint32 deadline;
+
+	M_Version_StartGitHubFetch();
+	deadline = SDL_GetTicks() + timeout_ms;
+
+	for (;;)
+	{
+		M_Version_GetGitHubInfo(release, commit);
+
+		if ((!release || (release->state != VERSIONGITHUB_IDLE && release->state != VERSIONGITHUB_LOADING)) &&
+			(!commit || (commit->state != VERSIONGITHUB_IDLE && commit->state != VERSIONGITHUB_LOADING)))
+		{
+			return true;
+		}
+
+		if (!timeout_ms || SDL_TICKS_PASSED(SDL_GetTicks(), deadline))
+			return false;
+
+		SDL_Delay(10);
+	}
+}
+
+void M_Version_StartGitHubFetch(void)
+{
+	SDL_Thread* thread;
+
+	M_Version_GitHubEnsureMutex();
+	if (!versiongithub.mutex)
+		return;
+
+	SDL_LockMutex(versiongithub.mutex);
+	if (versiongithub.release.state == VERSIONGITHUB_LOADING ||
+		versiongithub.commit.state == VERSIONGITHUB_LOADING)
+	{
+		SDL_UnlockMutex(versiongithub.mutex);
+		return;
+	}
+	if (versiongithub.release.state == VERSIONGITHUB_READY &&
+		versiongithub.commit.state == VERSIONGITHUB_READY)
+	{
+		SDL_UnlockMutex(versiongithub.mutex);
+		return;
+	}
+
+	M_Version_RemoteInfo_Init(&versiongithub.release, VERSIONGITHUB_LOADING);
+	M_Version_RemoteInfo_Init(&versiongithub.commit, VERSIONGITHUB_LOADING);
+	SDL_UnlockMutex(versiongithub.mutex);
+
+	thread = SDL_CreateThread(M_Version_GitHubThread, "VersionGitHubThread", NULL);
+	if (!thread)
+	{
+		SDL_LockMutex(versiongithub.mutex);
+		M_Version_RemoteInfo_Init(&versiongithub.release, VERSIONGITHUB_ERROR);
+		M_Version_RemoteInfo_Init(&versiongithub.commit, VERSIONGITHUB_ERROR);
+		q_strlcpy(versiongithub.release.error, "thread create failed", sizeof(versiongithub.release.error));
+		q_strlcpy(versiongithub.commit.error, "thread create failed", sizeof(versiongithub.commit.error));
+		SDL_UnlockMutex(versiongithub.mutex);
+		return;
+	}
+
+	SDL_DetachThread(thread);
+}
+
+static void M_Version_UpdateGitHubLines(void)
+{
+	char release_text[sizeof(versionmenu.lines[0].text)];
+	char commit_text[sizeof(versionmenu.lines[0].text)];
+	versionremoteinfo_t release;
+	versionremoteinfo_t commit;
+	qboolean changed = false;
+
+	if (versionmenu.github_release_line_index < 0 || versionmenu.github_release_line_index >= VEC_SIZE(versionmenu.lines))
+		return;
+	if (versionmenu.github_commit_line_index < 0 || versionmenu.github_commit_line_index >= VEC_SIZE(versionmenu.lines))
+		return;
+
+	M_Version_GetGitHubInfo(&release, &commit);
+
+	if (release.state == VERSIONGITHUB_LOADING || release.state == VERSIONGITHUB_IDLE)
+	{
+		q_strlcpy(release_text, "  Latest release  checking...", sizeof(release_text));
+	}
+	else if (release.state == VERSIONGITHUB_READY)
+	{
+		if (release.comparison == 0)
+			q_snprintf(release_text, sizeof(release_text), "  Latest release  %s (you have this)", release.version);
+		else if (release.comparison > 0)
+			q_snprintf(release_text, sizeof(release_text), "  Latest release  %s (you have newer)", release.version);
+		else if (release.comparison < 0)
+			q_snprintf(release_text, sizeof(release_text), "  Latest release  %s (update available)", release.version);
+		else
+			q_snprintf(release_text, sizeof(release_text), "  Latest release  %s", release.version);
+	}
+	else
+	{
+		q_snprintf(release_text, sizeof(release_text), "  Latest release  error (%s)",
+			release.error[0] ? release.error : "unavailable");
+	}
+
+	if (commit.state == VERSIONGITHUB_LOADING || commit.state == VERSIONGITHUB_IDLE)
+	{
+		q_strlcpy(commit_text, "  Latest commit   checking...", sizeof(commit_text));
+	}
+	else if (commit.state == VERSIONGITHUB_READY)
+	{
+		if (commit.comparison == 0)
+			q_snprintf(commit_text, sizeof(commit_text), "  Latest commit   %s @ %s (you have this)",
+				commit.version, commit.detail[0] ? commit.detail : "unknown");
+		else if (commit.comparison > 0)
+			q_snprintf(commit_text, sizeof(commit_text), "  Latest commit   %s @ %s (you have newer)",
+				commit.version, commit.detail[0] ? commit.detail : "unknown");
+		else if (commit.comparison < 0)
+			q_snprintf(commit_text, sizeof(commit_text), "  Latest commit   %s @ %s (update available)",
+				commit.version, commit.detail[0] ? commit.detail : "unknown");
+		else
+			q_snprintf(commit_text, sizeof(commit_text), "  Latest commit   %s @ %s",
+				commit.version, commit.detail[0] ? commit.detail : "unknown");
+	}
+	else
+	{
+		q_snprintf(commit_text, sizeof(commit_text), "  Latest commit   error (%s)",
+			commit.error[0] ? commit.error : "unavailable");
+	}
+
+	if (strcmp(versionmenu.lines[versionmenu.github_release_line_index].text, release_text))
+	{
+		q_strlcpy(versionmenu.lines[versionmenu.github_release_line_index].text,
+			release_text, sizeof(versionmenu.lines[versionmenu.github_release_line_index].text));
+		changed = true;
+	}
+
+	if (strcmp(versionmenu.lines[versionmenu.github_commit_line_index].text, commit_text))
+	{
+		q_strlcpy(versionmenu.lines[versionmenu.github_commit_line_index].text,
+			commit_text, sizeof(versionmenu.lines[versionmenu.github_commit_line_index].text));
+		changed = true;
+	}
+
+	if (changed && versionmenu.list.search.len > 0)
+		M_Version_Refilter();
+}
+
+static const char* M_Version_GetGLString(GLenum name)
+{
+	const char* value = (const char*)glGetString(name);
+	return value ? value : "unavailable";
+}
+
+static void M_Version_AddLine(const char* text, qboolean is_header)
+{
+	versionline_t line;
+
+	q_strlcpy(line.text, text, sizeof(line.text));
+	line.is_header = is_header;
+	VEC_PUSH(versionmenu.lines, line);
+}
+
+static void M_Version_Refilter(void)
+{
+	int i;
+
+	VEC_CLEAR(versionmenu.filtered_indices);
+
+	for (i = 0; i < VEC_SIZE(versionmenu.lines); i++)
+	{
+		if (versionmenu.list.search.len == 0 ||
+			q_strcasestr(versionmenu.lines[i].text, versionmenu.list.search.text))
+		{
+			VEC_PUSH(versionmenu.filtered_indices, i);
+		}
+	}
+
+	versionmenu.list.numitems = VEC_SIZE(versionmenu.filtered_indices);
+
+	if (versionmenu.list.numitems <= 0)
+	{
+		versionmenu.list.cursor = 0;
+		versionmenu.list.scroll = 0;
+		return;
+	}
+
+	if (versionmenu.list.cursor >= versionmenu.list.numitems)
+		versionmenu.list.cursor = versionmenu.list.numitems - 1;
+
+	if (versionmenu.list.cursor < 0)
+		versionmenu.list.cursor = 0;
+
+	M_List_CenterCursor(&versionmenu.list);
+}
+
+static void M_Version_CopyToClipboard(void)
+{
+	size_t total = 1;
+	int i;
+	char* copy;
+
+	if (VEC_SIZE(versionmenu.lines) <= 0)
+		return;
+
+	for (i = 0; i < VEC_SIZE(versionmenu.lines); i++)
+		total += strlen(versionmenu.lines[i].text) + 1;
+
+	copy = (char*)SDL_malloc(total);
+	if (!copy)
+		return;
+
+	copy[0] = '\0';
+	for (i = 0; i < VEC_SIZE(versionmenu.lines); i++)
+	{
+		q_strlcat(copy, versionmenu.lines[i].text, total);
+		q_strlcat(copy, "\n", total);
+	}
+
+	if (SDL_SetClipboardText(copy) < 0)
+		q_strlcpy(versionmenu.status_message, "Clipboard copy failed", sizeof(versionmenu.status_message));
+	else
+	{
+		q_strlcpy(versionmenu.status_message, "Copied version info", sizeof(versionmenu.status_message));
+		M_TextField_PlayCopySound();
+	}
+
+	versionmenu.status_time = realtime;
+	SDL_free(copy);
+}
+
+static void M_Version_Init(void)
+{
+	SDL_version sdl_linked;
+
+	versionmenu.list.cursor = 0;
+	versionmenu.list.scroll = 0;
+	versionmenu.list.viewsize = MAX_VIS_VERSION;
+	versionmenu.list.numitems = 0;
+	versionmenu.list.isactive_fn = NULL;
+	memset(&versionmenu.list.search, 0, sizeof(versionmenu.list.search));
+	versionmenu.list.search.maxlen = 32;
+
+	versionmenu.prev_cursor = -1;
+	versionmenu.scrollbar_grab = false;
+	versionmenu.status_message[0] = '\0';
+	versionmenu.status_time = 0.0;
+	versionmenu.github_release_line_index = -1;
+	versionmenu.github_commit_line_index = -1;
+
+	VEC_CLEAR(versionmenu.lines);
+	VEC_CLEAR(versionmenu.filtered_indices);
+
+	M_Ticker_Init(&versionmenu.ticker);
+	SDL_GetVersion(&sdl_linked);
+
+	M_Version_AddLine("Application Information", true);
+	M_Version_AddLine(va("  Quake          %1.2f", VERSION), false);
+	M_Version_AddLine(va("  QuakeSpasm     %s", QUAKESPASM_VER_STRING), false);
+	M_Version_AddLine(va("  QSS            %s", QSS_VER), false);
+	M_Version_AddLine(va("  QSS-M          %s", QSSM_VER_STRING), false);
+
+#ifdef QSS_VERSION
+	M_Version_AddLine(va("  QSS Git Desc   %s", QS_STRINGIFY(QSS_VERSION)), false);
+#endif
+#ifdef QSS_REVISION
+	M_Version_AddLine(va("  QSS Git Rev    %s", QS_STRINGIFY(QSS_REVISION)), false);
+#endif
+#ifdef QSS_DATE
+	M_Version_AddLine(va("  Build Date     %s", QS_STRINGIFY(QSS_DATE)), false);
+#else
+	M_Version_AddLine(va("  Build Date     %s %s", __DATE__, __TIME__), false);
+#endif
+
+	M_Version_AddLine(va("  Platform       %s %d-bit", SDL_GetPlatform(), (int)sizeof(void*) * 8), false);
+
+	M_Version_AddLine("", false);
+	M_Version_AddLine("Renderer Information", true);
+	M_Version_AddLine(va("  Vendor         %s", M_Version_GetGLString(GL_VENDOR)), false);
+	M_Version_AddLine(va("  Renderer       %s", M_Version_GetGLString(GL_RENDERER)), false);
+	M_Version_AddLine(va("  Version        %s", M_Version_GetGLString(GL_VERSION)), false);
+
+	M_Version_AddLine("", false);
+	M_Version_AddLine("Library Versions", true);
+	M_Version_AddLine(va("  SDL compiled   %s", Q_SDL_COMPILED_VERSION_STRING), false);
+	M_Version_AddLine(va("  SDL linked     %d.%d.%d", sdl_linked.major, sdl_linked.minor, sdl_linked.patch), false);
+	M_Version_AddLine(va("  zlib           %s", zlibVersion()), false);
+#ifdef LIBCURL_VERSION
+	M_Version_AddLine(va("  libcurl        %s", LIBCURL_VERSION), false);
+#endif
+#ifdef USE_CODEC_FLAC
+	M_Version_AddLine(va("  libFLAC        %s", FLAC__VERSION_STRING), false);
+#endif
+#ifdef USE_CODEC_OPUS
+	{
+		const char* opus_ver = opus_get_version_string();
+		const char* version = strstr(opus_ver, "libopus ");
+		M_Version_AddLine(va("  libopus        %s", version ? version + 8 : opus_ver), false);
+	}
+#endif
+#ifdef USE_CODEC_VORBIS
+	{
+		const char* vorbis_ver = vorbis_version_string();
+		const char* version = strstr(vorbis_ver, "libVorbis ");
+		M_Version_AddLine(va("  libvorbis      %s", version ? version + 10 : vorbis_ver), false);
+	}
+#endif
+#ifdef USE_CODEC_MIKMOD
+	M_Version_AddLine(va("  libmikmod      %ld.%ld.%ld",
+		LIBMIKMOD_VERSION_MAJOR,
+		LIBMIKMOD_VERSION_MINOR,
+		LIBMIKMOD_REVISION), false);
+#endif
+#ifdef USE_CODEC_XMP
+	M_Version_AddLine(va("  libxmp         %s", XMP_VERSION), false);
+#endif
+#ifdef USE_CODEC_MP3
+	M_Version_AddLine(va("  libmad         %d.%d.%d%s",
+		MAD_VERSION_MAJOR,
+		MAD_VERSION_MINOR,
+		MAD_VERSION_PATCH,
+		MAD_VERSION_EXTRA), false);
+#endif
+
+	M_Version_AddLine("", false);
+	M_Version_AddLine("GitHub QSS-M Versions", true);
+	versionmenu.github_release_line_index = VEC_SIZE(versionmenu.lines);
+	M_Version_AddLine("  Latest release  checking...", false);
+	versionmenu.github_commit_line_index = VEC_SIZE(versionmenu.lines);
+	M_Version_AddLine("  Latest commit   checking...", false);
+
+	M_Version_Refilter();
+	M_Version_StartGitHubFetch();
+	M_Version_UpdateGitHubLines();
+}
+
+void M_Menu_Version_f(void)
+{
+	key_dest = key_menu;
+	m_state = m_version;
+	m_entersound = true;
+
+	M_Version_Init();
+	IN_UpdateGrabs();
+}
+
+void M_Version_Draw(void)
+{
+	int x, y, cols;
+	int firstvis, numvis, i;
+
+	x = 16;
+	y = 32;
+	cols = 36;
+
+	versionmenu.x = x;
+	versionmenu.y = y;
+	versionmenu.cols = cols;
+
+	if (!keydown[K_MOUSE1])
+		versionmenu.scrollbar_grab = false;
+
+	if (versionmenu.prev_cursor != versionmenu.list.cursor)
+	{
+		versionmenu.prev_cursor = versionmenu.list.cursor;
+		M_Ticker_Init(&versionmenu.ticker);
+	}
+	else
+	{
+		M_Ticker_Update(&versionmenu.ticker);
+	}
+
+	M_Version_UpdateGitHubLines();
+
+	Draw_String(x, y - 28, "Version Information");
+	M_DrawQuakeBar(x - 8, y - 16, cols + 2);
+
+	if (versionmenu.list.numitems > 0)
+	{
+		M_List_GetVisibleRange(&versionmenu.list, &firstvis, &numvis);
+		for (i = 0; i < numvis; i++)
+		{
+			const int draw_idx = i + firstvis;
+			const int line_idx = versionmenu.filtered_indices[draw_idx];
+			versionline_t* line = &versionmenu.lines[line_idx];
+			const int item_y = y + i * 8;
+			const int maxchars = cols - 2;
+			const int maxwidth = maxchars * 8;
+			const qboolean selected = (draw_idx == versionmenu.list.cursor);
+			const qboolean matched = (versionmenu.list.search.len > 0 &&
+				q_strcasestr(line->text, versionmenu.list.search.text) != NULL);
+			const qboolean needs_scroll = ((int)strlen(line->text) > maxchars);
+
+			if (line->is_header)
+			{
+				M_PrintWhite(x, item_y, line->text);
+			}
+			else if (matched)
+			{
+				if (needs_scroll)
+					M_PrintHighlightScroll(x, item_y, maxwidth, line->text,
+						versionmenu.list.search.text,
+						selected ? versionmenu.ticker.scroll_time : 0.0);
+				else
+					M_PrintHighlight(x, item_y, line->text,
+						versionmenu.list.search.text,
+						versionmenu.list.search.len);
+			}
+			else if (needs_scroll)
+			{
+				M_PrintScroll(x, item_y, maxwidth, line->text,
+					selected ? versionmenu.ticker.scroll_time : 0.0, true);
+			}
+			else
+			{
+				M_Print(x, item_y, line->text);
+			}
+
+			if (selected)
+				M_DrawCharacter(x - 8, item_y, 12);
+		}
+	}
+	else
+	{
+		M_PrintWhite(x, y, "No matching lines");
+	}
+
+	if (M_List_GetOverflow(&versionmenu.list) > 0)
+	{
+		M_List_DrawScrollbar(&versionmenu.list, x + cols * 8 - 8, y);
+
+		if (versionmenu.list.scroll > 0)
+			M_DrawEllipsisBar(x, y - 8, cols);
+		if (versionmenu.list.scroll + versionmenu.list.viewsize < versionmenu.list.numitems)
+			M_DrawEllipsisBar(x, y + versionmenu.list.viewsize * 8, cols);
+	}
+
+	if (versionmenu.list.search.len > 0)
+	{
+		int cursor_x = 24 + 8 * versionmenu.list.search.len;
+		M_DrawTextBox(16, 176, 32, 1);
+		M_PrintHighlight(24, 184, versionmenu.list.search.text,
+			versionmenu.list.search.text,
+			versionmenu.list.search.len);
+		if (versionmenu.list.numitems == 0)
+			M_DrawCharacter(cursor_x, 184, 11 ^ 128);
+		else
+			M_DrawCharacter(cursor_x, 184, 10);
+	}
+
+	if (versionmenu.status_message[0] && (realtime - versionmenu.status_time) < 2.0)
+		M_PrintWhite(x, versionmenu.list.search.len > 0 ? 200 : 184, versionmenu.status_message);
+}
+
+void M_Version_Key(int key)
+{
+	if (M_TextField_HasShortcutModifier() && (key == 'c' || key == 'C'))
+	{
+		M_Version_CopyToClipboard();
+		return;
+	}
+
+	if (keydown[K_CTRL])
+	{
+		if ((key == 'u' || key == 'U') && versionmenu.list.search.len > 0)
+		{
+			versionmenu.list.search.len = 0;
+			versionmenu.list.search.text[0] = 0;
+			versionmenu.list.cursor = 0;
+			versionmenu.list.scroll = 0;
+			M_Version_Refilter();
+			return;
+		}
+		else if (key == K_BACKSPACE && versionmenu.list.search.len > 0)
+		{
+			M_DeletePrevWord(&versionmenu.list.search);
+			versionmenu.list.cursor = 0;
+			versionmenu.list.scroll = 0;
+			M_Version_Refilter();
+			return;
+		}
+	}
+
+	if (key >= 32 && key < 127)
+	{
+		if (versionmenu.list.search.len < versionmenu.list.search.maxlen)
+		{
+			versionmenu.list.search.text[versionmenu.list.search.len++] = key;
+			versionmenu.list.search.text[versionmenu.list.search.len] = 0;
+			versionmenu.list.cursor = 0;
+			versionmenu.list.scroll = 0;
+			M_Version_Refilter();
+		}
+		return;
+	}
+
+	if (key == K_BACKSPACE && versionmenu.list.search.len > 0)
+	{
+		versionmenu.list.search.text[--versionmenu.list.search.len] = 0;
+		versionmenu.list.cursor = 0;
+		versionmenu.list.scroll = 0;
+		M_Version_Refilter();
+		return;
+	}
+
+	if (versionmenu.scrollbar_grab)
+	{
+		switch (key)
+		{
+		case K_ESCAPE:
+		case K_BBUTTON:
+		case K_MOUSE4:
+		case K_MOUSE2:
+			versionmenu.scrollbar_grab = false;
+			break;
+		}
+		return;
+	}
+
+	if (versionmenu.list.numitems > 0 && M_List_Key(&versionmenu.list, key))
+		return;
+
+	if (M_Ticker_Key(&versionmenu.ticker, key))
+		return;
+
+	switch (key)
+	{
+	case K_ESCAPE:
+		if (versionmenu.list.search.len > 0)
+		{
+			versionmenu.list.search.len = 0;
+			versionmenu.list.search.text[0] = 0;
+			versionmenu.list.cursor = 0;
+			versionmenu.list.scroll = 0;
+			M_Version_Refilter();
+			return;
+		}
+	case K_BBUTTON:
+	case K_MOUSE4:
+	case K_MOUSE2:
+		M_Menu_Extras_f();
+		break;
+
+	case K_MOUSE1:
+		if (versionmenu.list.numitems > 0)
+		{
+			int x = m_mousex - versionmenu.x - (versionmenu.cols - 1) * 8;
+			int y = m_mousey - versionmenu.y;
+			if (x >= -8 && M_List_UseScrollbar(&versionmenu.list, y))
+			{
+				versionmenu.scrollbar_grab = true;
+				M_Version_Mousemove(m_mousex, m_mousey);
+			}
+		}
+		break;
+
+	default:
+		break;
+	}
+}
+
+void M_Version_Mousemove(int cx, int cy)
+{
+	cy -= versionmenu.y;
+
+	if (versionmenu.scrollbar_grab)
+	{
+		if (!keydown[K_MOUSE1])
+		{
+			versionmenu.scrollbar_grab = false;
+			return;
+		}
+		M_List_UseScrollbar(&versionmenu.list, cy);
+	}
+
+	if (versionmenu.list.numitems > 0)
+		M_List_Mousemove(&versionmenu.list, cy);
+}
+
+/*
+==================
+Reset Config Menu
+==================
+*/
+
+#define MAX_VIS_RESETCONFIG	17
+#define RESETCONFIG_SEARCH_BOX_X	16
+#define RESETCONFIG_SEARCH_BOX_Y	180
+#define RESETCONFIG_SEARCH_BOX_COLS	32
+#define RESETCONFIG_SEARCH_TEXT_X	(RESETCONFIG_SEARCH_BOX_X + 8)
+#define RESETCONFIG_SEARCH_TEXT_Y	(RESETCONFIG_SEARCH_BOX_Y + 8)
+
+typedef struct
+{
+	char name[64];
+	char date[32];
+	qboolean active;
+} resetconfigitem_t;
+
+static struct
+{
+	menulist_t			list;
+	enum m_state_e		prev;
+	int					x, y, cols;
+	int					prev_cursor;
+	menuticker_t		ticker;
+	resetconfigitem_t* items;
+	qboolean			scrollbar_grab;
+	int* filtered_indices;
+	char				status_message[128]; // Add status message
+	double				status_time; // Time when status was set
+} resetconfigmenu;
+static menu_textfield_t resetconfig_search_field;
+
+static qboolean M_ResetConfig_ShowSearchBox(void)
+{
+	return resetconfigmenu.list.search.len > 0;
+}
+
+static qboolean M_ResetConfig_MouseInSearchBox(void)
+{
+	return M_ResetConfig_ShowSearchBox() &&
+		m_mousex >= RESETCONFIG_SEARCH_BOX_X &&
+		m_mousex <= RESETCONFIG_SEARCH_BOX_X + (RESETCONFIG_SEARCH_BOX_COLS + 2) * 8 &&
+		m_mousey >= RESETCONFIG_SEARCH_BOX_Y &&
+		m_mousey <= RESETCONFIG_SEARCH_BOX_Y + 16;
+}
+
+static void M_ResetConfig_Add(const char* name, const char* date)
+{
+	resetconfigitem_t tempConfig;
+	q_strlcpy(tempConfig.name, name, sizeof(tempConfig.name));
+	q_strlcpy(tempConfig.date, date, sizeof(tempConfig.date));
+	tempConfig.active = false;
+
+	// Find insertion position for date sorting (newest first)
+	int insertPos = 0;
+	int currentCount = VEC_SIZE(resetconfigmenu.items);
+
+	for (int i = 0; i < currentCount; i++)
+	{
+		if (q_sortdemos(date, resetconfigmenu.items[i].date) > 0) // If new date is newer
+		{
+			insertPos = i;
+			break;
+		}
+		insertPos = i + 1;
+	}
+
+	// Add the item using vector push
+	VEC_PUSH(resetconfigmenu.items, tempConfig);
+
+	// If we need to insert in the middle, shift items
+	if (insertPos < currentCount)
+	{
+		// Move the newly added item from the end to the correct position
+		resetconfigitem_t newItem = resetconfigmenu.items[currentCount]; // The item we just pushed
+
+		// Shift items to make room
+		for (int i = currentCount; i > insertPos; i--)
+		{
+			resetconfigmenu.items[i] = resetconfigmenu.items[i - 1];
+		}
+
+		// Insert at correct position
+		resetconfigmenu.items[insertPos] = newItem;
+	}
+}
+
+static void M_ResetConfig_Refilter(void)
+{
+	int i;
+	int itemCount = VEC_SIZE(resetconfigmenu.items);
+	VEC_CLEAR(resetconfigmenu.filtered_indices);
+
+	for (i = 0; i < itemCount; i++)
+	{
+		if (resetconfigmenu.list.search.len == 0 ||
+			q_strcasestr(resetconfigmenu.items[i].name, resetconfigmenu.list.search.text) ||
+			q_strcasestr(resetconfigmenu.items[i].date, resetconfigmenu.list.search.text))
+		{
+			VEC_PUSH(resetconfigmenu.filtered_indices, i);
+		}
+	}
+
+	resetconfigmenu.list.numitems = VEC_SIZE(resetconfigmenu.filtered_indices);
+
+	if (resetconfigmenu.list.cursor >= resetconfigmenu.list.numitems)
+		resetconfigmenu.list.cursor = resetconfigmenu.list.numitems - 1;
+
+	if (resetconfigmenu.list.cursor < 0 && resetconfigmenu.list.numitems > 0)
+		resetconfigmenu.list.cursor = 0;
+
+	M_List_CenterCursor(&resetconfigmenu.list);
+}
+
+static void M_ResetConfig_SyncSearchField(void)
+{
+	resetconfigmenu.list.search.len = (int)strlen(resetconfigmenu.list.search.text);
+	if (resetconfigmenu.list.search.len >= resetconfigmenu.list.search.maxlen)
+	{
+		resetconfigmenu.list.search.len = resetconfigmenu.list.search.maxlen - 1;
+		resetconfigmenu.list.search.text[resetconfigmenu.list.search.len] = 0;
+	}
+	M_TextField_ClampCursor(&resetconfig_search_field);
+}
+
+static void M_ResetConfig_Init(void)
+{
+#ifdef _WIN32
+	WIN32_FIND_DATA fdat;
+	HANDLE fhnd;
+	char filestring[MAX_OSPATH];
+	char configname[64];
+	char configdate[32];
+	char sortdate[32]; // For converted date format
+
+	resetconfigmenu.list.viewsize = MAX_VIS_RESETCONFIG;
+	resetconfigmenu.list.cursor = -1;
+	resetconfigmenu.list.scroll = 0;
+	resetconfigmenu.scrollbar_grab = false;
+
+	// Clear vectors
+	VEC_CLEAR(resetconfigmenu.items);
+	VEC_CLEAR(resetconfigmenu.filtered_indices);
+
+	memset(&resetconfigmenu.list.search, 0, sizeof(resetconfigmenu.list.search));
+	resetconfigmenu.list.search.maxlen = 32;
+
+	// Clear status message
+	resetconfigmenu.status_message[0] = '\0';
+	resetconfigmenu.status_time = 0;
+
+	M_Ticker_Init(&resetconfigmenu.ticker);
+
+	// Add default config as first item (always at top)
+	M_ResetConfig_Add("default config", "9999-12-31 23:59:59"); // Future date to ensure it stays at top
+
+	// Search in backups folder for config-*.cfg files
+	q_snprintf(filestring, sizeof(filestring), "%s/backups/config-*.cfg", com_gamedir);
+	fhnd = FindFirstFile(filestring, &fdat);
+	if (fhnd != INVALID_HANDLE_VALUE)
+	{
+		do
+		{
+			q_strlcpy(configname, fdat.cFileName, sizeof(configname));
+
+			// Extract date from filename (config-MM-DD-YYYY.cfg)
+			if (strncmp(configname, "config-", 7) == 0)
+			{
+				char* datepart = configname + 7; // Skip "config-"
+				char* dotpos = strrchr(datepart, '.');
+				if (dotpos) *dotpos = '\0'; // Remove .cfg extension
+
+				q_strlcpy(configdate, datepart, sizeof(configdate));
+
+				// Convert MM-DD-YYYY to YYYY-MM-DD 00:00:00 for sorting
+				if (strlen(configdate) == 10) // MM-DD-YYYY format
+				{
+					char month[3], day[3], year[5];
+					if (sscanf(configdate, "%2s-%2s-%4s", month, day, year) == 3)
+					{
+						q_snprintf(sortdate, sizeof(sortdate), "%s-%s-%s 00:00:00", year, month, day);
+					}
+					else
+					{
+						q_strlcpy(sortdate, configdate, sizeof(sortdate));
+					}
+				}
+				else
+				{
+					q_strlcpy(sortdate, configdate, sizeof(sortdate));
+				}
+
+				M_ResetConfig_Add(configname, sortdate);
+			}
+		} while (FindNextFile(fhnd, &fdat));
+		FindClose(fhnd);
+	}
+#else
+	DIR* dir_p;
+	struct dirent* dir_t;
+	char filestring[MAX_OSPATH];
+	char configname[64];
+	char configdate[32];
+	char sortdate[32]; // For converted date format
+
+	resetconfigmenu.list.viewsize = MAX_VIS_RESETCONFIG;
+	resetconfigmenu.list.cursor = -1;
+	resetconfigmenu.list.scroll = 0;
+	resetconfigmenu.scrollbar_grab = false;
+
+	// Clear vectors
+	VEC_CLEAR(resetconfigmenu.items);
+	VEC_CLEAR(resetconfigmenu.filtered_indices);
+
+	memset(&resetconfigmenu.list.search, 0, sizeof(resetconfigmenu.list.search));
+	resetconfigmenu.list.search.maxlen = 32;
+
+	// Clear status message
+	resetconfigmenu.status_message[0] = '\0';
+	resetconfigmenu.status_time = 0;
+
+	M_Ticker_Init(&resetconfigmenu.ticker);
+
+	// Add default config as first item (always at top)
+	M_ResetConfig_Add("default config", "9999-12-31 23:59:59"); // Future date to ensure it stays at top
+
+	// Search in backups folder for config-*.cfg files
+	q_snprintf(filestring, sizeof(filestring), "%s/backups", com_gamedir);
+	dir_p = opendir(filestring);
+	if (dir_p != NULL)
+	{
+		while ((dir_t = readdir(dir_p)) != NULL)
+		{
+			if (q_strcasecmp(COM_FileGetExtension(dir_t->d_name), "cfg") != 0)
+				continue;
+
+			if (strncmp(dir_t->d_name, "config-", 7) != 0)
+				continue;
+
+			q_strlcpy(configname, dir_t->d_name, sizeof(configname));
+
+			// Extract date from filename (config-MM-DD-YYYY.cfg)
+			char* datepart = configname + 7; // Skip "config-"
+			char* dotpos = strrchr(datepart, '.');
+			if (dotpos) *dotpos = '\0'; // Remove .cfg extension
+
+			q_strlcpy(configdate, datepart, sizeof(configdate));
+
+			// Convert MM-DD-YYYY to YYYY-MM-DD 00:00:00 for sorting
+			if (strlen(configdate) == 10) // MM-DD-YYYY format
+			{
+				char month[3], day[3], year[5];
+				if (sscanf(configdate, "%2s-%2s-%4s", month, day, year) == 3)
+				{
+					q_snprintf(sortdate, sizeof(sortdate), "%s-%s-%s 00:00:00", year, month, day);
+				}
+				else
+				{
+					q_strlcpy(sortdate, configdate, sizeof(sortdate));
+				}
+			}
+			else
+			{
+				q_strlcpy(sortdate, configdate, sizeof(sortdate));
+			}
+
+			M_ResetConfig_Add(configname, sortdate);
+		}
+		closedir(dir_p);
+	}
+#endif
+
+	M_ResetConfig_Refilter();
+	M_TextField_Init(&resetconfig_search_field,
+		resetconfigmenu.list.search.text,
+		resetconfigmenu.list.search.maxlen - 1,
+		false);
+
+	if (resetconfigmenu.list.cursor == -1 && resetconfigmenu.list.numitems > 0)
+		resetconfigmenu.list.cursor = 0;
+
+	M_List_CenterCursor(&resetconfigmenu.list);
+}
+
+void M_Menu_ResetConfig_f(void)
+{
+	key_dest = key_menu;
+	resetconfigmenu.prev = m_state;
+	m_state = m_resetconfig;
+	m_entersound = true;
+	M_ResetConfig_Init();
+}
+
+void M_ResetConfig_Draw(void)
+{
+	int x, y, i, cols;
+	int firstvis, numvis;
+
+	M_TextField_CheckMouseRelease();
+
+	x = 16;
+	y = 32;
+	cols = 36;
+
+	resetconfigmenu.x = x;
+	resetconfigmenu.y = y;
+	resetconfigmenu.cols = cols;
+
+	if (!keydown[K_MOUSE1]) // woods #mousemenu
+		resetconfigmenu.scrollbar_grab = false;
+
+	if (resetconfigmenu.prev_cursor != resetconfigmenu.list.cursor)
+	{
+		resetconfigmenu.prev_cursor = resetconfigmenu.list.cursor;
+		M_Ticker_Init(&resetconfigmenu.ticker);
+	}
+	else
+		M_Ticker_Update(&resetconfigmenu.ticker);
+
+	Draw_String(x, y - 28, "Reset Config");
+	M_DrawQuakeBar(x - 8, y - 16, cols + 2);
+
+	M_List_GetVisibleRange(&resetconfigmenu.list, &firstvis, &numvis);
+	for (i = 0; i < numvis; i++)
+	{
+		int idx = i + firstvis;
+		int config_idx = resetconfigmenu.filtered_indices[idx];
+		resetconfigitem_t* config_item = &resetconfigmenu.items[config_idx];
+		qboolean selected = (idx == resetconfigmenu.list.cursor);
+
+		int color = config_item->active ? 0 : 1;
+		int len = strlen(config_item->name);
+		int maxchars = (cols - 2);
+
+		if (resetconfigmenu.list.search.len > 0)
+		{
+			if (len <= maxchars)
+			{
+				// No scrolling needed, display with highlighting
+				M_PrintHighlight(x, y + i * 8, config_item->name, resetconfigmenu.list.search.text, resetconfigmenu.list.search.len);
+			}
+			else
+			{
+				// Scrolling needed, display with scrolling and highlighting
+				M_PrintHighlightScroll(x, y + i * 8, (cols - 2) * 8,
+					config_item->name, resetconfigmenu.list.search.text,
+					selected ? resetconfigmenu.ticker.scroll_time : 0.0);
+			}
+		}
+		else
+		{
+			if (len <= maxchars)
+			{
+				// No scrolling needed
+				if (color)
+					M_Print(x, y + i * 8, config_item->name);
+				else
+					M_PrintWhite(x, y + i * 8, config_item->name);
+			}
+			else
+			{
+				// Scrolling needed
+				M_PrintScroll(x, y + i * 8, (cols - 2) * 8,
+					config_item->name,
+					selected ? resetconfigmenu.ticker.scroll_time : 0.0,
+					color);
+			}
+		}
+
+		if (selected)
+			M_DrawCharacter(x - 8, y + i * 8, 12 + ((int)(realtime * 4) & 1));
+	}
+
+	if (M_List_GetOverflow(&resetconfigmenu.list) > 0)
+	{
+		M_List_DrawScrollbar(&resetconfigmenu.list, x + cols * 8 - 8, y);
+
+		if (resetconfigmenu.list.scroll > 0)
+			M_DrawEllipsisBar(x, y - 8, cols);
+		if (resetconfigmenu.list.scroll + resetconfigmenu.list.viewsize < resetconfigmenu.list.numitems)
+			M_DrawEllipsisBar(x, y + resetconfigmenu.list.viewsize * 8, cols);
+	}
+
+	if (M_ResetConfig_ShowSearchBox())
+	{
+		M_DrawTextBox(RESETCONFIG_SEARCH_BOX_X, RESETCONFIG_SEARCH_BOX_Y, RESETCONFIG_SEARCH_BOX_COLS, 1);
+		M_TextField_DrawHighlight(&resetconfig_search_field, RESETCONFIG_SEARCH_TEXT_X, RESETCONFIG_SEARCH_TEXT_Y);
+		M_PrintHighlight(RESETCONFIG_SEARCH_TEXT_X, RESETCONFIG_SEARCH_TEXT_Y, resetconfigmenu.list.search.text,
+			resetconfigmenu.list.search.text,
+			resetconfigmenu.list.search.len);
+		int cursor_x = RESETCONFIG_SEARCH_TEXT_X + 8 * resetconfig_search_field.cursor;
+		if (resetconfigmenu.list.numitems == 0)
+			M_DrawCharacter(cursor_x, RESETCONFIG_SEARCH_TEXT_Y, 11 ^ 128);
+		else
+			M_DrawCharacter(cursor_x, RESETCONFIG_SEARCH_TEXT_Y, 10 + ((int)(realtime * 4) & 1));
+	}
+
+	// Display status message if recent (show for 3 seconds)
+	if (resetconfigmenu.status_message[0] && (realtime - resetconfigmenu.status_time) < 3.0)
+	{
+		int status_y = y + resetconfigmenu.list.viewsize * 8 + 16;
+		M_PrintWhite(x, status_y, resetconfigmenu.status_message);
+	}
+}
+
+qboolean M_ResetConfig_Match(int index, char initial)
+{
+	int config_idx = resetconfigmenu.filtered_indices[index];
+	return q_tolower(resetconfigmenu.items[config_idx].name[0]) == initial;
+}
+
+void M_ResetConfig_Key(int key)
+{
+	int x, y; // woods #mousemenu
+
+	if (resetconfigmenu.scrollbar_grab)
+	{
+		switch (key)
+		{
+		case K_ESCAPE:
+		case K_BBUTTON:
+		case K_MOUSE4:
+		case K_MOUSE2:
+			resetconfigmenu.scrollbar_grab = false;
+			break;
+		}
+		return;
+	}
+
+	if (M_TextField_Key(&resetconfig_search_field, key))
+	{
+		M_ResetConfig_SyncSearchField();
+		M_ResetConfig_Refilter();
+		return;
+	}
+
+	if (M_List_Key(&resetconfigmenu.list, key))
+		return;
+
+	if (M_List_CycleMatch(&resetconfigmenu.list, key, M_ResetConfig_Match))
+		return;
+
+	if (M_Ticker_Key(&resetconfigmenu.ticker, key))
+		return;
+
+	switch (key)
+	{
+	case K_ESCAPE:
+	case K_BBUTTON:
+	case K_MOUSE4: // woods #mousemenu
+	case K_MOUSE2:
+		if (resetconfigmenu.prev == m_options)
+			M_Menu_Options_f();
+		else
+			M_Menu_Main_f();
+		break;
+
+	case K_ENTER:
+	case K_KP_ENTER:
+	case K_ABUTTON:
+	enter:
+		if (resetconfigmenu.list.numitems > 0 && resetconfigmenu.list.cursor >= 0)
+		{
+			int config_idx = resetconfigmenu.filtered_indices[resetconfigmenu.list.cursor];
+			resetconfigitem_t* config_item = &resetconfigmenu.items[config_idx];
+
+			// Check if this is the default config option
+			if (!strcmp(config_item->name, "default config"))
+			{
+				if (SCR_ModalMessage("This will reset all controls\n"
+					"and stored vars. Continue? (^my^m/^mn^m)\n", 15.0f))
+				{
+					Cbuf_AddText("resetcfg\n");
+					Cbuf_AddText("exec default.cfg\n");
+
+					// Set status message
+					q_strlcpy(resetconfigmenu.status_message, "reset to default config", sizeof(resetconfigmenu.status_message));
+					resetconfigmenu.status_time = realtime;
+				}
+			}
+			else
+			{
+				// Execute the config file
+				char exec_cmd[256];
+				q_snprintf(exec_cmd, sizeof(exec_cmd), "exec backups/%s.cfg\n", config_item->name);
+				Cbuf_AddText(exec_cmd);
+
+				// Set status message
+				q_snprintf(resetconfigmenu.status_message, sizeof(resetconfigmenu.status_message),
+					"loaded config %s", config_item->name);
+				resetconfigmenu.status_time = realtime;
+			}
+		}
+		break;
+
+	case K_MOUSE1: // woods #mousemenu
+		if (M_ResetConfig_MouseInSearchBox())
+		{
+			M_TextField_MouseClick(&resetconfig_search_field, m_mousex, RESETCONFIG_SEARCH_TEXT_X);
+			return;
+		}
+
+		x = m_mousex - resetconfigmenu.x - (resetconfigmenu.cols - 1) * 8;
+		y = m_mousey - resetconfigmenu.y;
+		if (x < -8 || !M_List_UseScrollbar(&resetconfigmenu.list, y))
+			goto enter;
+		resetconfigmenu.scrollbar_grab = true;
+		M_ResetConfig_Mousemove(m_mousex, m_mousey);
+		break;
+
+	default:
+		break;
+	}
+}
+void M_ResetConfig_Char(int key)
+{
+	if (M_TextField_Char(&resetconfig_search_field, key))
+	{
+		M_ResetConfig_SyncSearchField();
+		M_ResetConfig_Refilter();
+	}
+}
+
+qboolean M_ResetConfig_TextEntry(void)
+{
+	return true; // Always allow text entry for search
+}
+
+
+void M_ResetConfig_Mousemove(int cx, int cy) // woods #mousemenu
+{
+	if (textfield_mouse_dragging && textfield_drag_field == &resetconfig_search_field)
+	{
+		M_TextField_MouseDrag(cx);
+		return;
+	}
+
+	cy -= resetconfigmenu.y;
+
+	if (resetconfigmenu.scrollbar_grab)
+	{
+		if (!keydown[K_MOUSE1])
+		{
+			resetconfigmenu.scrollbar_grab = false;
+			return;
+		}
+		M_List_UseScrollbar(&resetconfigmenu.list, cy);
+		// Note: no return, we also update the cursor
+	}
+
+	M_List_Mousemove(&resetconfigmenu.list, cy);
+}
+
+/*
+==================
+Video Menu
+==================
+*/
+
+void M_Menu_Video_f (void)
+{
+	(*vid_menucmdfn) (); //johnfitz
+}
+
+
+void M_Video_Draw (void)
+{
+	(*vid_menudrawfn) ();
+}
+
+
+void M_Video_Key (int key)
+{
+	(*vid_menukeyfn) (key);
+}
+
+void M_Video_Mousemove(int cx, int cy) // woods #mousemenu
+{
+	(*vid_menumousefn) (cx, cy);
+}
+
+/*
+==================
+Help Menu
+==================
+*/
+
+int		help_page;
+#define	NUM_HELP_PAGES	6
+
+
+void M_Menu_Help_f (void)
+{
+	key_dest = key_menu;
+	m_state = m_help;
+	m_entersound = true;
+	help_page = 0;
+	IN_UpdateGrabs();
+	//SCR_ModalMessage("The QSS-M webpage has been opened\nin your ^mweb browser^m\n\nMinimize QSS-M for further assistance", 3.5f); // woods
+	//SDL_OpenURL("https://qssm.quakeone.com");
+}
+
+
+
+void M_Help_Draw (void)
+{
+	M_DrawPic (0, 0, Draw_CachePic ( va("gfx/help%i.lmp", help_page)) );
+}
+
+
+void M_Help_Key (int key)
+{
+	switch (key)
+	{
+	case K_ESCAPE:
+	case K_BBUTTON:
+	case K_MOUSE4: // woods #mousemenu
+	case K_MOUSE2:
+		M_Menu_Main_f ();
+		break;
+
+	case K_UPARROW:
+	case K_RIGHTARROW:
+	case K_MWHEELDOWN: // woods #mousemenu
+	case K_MOUSE1:
+		m_entersound = true;
+		if (++help_page >= NUM_HELP_PAGES)
+			help_page = 0;
+		break;
+
+	case K_DOWNARROW:
+	case K_LEFTARROW:
+	case K_MWHEELUP: // woods #mousemenu
+		//case K_MOUSE2:
+		m_entersound = true;
+		if (--help_page < 0)
+			help_page = NUM_HELP_PAGES-1;
+		break;
+	}
+
+}
+
+/*
+==================
+Quit Menu
+==================
+*/
+
+int		msgNumber;
+enum m_state_e	m_quit_prevstate;
+qboolean	wasInMenus;
+
+void M_Menu_Quit_f (void)
+{
+	if (m_state == m_quit)
+		return;
+	wasInMenus = (key_dest == key_menu);
+	key_dest = key_menu;
+	m_quit_prevstate = m_state;
+	m_state = m_quit;
+	m_entersound = true;
+	msgNumber = rand()&7;
+
+	IN_UpdateGrabs();
+}
+
+
+void M_Quit_Key (int key)
+{
+	switch (key)
+	{
+	case K_ESCAPE:
+	case K_BBUTTON:
+		if (wasInMenus)
+		{
+			m_state = m_quit_prevstate;
+			m_entersound = true;
+		}
+		else
+		{
+			key_dest = key_game;
+			m_state = m_none;
+			IN_UpdateGrabs();
+		}
+		break;
+
+	case K_ABUTTON:
+		key_dest = key_console;
+		Host_Quit_f ();
+		break;
+
+	default:
+		break;
+	}
+}
+
+
+void M_Quit_Char (int key)
+{
+	switch (key)
+	{
+	case 'n':
+	case 'N':
+		if (wasInMenus)
+		{
+			m_state = m_quit_prevstate;
+			m_entersound = true;
+		}
+		else
+		{
+			key_dest = key_game;
+			m_state = m_none;
+			IN_UpdateGrabs();
+		}
+		break;
+
+	case 'y':
+	case 'Y':
+		key_dest = key_console;
+		Host_Quit_f ();
+		IN_UpdateGrabs();
+		break;
+
+	default:
+		break;
+	}
+
+}
+
+
+qboolean M_Quit_TextEntry (void)
+{
+	return true;
+}
+
+
+void M_Quit_Draw (void) //johnfitz -- modified for new quit message -- woods modified for match quit warning #matchquit
+{
+	char	msg1[] = "you are currently a match participant";
+	char	msg2[] = "quiting will disrupt the match"; /* msg2/msg3 are [38] at most */
+	char	msg3[] = "press y to quit";
+	int		boxlen;
+
+	if (wasInMenus)
+	{
+		m_state = m_quit_prevstate;
+		m_recursiveDraw = true;
+		M_Draw ();
+		m_state = m_quit;
+	}
+
+	//okay, this is kind of fucked up.  M_DrawTextBox will always act as if
+	//width is even. Also, the width and lines values are for the interior of the box,
+	//but the x and y values include the border.
+	boxlen = (q_max(sizeof(msg1), q_max(sizeof(msg2),sizeof(msg3))) + 1) & ~1;
+	M_DrawTextBox	(160-4*(boxlen+2), 76, boxlen, 4);
+
+	//now do the text
+	M_Print			(160-4*(sizeof(msg1)-1), 88, msg1);
+	M_Print			(160-4*(sizeof(msg2)-1), 96, msg2);
+	M_PrintWhite		(160-4*(sizeof(msg3)-1), 104, msg3);
+}
+
+/*
+==================
+LAN Config Menu
+==================
+*/
+
+int		lanConfig_cursor = -1;
+int     lanConfig_cursor_table_newgame[] = { 76, 86, 104 };
+int     lanConfig_cursor_table_newgame_ice[] = { 76, 92, 108, 124 };
+int		lanConfig_cursor_table[] = { 76, 94, 102, 108, 116, 124 }; // woods #mousemenu #bookmarksmenu
+int*	lanConfig_cursor_ptr = NULL; // Pointer to the current cursor table
+
+int     NUM_LANCONFIG_CMDS;
+#define NUM_LANCONFIG_CMDS_NEWGAME 4
+#define NUM_LANCONFIG_CMDS_JOINGAME 6
+#define LANCONFIG_CURSOR_PORT 0
+#define LANCONFIG_CURSOR_NEWGAME_ROOM 1
+#define LANCONFIG_CURSOR_NEWGAME_PROTOCOL 2
+#define LANCONFIG_CURSOR_NEWGAME_OK 3
+#define LANCONFIG_CURSOR_JOINGAME_SEARCH_LAN 1
+#define LANCONFIG_CURSOR_JOINGAME_SEARCH_WEB 2
+#define LANCONFIG_CURSOR_JOINGAME_HISTORY 3
+#define LANCONFIG_CURSOR_JOINGAME_BOOKMARKS 4
+#define LANCONFIG_CURSOR_JOINGAME_JOIN 5
+
+int 	lanConfig_port;
+char	lanConfig_portname[6];
+char	lanConfig_roomname[13];
+char	lanConfig_joinname[22];
+int     lanConfig_protocol_cursor = 0; // Track selected protocol
+static menu_textfield_t lanConfig_port_field;
+static menu_textfield_t lanConfig_room_field;
+static menu_textfield_t lanConfig_join_field;
+static char lanConfig_porthint[6];
+static char lanConfig_joinhint[22];
+static char lanConfig_join_tabpartial[22];
+
+extern int sv_protocol;
+extern unsigned int	sv_protocol_pext2;
+extern cvar_t sv_port_rtc;
+
+typedef struct {
+	int x;
+	int y;
+	int width;
+	char text[128];
+	int label_x;
+	int label_width;
+} clickable_text_t;
+
+static clickable_text_t ip_clickables[2];  // For local and external IPs
+static float copy_message_time = 0;
+static char last_copied_ip[128] = "";
+
+static qboolean addresses_cached = false;
+static qhostaddr_t cached_addresses[16];
+static int cached_numaddresses = 0;
+
+static qboolean M_LanConfig_HasIce(void)
+{
+	return !safemode && COM_CheckParm("-useice") && !COM_CheckParm("-noice");
+}
+
+static qboolean M_LanConfig_ShowRoomField(void)
+{
+	return StartingGame && M_LanConfig_HasIce();
+}
+
+static int M_LanConfig_NewGameNumCommands(void)
+{
+	return M_LanConfig_ShowRoomField() ? NUM_LANCONFIG_CMDS_NEWGAME : NUM_LANCONFIG_CMDS_NEWGAME - 1;
+}
+
+static int M_LanConfig_NewGameProtocolCursor(void)
+{
+	return M_LanConfig_ShowRoomField() ? LANCONFIG_CURSOR_NEWGAME_PROTOCOL : LANCONFIG_CURSOR_NEWGAME_ROOM;
+}
+
+static int M_LanConfig_NewGameOkCursor(void)
+{
+	return M_LanConfig_ShowRoomField() ? LANCONFIG_CURSOR_NEWGAME_OK : LANCONFIG_CURSOR_NEWGAME_PROTOCOL;
+}
+
+static menu_textfield_t *M_LanConfig_GetFieldForCursor(void)
+{
+	if (lanConfig_cursor == LANCONFIG_CURSOR_PORT)
+		return &lanConfig_port_field;
+	if (M_LanConfig_ShowRoomField() && lanConfig_cursor == LANCONFIG_CURSOR_NEWGAME_ROOM)
+		return &lanConfig_room_field;
+	if (JoiningGame && lanConfig_cursor == LANCONFIG_CURSOR_JOINGAME_JOIN)
+		return &lanConfig_join_field;
+	return NULL;
+}
+
+static void M_LanConfig_ClearTextSelections(void)
+{
+	M_TextField_ClearSelection(&lanConfig_port_field);
+	M_TextField_ClearSelection(&lanConfig_room_field);
+	M_TextField_ClearSelection(&lanConfig_join_field);
+}
+
+static void M_LanConfig_UpdatePortHint(void)
+{
+	static const char default_port[] = "26000";
+	int len = (int)strlen(lanConfig_portname);
+
+	lanConfig_porthint[0] = '\0';
+
+	if (!q_strncasecmp(default_port, lanConfig_portname, len))
+		q_strlcpy(lanConfig_porthint, default_port + len, sizeof(lanConfig_porthint));
+}
+
+static void M_LanConfig_UpdateJoinHint(void)
+{
+	filelist_item_t *item;
+	int len = (int)strlen(lanConfig_joinname);
+
+	lanConfig_joinhint[0] = '\0';
+
+	if (len <= 0)
+		return;
+
+	for (item = serverlist; item; item = item->next)
+	{
+		if (!q_strncasecmp(item->name, lanConfig_joinname, len))
+		{
+			q_strlcpy(lanConfig_joinhint, item->name + len, sizeof(lanConfig_joinhint));
+			return;
+		}
+	}
+}
+
+static qboolean M_LanConfig_AcceptPortHint(void)
+{
+	if (!lanConfig_porthint[0])
+		return false;
+
+	if (lanConfig_port_field.cursor != (int)strlen(lanConfig_portname))
+		return false;
+
+	q_strlcat(lanConfig_portname, lanConfig_porthint, sizeof(lanConfig_portname));
+	lanConfig_port_field.cursor = (int)strlen(lanConfig_portname);
+	lanConfig_port_field.sel_start = -1;
+	M_TextField_ClampCursor(&lanConfig_port_field);
+	M_LanConfig_UpdatePortHint();
+	return true;
+}
+
+static void M_LanConfig_UpdateHints(void)
+{
+	M_LanConfig_UpdatePortHint();
+	M_LanConfig_UpdateJoinHint();
+}
+
+static void M_LanConfig_NormalizeRoomField(void)
+{
+	int len;
+
+	if (!lanConfig_roomname[0] || lanConfig_roomname[0] == '/')
+		return;
+
+	len = (int)strlen(lanConfig_roomname);
+	if (len >= (int)sizeof(lanConfig_roomname) - 1)
+		len = (int)sizeof(lanConfig_roomname) - 2;
+
+	memmove(lanConfig_roomname + 1, lanConfig_roomname, len + 1);
+	lanConfig_roomname[0] = '/';
+	lanConfig_roomname[len + 1] = '\0';
+
+	lanConfig_room_field.cursor++;
+	if (lanConfig_room_field.sel_start >= 0)
+		lanConfig_room_field.sel_start++;
+	M_TextField_ClampCursor(&lanConfig_room_field);
+}
+
+static void M_LanConfig_SyncRoomField(void)
+{
+	if (!M_LanConfig_HasIce())
+		return;
+
+	Cvar_Set(sv_port_rtc.name, lanConfig_roomname);
+}
+
+void SetProtocol(int protocol_cursor)
+{
+	if (protocol_cursor < 3)
+	{
+		// Set base protocols (no FTE extensions)
+		switch (protocol_cursor)
+		{
+		case 0: Cbuf_AddText("sv_protocol Base-15\n"); break; // PROTOCOL_NETQUAKE
+		case 1: Cbuf_AddText("sv_protocol Base-666\n"); break; // PROTOCOL_FITZQUAKE
+		case 2: Cbuf_AddText("sv_protocol Base-999\n"); break; // PROTOCOL_RMQ
+		}
+	}
+	else
+	{
+		// Set FTE+ protocols (with extensions)
+		switch (protocol_cursor - 3) // Adjust cursor for FTE+ options
+		{
+		case 0: Cbuf_AddText("sv_protocol FTE+15\n"); break; // PROTOCOL_NETQUAKE with FTE extensions
+		case 1: Cbuf_AddText("sv_protocol FTE+666\n"); break; // PROTOCOL_FITZQUAKE with FTE extensions
+		case 2: Cbuf_AddText("sv_protocol FTE+999\n"); break; // PROTOCOL_RMQ with FTE extensions
+		}
+	}
+}
+
+const char* GetProtocolDescription(int protocol_cursor)
+{
+	if (protocol_cursor < 3)
+	{
+		// Base protocols (no FTE extensions)
+		switch (protocol_cursor)
+		{
+		case 0: return "15 (netquake)";
+		case 1: return "666 (fitzquake)";
+		case 2: return "999 (rmq)";
+		default: return "Unknown";
+		}
+	}
+	else
+	{
+		// FTE+ protocols (with extensions)
+		switch (protocol_cursor - 3) // Adjust cursor for FTE+ options
+		{
+		case 0: return "FTE+15 (netquake+pext)";
+		case 1: return "FTE+666 (fitzquake+pext)";
+		case 2: return "FTE+999 (rmq+pext)";
+		default: return "Unknown";
+		}
+	}
+}
+
+void M_Menu_LanConfig_f (void)
+{
+	key_dest = key_menu;
+	m_state = m_lanconfig;
+	m_entersound = true;
+	
+	addresses_cached = false;
+
+	if (StartingGame)
+	{
+		// Use New Game configuration
+		lanConfig_cursor_ptr = M_LanConfig_ShowRoomField() ? lanConfig_cursor_table_newgame_ice : lanConfig_cursor_table_newgame;
+		NUM_LANCONFIG_CMDS = M_LanConfig_NewGameNumCommands();
+		// Map sv_protocol to corresponding protocol cursor
+		switch (sv_protocol)
+		{
+		case 15:
+			lanConfig_protocol_cursor = 0; // PROTOCOL_NETQUAKE
+			break;
+		case 666:
+			lanConfig_protocol_cursor = 1; // PROTOCOL_FITZQUAKE
+			break;
+		case 999:
+			lanConfig_protocol_cursor = 2; // PROTOCOL_RMQ
+			break;
+		default:
+			lanConfig_protocol_cursor = 0; // Default to base protocol if unknown
+			break;
+		}
+
+		// If FTE extensions are enabled, shift by 5 to reflect FTE+ versions
+		if (sv_protocol_pext2)
+		{
+			lanConfig_protocol_cursor += 3; // Shift to FTE+ versions
+		}
+	}
+	else
+	{
+		// Use Join Game configuration
+		lanConfig_cursor_ptr = lanConfig_cursor_table;
+		NUM_LANCONFIG_CMDS = NUM_LANCONFIG_CMDS_JOINGAME;
+	}
+
+	if (lanConfig_cursor == -1)
+	{
+		if (StartingGame)
+			lanConfig_cursor = M_LanConfig_NewGameProtocolCursor();
+		else if (JoiningGame && TCPIPConfig)
+			lanConfig_cursor = LANCONFIG_CURSOR_JOINGAME_SEARCH_WEB;
+		else
+			lanConfig_cursor = LANCONFIG_CURSOR_JOINGAME_SEARCH_LAN;
+	}
+	if (StartingGame && lanConfig_cursor >= NUM_LANCONFIG_CMDS)
+		lanConfig_cursor = M_LanConfig_NewGameProtocolCursor();
+	lanConfig_port = DEFAULTnet_hostport;
+	sprintf(lanConfig_portname, "%u", lanConfig_port);
+	q_strlcpy(lanConfig_roomname, sv_port_rtc.string, sizeof(lanConfig_roomname));
+	M_TextField_Init(&lanConfig_port_field, lanConfig_portname, 5, true);
+	M_TextField_Init(&lanConfig_room_field, lanConfig_roomname, sizeof(lanConfig_roomname) - 1, false);
+	M_TextField_Init(&lanConfig_join_field, lanConfig_joinname, 21, false);
+	lanConfig_join_tabpartial[0] = '\0';
+	M_LanConfig_NormalizeRoomField();
+	M_LanConfig_SyncRoomField();
+	M_LanConfig_UpdateHints();
+
+	m_return_onerror = false;
+	m_return_reason[0] = 0;
+	IN_UpdateGrabs();
+}
+
+static qboolean ip_temporarily_visible[2] = { false, false };
+static float ip_visibility_timeout[2] = { 0, 0 };
+#define IP_VISIBILITY_DURATION 3.0f  // Show IP for 3 seconds after clicking
+
+void M_LanConfig_CheckTimeouts(void)
+{
+	// Check for timeout on temporarily visible IPs
+	for (int i = 0; i < 2; i++) {
+		if (ip_temporarily_visible[i] && realtime > ip_visibility_timeout[i]) {
+			ip_temporarily_visible[i] = false;
+		}
+	}
+}
+
+void M_LanConfig_Draw (void)
+{
+	M_LanConfig_CheckTimeouts(); // woods #contentfilter
+	M_TextField_CheckMouseRelease();
+	
+	qpic_t	*p;
+	int		basex;
+	int		y;
+	const char	*startJoin;
+	//const char	*protocol;
+
+	M_DrawTransPic (16, 4, Draw_CachePic ("gfx/qplaque.lmp") );
+	p = Draw_CachePic ("gfx/p_multi.lmp");
+	basex = (320-p->width)/2;
+	M_DrawPic (basex, 4, p);
+
+	basex = 72; /* Arcane Dimensions has an oversized gfx/p_multi.lmp */
+
+	if (StartingGame)
+		startJoin = "New Game";
+	else
+		startJoin = "Join Game";
+
+	M_PrintWhite (basex, 32, va ("%s", startJoin));
+	basex += 0;
+
+	y = 52;
+	M_Print(basex, y, "Address:");
+	const int address_x = basex + (9 * 8);
+
+	if (!addresses_cached) {
+		cached_numaddresses = NET_ListAddresses(cached_addresses, sizeof(cached_addresses) / sizeof(cached_addresses[0]));
+		addresses_cached = true;
+	}
+
+	if (!cached_numaddresses)
+	{
+		M_Print(address_x, y, "NONE KNOWN");
+		y += 8;
+	}
+	else
+	{
+		// Store clickable areas for IPs and their labels
+		// Local IP
+		ip_clickables[0].label_x = address_x;
+		ip_clickables[0].label_width = 7 * 8;
+		ip_clickables[0].x = address_x + 7 * 8;
+		ip_clickables[0].y = y;
+		ip_clickables[0].width = strlen(cached_addresses[0]) * 8;
+		strncpy(ip_clickables[0].text, cached_addresses[0], sizeof(ip_clickables[0].text));
+
+		if (cl_contentfilter.value && !ip_temporarily_visible[0]) // woods #contentfilter
+		{
+			M_Print(address_x, y, "local: click to view");
+			ip_clickables[0].width = 13 * 8; // Width of "click to view" text
+		}
+		else 
+		{
+		M_Print(address_x, y, va("local: %s", cached_addresses[0]));
+		}
+		y += 8;
+
+		// External IP
+		ip_clickables[1].label_x = address_x;
+		ip_clickables[1].label_width = 7 * 8;
+		ip_clickables[1].x = address_x + 7 * 8;
+		ip_clickables[1].y = y;
+		ip_clickables[1].width = strlen(my_public_ip) * 8;
+		strncpy(ip_clickables[1].text, my_public_ip, sizeof(ip_clickables[1].text));
+
+		if (cl_contentfilter.value && !ip_temporarily_visible[1]) // woods #contentfilter
+		{
+			M_Print(address_x, y, "ext:   click to view");
+			ip_clickables[1].width = 13 * 8; // Width of "click to view" text
+		}
+		else 
+		{
+		M_Print(address_x, y, va("ext:   %s", my_public_ip));
+		}
+		y += 8;
+	}
+
+	y+=8;	//for the port's box
+	M_Print (basex, y, "Port:");
+	M_DrawTextBox (basex+8*10, y-8, 6, 1);
+	M_TextField_DrawHighlight(&lanConfig_port_field, basex + 9 * 10, y);
+	M_Print (basex+9*10, y, lanConfig_portname);
+	if (lanConfig_cursor == LANCONFIG_CURSOR_PORT &&
+		lanConfig_porthint[0] &&
+		lanConfig_port_field.cursor == (int)strlen(lanConfig_portname))
+	{
+		int hint_x = basex + 9 * 10 + (int)strlen(lanConfig_portname) * 8;
+		M_PrintRGBA(hint_x, y, lanConfig_porthint, CL_PLColours_Parse("0xffffff"), 0.5f, true);
+	}
+	if (lanConfig_cursor == LANCONFIG_CURSOR_PORT)
+	{
+		M_TextField_DrawCursor(&lanConfig_port_field, basex + 9 * 10, y);
+		M_DrawCharacter (basex-10, y, 12+((int)(realtime*4)&1));
+	}
+	y += 8;
+
+	if (StartingGame)
+	{
+		y += 8;
+		if (M_LanConfig_ShowRoomField())
+		{
+			M_Print(basex, y, "Room:");
+			M_DrawTextBox(basex + 8 * 10, y - 8, 14, 1);
+			if (lanConfig_cursor == LANCONFIG_CURSOR_NEWGAME_ROOM)
+			{
+				M_TextField_DrawHighlight(&lanConfig_room_field, basex + 9 * 10, y);
+				M_Print(basex + 9 * 10, y, lanConfig_roomname);
+				M_TextField_DrawCursor(&lanConfig_room_field, basex + 9 * 10, y);
+				M_DrawCharacter(basex - 8, y, 12 + ((int)(realtime * 4) & 1));
+			}
+			else if (!lanConfig_roomname[0])
+			{
+				M_PrintRGBA(basex + 9 * 10, y, "<DISABLED>", CL_PLColours_Parse("0xffffff"), 0.5f, true);
+			}
+			else if (!strcmp(lanConfig_roomname, "/"))
+			{
+				M_PrintRGBA(basex + 9 * 10, y, "<AUTO>", CL_PLColours_Parse("0xffffff"), 0.5f, true);
+			}
+			else
+			{
+				M_Print(basex + 9 * 10, y, lanConfig_roomname);
+			}
+
+			y += 16;
+		}
+
+		M_Print(basex, y, "Protocol:");
+
+
+		// Get the protocol description based on the current cursor value
+		const char* protocolDescription = GetProtocolDescription(lanConfig_protocol_cursor);
+
+		// Print the protocol description
+		M_Print(basex + 9 * 9 + 1, y, protocolDescription);
+
+		if (lanConfig_cursor == M_LanConfig_NewGameProtocolCursor())
+		{
+			M_DrawCharacter(basex - 8, y, 12 + ((int)(realtime * 4) & 1));
+		}
+
+		y += 16;
+	}
+
+	if (JoiningGame)
+	{
+		y += 8;
+		
+		M_Print (basex, y, "Search for local games...");
+		if (lanConfig_cursor == LANCONFIG_CURSOR_JOINGAME_SEARCH_LAN)
+			M_DrawCharacter (basex-8, y, 12+((int)(realtime*4)&1));
+		y+=8;
+
+		M_Print (basex, y, "Search for public games...");
+		if (lanConfig_cursor == LANCONFIG_CURSOR_JOINGAME_SEARCH_WEB)
+			M_DrawCharacter (basex-8, y, 12+((int)(realtime*4)&1));
+		y+=8;
+
+		M_Print(basex, y, "History"); // woods #historymenu
+		if (lanConfig_cursor == LANCONFIG_CURSOR_JOINGAME_HISTORY)
+			M_DrawCharacter(basex - 8, y, 12 + ((int)(realtime * 4) & 1));
+		y += 8;
+
+		M_Print(basex, y, "Bookmarks"); // woods #bookmarksmenu
+		if (lanConfig_cursor == LANCONFIG_CURSOR_JOINGAME_BOOKMARKS)
+			M_DrawCharacter(basex - 8, y, 12 + ((int)(realtime * 4) & 1));
+		y += 8;
+
+		M_Print (basex, y, "Join game at:");
+		y+=24;
+			M_DrawTextBox (basex+8, y-8, 22, 1);
+			M_TextField_DrawHighlight(&lanConfig_join_field, basex + 16, y);
+			M_Print (basex+16, y, lanConfig_joinname);
+			if (lanConfig_cursor == LANCONFIG_CURSOR_JOINGAME_JOIN &&
+				lanConfig_joinhint[0] &&
+				lanConfig_join_field.cursor == (int)strlen(lanConfig_joinname))
+			{
+				int hint_x = basex + 16 + (int)strlen(lanConfig_joinname) * 8;
+				M_PrintRGBA(hint_x, y, lanConfig_joinhint, CL_PLColours_Parse("0xffffff"), 0.5f, true);
+			}
+			if (lanConfig_cursor == LANCONFIG_CURSOR_JOINGAME_JOIN) // woods #historymenu #bookmarksmenu
+			{
+				M_TextField_DrawCursor(&lanConfig_join_field, basex + 16, y);
+				M_DrawCharacter (basex-8, y, 12+((int)(realtime*4)&1));
+			}
+			y += 16;
+	}
+	else
+	{
+		M_DrawTextBox (basex, y-8, 2, 1);
+		M_Print (basex+8, y, "OK");
+		if (lanConfig_cursor == M_LanConfig_NewGameOkCursor())
+			M_DrawCharacter (basex-8, y, 12+((int)(realtime*4)&1));
+		y += 16;
+	}
+
+	if (realtime < copy_message_time)
+	{
+		char copy_message[256];
+		snprintf(copy_message, sizeof(copy_message), "copied %s", last_copied_ip);
+		M_PrintRGBA(basex, y + 8, copy_message, CL_PLColours_Parse("0xffffff"), 0.5f, false);
+	}
+
+	if (*m_return_reason)
+		M_PrintWhite(basex, y, m_return_reason);
+}
+
+void M_LanConfig_Key (int key)
+{
+	int		l;
+	menu_textfield_t *active_field;
+
+	if (key == K_MOUSE1)
+	{
+		// Check if click was on either IP address or their labels
+		for (int i = 0; i < 2; i++)
+		{
+			if ((m_mousex >= ip_clickables[i].x &&
+				m_mousex <= ip_clickables[i].x + ip_clickables[i].width &&
+				m_mousey >= ip_clickables[i].y &&
+				m_mousey <= ip_clickables[i].y + 8) ||
+				(m_mousex >= ip_clickables[i].label_x &&
+					m_mousex <= ip_clickables[i].label_x + ip_clickables[i].label_width &&
+					m_mousey >= ip_clickables[i].y &&
+					m_mousey <= ip_clickables[i].y + 8))
+			{
+				if (cl_contentfilter.value)
+				{
+					if (!ip_temporarily_visible[i])
+					{
+						// If IP is not visible, make it visible
+						ip_temporarily_visible[i] = true;
+						ip_visibility_timeout[i] = realtime + IP_VISIBILITY_DURATION;
+						S_LocalSound("misc/menu1.wav");
+					}
+					else 
+					{
+				SDL_SetClipboardText(ip_clickables[i].text);
+				strcpy(last_copied_ip, ip_clickables[i].text);
+				copy_message_time = realtime + 1.0;
+				const char* soundFile = COM_FileExists("sound/qssm/copy.wav", NULL) ? "qssm/copy.wav" : "player/tornoff2.wav";
+				S_LocalSound(soundFile);
+					}
+				}
+				else 
+				{
+					SDL_SetClipboardText(ip_clickables[i].text);
+					strcpy(last_copied_ip, ip_clickables[i].text);
+					copy_message_time = realtime + 1.0;
+					const char* soundFile = COM_FileExists("sound/qssm/copy.wav", NULL) ? "qssm/copy.wav" : "player/tornoff2.wav";
+					S_LocalSound(soundFile);
+				}
+				return;
+			}
+		}
+	}
+
+	active_field = M_LanConfig_GetFieldForCursor();
+	if (active_field && M_TextField_Key(active_field, key))
+	{
+		if (active_field == &lanConfig_join_field)
+			lanConfig_join_tabpartial[0] = '\0';
+		goto finish;
+	}
+
+	switch (key)
+	{
+	case K_ESCAPE:
+	case K_BBUTTON:
+	case K_MOUSE4: // woods #mousemenu
+	case K_MOUSE2:
+		M_Menu_MultiPlayer_f (); // woods #skipipx
+		break;
+
+	case K_UPARROW:
+		S_LocalSound("misc/menu1.wav");
+		M_LanConfig_ClearTextSelections();
+		lanConfig_cursor--;
+
+		if (StartingGame) {
+			if (lanConfig_cursor < 0) {
+				lanConfig_cursor = NUM_LANCONFIG_CMDS - 1;
+			}
+		}
+		else {
+			if (lanConfig_cursor < 0) {
+				lanConfig_cursor = NUM_LANCONFIG_CMDS_JOINGAME - 1;
+			}
+		}
+		break;
+
+	case K_DOWNARROW:
+		S_LocalSound("misc/menu1.wav");
+		M_LanConfig_ClearTextSelections();
+		lanConfig_cursor++;
+
+		if (StartingGame) {
+			if (lanConfig_cursor >= NUM_LANCONFIG_CMDS) {
+				lanConfig_cursor = 0;
+			}
+		}
+		else {
+			if (lanConfig_cursor >= NUM_LANCONFIG_CMDS_JOINGAME) {
+				lanConfig_cursor = 0;
+			}
+		}
+		break;
+
+	case K_MWHEELUP:
+	case K_LEFTARROW:
+		if (StartingGame && lanConfig_cursor == M_LanConfig_NewGameProtocolCursor())
+		{
+			S_LocalSound("misc/menu1.wav");
+			lanConfig_protocol_cursor--;
+			if (lanConfig_protocol_cursor < 0)
+				lanConfig_protocol_cursor = 5; // Wrap around to the last protocol
+
+			SetProtocol(lanConfig_protocol_cursor);
+		}
+		break;
+
+	case K_MWHEELDOWN:
+	case K_RIGHTARROW:
+		if (StartingGame && lanConfig_cursor == M_LanConfig_NewGameProtocolCursor())
+		{
+			S_LocalSound("misc/menu1.wav");
+			lanConfig_protocol_cursor++;
+			if (lanConfig_protocol_cursor > 5)
+				lanConfig_protocol_cursor = 0; // Wrap around to the first protocol
+
+			SetProtocol(lanConfig_protocol_cursor);
+		}
+		break;
+
+	case K_TAB:
+		if (lanConfig_cursor == LANCONFIG_CURSOR_PORT)
+		{
+			if (M_LanConfig_AcceptPortHint())
+				S_LocalSound("misc/menu2.wav");
+			goto finish;
+		}
+		if (JoiningGame && lanConfig_cursor == LANCONFIG_CURSOR_JOINGAME_JOIN)
+		{
+			if (M_Menu_TabCompleteFileList(&lanConfig_join_field, lanConfig_joinname,
+				sizeof(lanConfig_joinname), serverlist,
+				lanConfig_join_tabpartial, sizeof(lanConfig_join_tabpartial)))
+				S_LocalSound("misc/menu2.wav");
+			goto finish;
+		}
+		break;
+
+	case K_ENTER:
+	case K_KP_ENTER:
+	case K_ABUTTON:
+	case K_MOUSE1: // woods #mousemenu
+		if (key == K_MOUSE1 && lanConfig_cursor == LANCONFIG_CURSOR_PORT)
+		{
+			M_TextField_MouseClick(&lanConfig_port_field, m_mousex, 170);
+			goto finish;
+		}
+		if (key == K_MOUSE1 && M_LanConfig_ShowRoomField() && lanConfig_cursor == LANCONFIG_CURSOR_NEWGAME_ROOM)
+		{
+			M_TextField_MouseClick(&lanConfig_room_field, m_mousex, 170);
+			goto finish;
+		}
+		if (key == K_MOUSE1 && JoiningGame && lanConfig_cursor == LANCONFIG_CURSOR_JOINGAME_JOIN)
+		{
+			lanConfig_join_tabpartial[0] = '\0';
+			M_TextField_MouseClick(&lanConfig_join_field, m_mousex, 96);
+			goto finish;
+		}
+
+		if (lanConfig_cursor == LANCONFIG_CURSOR_PORT ||
+			(M_LanConfig_ShowRoomField() && lanConfig_cursor == LANCONFIG_CURSOR_NEWGAME_ROOM))
+			break;
+
+		m_entersound = true;
+
+		M_ConfigureNetSubsystem ();
+
+		if (StartingGame)
+		{
+
+			if (lanConfig_cursor == M_LanConfig_NewGameProtocolCursor())
+			{
+				S_LocalSound("misc/menu1.wav");
+				lanConfig_protocol_cursor++;
+				if (lanConfig_protocol_cursor > 9)
+					lanConfig_protocol_cursor = 0; // Wrap around to the first protocol
+
+				SetProtocol(lanConfig_protocol_cursor);
+			}
+			if (lanConfig_cursor == M_LanConfig_NewGameOkCursor())
+				M_Menu_GameOptions_f();
+		}
+		else
+		{
+			if (lanConfig_cursor == LANCONFIG_CURSOR_JOINGAME_SEARCH_LAN)
+				M_Menu_Search_f(SLIST_LAN); // woods #localmpfix
+			else if (lanConfig_cursor == LANCONFIG_CURSOR_JOINGAME_SEARCH_WEB)
+				M_Menu_Search_f(SLIST_INTERNET);
+			else if (lanConfig_cursor == LANCONFIG_CURSOR_JOINGAME_HISTORY) // woods #historymenu
+				M_Menu_History_f ();
+			else if (lanConfig_cursor == LANCONFIG_CURSOR_JOINGAME_BOOKMARKS) // woods #bookmarksmenu
+				M_Menu_Bookmarks_f();
+			else if (lanConfig_cursor == LANCONFIG_CURSOR_JOINGAME_JOIN)
+			{
+					m_return_state = m_state;
+					m_return_onerror = true;
+					key_dest = key_game;
+					m_state = m_none;
+					IN_UpdateGrabs();
+					CL_MarkNextConnectFromMenu();
+					Cbuf_AddText ( va ("connect \"%s\"\n", lanConfig_joinname) );
+				}
+			}
+
+			break;
+	}
+
+finish:
+	M_LanConfig_NormalizeRoomField();
+	M_LanConfig_SyncRoomField();
+
+	if (!(JoiningGame && lanConfig_cursor == LANCONFIG_CURSOR_JOINGAME_JOIN))
+		lanConfig_join_tabpartial[0] = '\0';
+
+	if (StartingGame && lanConfig_cursor >= NUM_LANCONFIG_CMDS)
+	{
+		if (key == K_UPARROW)
+			lanConfig_cursor = M_LanConfig_NewGameProtocolCursor();
+		else
+			lanConfig_cursor = LANCONFIG_CURSOR_PORT;
+	}
+
+	l =  Q_atoi(lanConfig_portname);
+	if (lanConfig_portname[0])
+	{
+		if (l <= 65535)
+			lanConfig_port = l;
+		else if (lanConfig_cursor != LANCONFIG_CURSOR_PORT)
+			sprintf(lanConfig_portname, "%u", lanConfig_port);
+	}
+	M_TextField_ClampCursor(&lanConfig_port_field);
+	M_TextField_ClampCursor(&lanConfig_room_field);
+	M_TextField_ClampCursor(&lanConfig_join_field);
+	M_LanConfig_UpdateHints();
+}
+
+
+void M_LanConfig_Char (int key)
+{
+	menu_textfield_t *active_field = M_LanConfig_GetFieldForCursor();
+	if (active_field)
+	{
+		if (M_TextField_Char(active_field, key))
+		{
+			if (active_field == &lanConfig_port_field)
+				M_LanConfig_UpdatePortHint();
+			else if (active_field == &lanConfig_room_field)
+			{
+				M_LanConfig_NormalizeRoomField();
+				M_LanConfig_SyncRoomField();
+			}
+			else if (active_field == &lanConfig_join_field)
+			{
+				lanConfig_join_tabpartial[0] = '\0';
+				M_LanConfig_UpdateJoinHint();
+			}
+		}
+	}
+}
+
+/*
+==================
+History Menu
+==================
+*/
+
+#define MAX_VIS_HISTORY	17
+
+typedef struct
+{
+	const char* name;
+	qboolean	active;
+} historyitem_t;
+
+static struct
+{
+	menulist_t			list;
+	enum m_state_e		prev;
+	int					x, y, cols;
+	int					democount;
+	int					prev_cursor;
+	menuticker_t		ticker;
+	historyitem_t* items;
+	qboolean			scrollbar_grab;
+} historymenu;
+
+static qboolean M_History_IsActive(const char* server)
+{
+	return cls.state == ca_connected && cls.signon == SIGNONS && !strcmp(lastmphost, server);
+}
+
+static void M_History_Add(const char* name)
+{
+	historyitem_t history;
+		history.name = name;
+		history.active = M_History_IsActive(name);
+
+		if (history.active && historymenu.list.cursor == -1)
+			historymenu.list.cursor = historymenu.list.numitems;
+
+		// Ensure there's enough space for one more item
+		VEC_PUSH(historymenu.items, history);
+
+		historymenu.items[historymenu.list.numitems] = history;
+		historymenu.list.numitems++;
+}
+
+static void M_History_Init(void)
+{
+	filelist_item_t* item;
+
+	historymenu.list.viewsize = MAX_VIS_HISTORY;
+	historymenu.list.cursor = -1;
+	historymenu.list.scroll = 0;
+	historymenu.list.numitems = 0;
+	historymenu.democount = 0;
+	historymenu.scrollbar_grab = false;
+	VEC_CLEAR(historymenu.items);
+
+	M_Ticker_Init(&historymenu.ticker);
+
+	for (item = serverlist; item; item = item->next)
+		M_History_Add(item->name);
+
+	if (historymenu.list.cursor == -1)
+		historymenu.list.cursor = 0;
+
+	M_List_CenterCursor(&historymenu.list);
+}
+
+void M_Menu_History_f(void)
+{
+	key_dest = key_menu;
+	historymenu.prev = m_state;
+	m_state = m_history;
+	m_entersound = true;
+	M_History_Init();
+}
+
+void M_History_Draw(void)
+{
+	int x, y, i, cols;
+	int firstvis, numvis;
+
+	x = 16;
+	y = 32;
+	cols = 36;
+
+	historymenu.x = x;
+	historymenu.y = y;
+	historymenu.cols = cols;
+
+	if (!keydown[K_MOUSE1]) // woods #mousemenu
+		historymenu.scrollbar_grab = false;
+
+	if (historymenu.prev_cursor != historymenu.list.cursor)
+	{
+		historymenu.prev_cursor = historymenu.list.cursor;
+		M_Ticker_Init(&historymenu.ticker);
+	}
+	else
+		M_Ticker_Update(&historymenu.ticker);
+
+	Draw_String(x, y - 28, "History");
+	M_DrawQuakeBar(x - 8, y - 16, cols + 2);
+
+	M_List_GetVisibleRange(&historymenu.list, &firstvis, &numvis);
+	for (i = 0; i < numvis; i++)
+	{
+		int idx = i + firstvis;
+		qboolean selected = (idx == historymenu.list.cursor);
+
+		historyitem_t history;
+		history.active = false;
+
+		const char* lastmphostWithoutPort = COM_StripPort(lastmphost);
+		const char* HistoryEntryWithoutPort = COM_StripPort(historymenu.items[idx].name);
+		const char* ResolvedLastmphostWithoutPort = COM_StripPort(ResolveHostname(lastmphost));
+
+		char portStr[10];
+		q_snprintf(portStr, sizeof(portStr), "%d", DEFAULTnet_hostport);
+
+		if (cls.state == ca_connected && lanConfig_port == DEFAULTnet_hostport) // highlight if connected to a server in the list
+		{
+			qboolean hasNonStandardPort = (strstr(lastmphost, ":") && !strstr(lastmphost, portStr)) ||
+				(strstr(historymenu.items[idx].name, ":") && !strstr(historymenu.items[idx].name, portStr));
+			
+			if (hasNonStandardPort) // ports > 26000
+			{
+				if (!strcmp(historymenu.items[idx].name, lastmphost)) // exact match
+					history.active = true;
+
+				if (!strcmp(historymenu.items[idx].name, ResolveHostname(lastmphost))) // exact match but convert name to ip
+					history.active = true;
+			}
+			else
+			{
+				if (!strcmp(HistoryEntryWithoutPort, lastmphostWithoutPort)) // treat 26000 and blank portthe same
+					history.active = true;
+
+				if (!strcmp(HistoryEntryWithoutPort, ResolvedLastmphostWithoutPort)) // convert name to ip
+					history.active = true;
+			}
+		}
+		else
+			history.active = false;
+
+		M_PrintScroll(x, y + i * 8, (cols - 2) * 8, historymenu.items[idx].name, selected ? historymenu.ticker.scroll_time : 0.0, !history.active);
+
+		if (selected)
+			M_DrawCharacter(x - 8, y + i * 8, 12 + ((int)(realtime * 4) & 1));
+
+		if (lastmphostWithoutPort) free((void*)lastmphostWithoutPort);
+		if (HistoryEntryWithoutPort) free((void*)HistoryEntryWithoutPort);
+		if (ResolvedLastmphostWithoutPort) free((void*)ResolvedLastmphostWithoutPort);
+
+	}
+
+	if (M_List_GetOverflow(&historymenu.list) > 0)
+	{
+		M_List_DrawScrollbar(&historymenu.list, x + cols * 8 - 8, y);
+
+		if (historymenu.list.scroll > 0)
+			M_DrawEllipsisBar(x, y - 8, cols);
+		if (historymenu.list.scroll + historymenu.list.viewsize < historymenu.list.numitems)
+			M_DrawEllipsisBar(x, y + historymenu.list.viewsize * 8, cols);
+	}
+	M_PrintWhite(x, y + 2 + historymenu.list.viewsize * 8 + 10, "ctrl+backspace: delete");
+}
+
+qboolean M_History_Match(int index, char initial)
+{
+	return q_tolower(historymenu.items[index].name[0]) == initial;
+}
+
+void M_History_Key(int key)
+{
+	int x, y; // woods #mousemenu
+
+	if (historymenu.scrollbar_grab)
+	{
+		switch (key)
+		{
+		case K_ESCAPE:
+		case K_BBUTTON:
+		case K_MOUSE4:
+		case K_MOUSE2:
+			historymenu.scrollbar_grab = false;
+			break;
+		}
+		return;
+	}
+
+	if (M_List_Key(&historymenu.list, key))
+		return;
+
+	if (M_List_CycleMatch(&historymenu.list, key, M_History_Match))
+		return;
+
+	if (M_Ticker_Key(&historymenu.ticker, key))
+		return;
+
+	switch (key)
+	{
+	case K_ESCAPE:
+	case K_BBUTTON:
+	case K_MOUSE4: // woods #mousemenu
+	case K_MOUSE2:
+		M_Menu_LanConfig_f();
+		break;
+
+	case K_ENTER:
+	case K_KP_ENTER:
+	case K_ABUTTON:
+	enter:
+		m_return_state = m_state;
+		m_return_onerror = true;
+		key_dest = key_game;
+		m_state = m_none;
+		IN_UpdateGrabs();
+		CL_MarkNextConnectFromMenu();
+		Cbuf_AddText(va("connect \"%s\"\n", historymenu.items[historymenu.list.cursor].name));
+		break;
+
+	case K_MOUSE1: // woods #mousemenu
+		x = m_mousex - historymenu.x - (historymenu.cols - 1) * 8;
+		y = m_mousey - historymenu.y;
+		if (x < -8 || !M_List_UseScrollbar(&historymenu.list, y))
+			goto enter;
+		historymenu.scrollbar_grab = true;
+		M_History_Mousemove(m_mousex, m_mousey);
+		break;
+
+	case K_BACKSPACE:
+		if (historymenu.items != NULL && keydown[K_CTRL])
+		{
+			FileList_Subtract(historymenu.items[historymenu.list.cursor].name, &serverlist);
+			Write_List(serverlist, SERVERLIST);
+			M_Menu_History_f();
+		}
+		break;
+
+	default:
+		break;
+	}
+}
+
+void M_History_Mousemove(int cx, int cy) // woods #mousemenu
+{
+	cy -= historymenu.y;
+
+	if (historymenu.scrollbar_grab)
+	{
+		if (!keydown[K_MOUSE1])
+		{
+			historymenu.scrollbar_grab = false;
+			return;
+		}
+		M_List_UseScrollbar(&historymenu.list, cy);
+		// Note: no return, we also update the cursor
+	}
+
+	M_List_Mousemove(&historymenu.list, cy);
+}
+
+/*
+==================
+Bookmarks Menu
+==================
+*/
+
+#define MAX_VIS_BOOKMARKS	16
+
+void FileList_Add(const char* name, const char* data, filelist_item_t** list);
+
+static qboolean bookmarks_edit_new = false;
+static qboolean bookmarks_edit_shortcut = false;
+
+typedef struct
+{
+	const char* name;
+	char		alias[BOOKMARK_ALIAS_LENGTH];
+	qboolean	active;
+	qboolean	pinned;
+} bookmarksitem_t;
+
+static struct
+{
+	menulist_t			list;
+	enum m_state_e		prev;
+	int					x, y, cols;
+	int					democount;
+	int					prev_cursor;
+	menuticker_t		ticker;
+	bookmarksitem_t* items;
+	qboolean			scrollbar_grab;
+} bookmarksmenu;
+
+static qboolean M_Bookmarks_IsActive(const char* server)
+{
+	return cls.state == ca_connected && cls.signon == SIGNONS && !strcmp(lastmphost, server);
+}
+
+static void M_Bookmarks_Add(const char* name, const char* data)
+{
+	bookmarksitem_t bookmarks;
+	bookmarks.name = name;
+	BookmarkData_Parse(data, bookmarks.alias, sizeof(bookmarks.alias), &bookmarks.pinned);
+
+	if (!bookmarks.alias[0])
+		return;
+
+	bookmarks.active = M_Bookmarks_IsActive(name);
+
+	if (bookmarks.active && bookmarksmenu.list.cursor == -1)
+		bookmarksmenu.list.cursor = bookmarksmenu.list.numitems;
+
+	// Ensure there's enough space for one more item
+	VEC_PUSH(bookmarksmenu.items, bookmarks);
+
+	bookmarksmenu.items[bookmarksmenu.list.numitems] = bookmarks;
+	bookmarksmenu.list.numitems++;
+}
+
+int BookmarkCompare(const void* a, const void* b)
+{
+	const bookmarksitem_t* itemA = (const bookmarksitem_t*)a;
+	const bookmarksitem_t* itemB = (const bookmarksitem_t*)b;
+	return strcmp(itemA->alias, itemB->alias);
+}
+
+static void M_Bookmarks_Init(void)
+{
+	filelist_item_t* item;
+
+	bookmarksmenu.list.viewsize = MAX_VIS_BOOKMARKS;
+	bookmarksmenu.list.cursor = -1;
+	bookmarksmenu.list.scroll = 0;
+	bookmarksmenu.list.numitems = 0;
+	bookmarksmenu.democount = 0;
+	bookmarksmenu.scrollbar_grab = false;
+	VEC_CLEAR(bookmarksmenu.items);
+
+	M_Ticker_Init(&bookmarksmenu.ticker);
+
+	for (item = bookmarkslist; item; item = item->next)
+		M_Bookmarks_Add(item->name, item->data);
+
+	qsort(bookmarksmenu.items, bookmarksmenu.list.numitems, sizeof(bookmarksitem_t), BookmarkCompare);
+
+	if (bookmarksmenu.list.cursor == -1)
+		bookmarksmenu.list.cursor = 0;
+
+	M_List_CenterCursor(&bookmarksmenu.list);
+}
+
+void M_Menu_Bookmarks_f(void)
+{
+	key_dest = key_menu;
+	bookmarksmenu.prev = m_state;
+	m_state = m_bookmarks;
+	m_entersound = true;
+	M_Bookmarks_Init();
+}
+
+void M_Bookmarks_Draw(void)
+{
+	int x, y, i, cols;
+	int firstvis, numvis;
+
+	x = 16;
+	y = 32;
+	cols = 36;
+
+	bookmarksmenu.x = x;
+	bookmarksmenu.y = y;
+	bookmarksmenu.cols = cols;
+
+	if (!keydown[K_MOUSE1]) // woods #mousemenu
+		bookmarksmenu.scrollbar_grab = false;
+
+	if (bookmarksmenu.prev_cursor != bookmarksmenu.list.cursor)
+	{
+		bookmarksmenu.prev_cursor = bookmarksmenu.list.cursor;
+		M_Ticker_Init(&bookmarksmenu.ticker);
+	}
+	else
+		M_Ticker_Update(&bookmarksmenu.ticker);
+
+	Draw_String(x, y - 28, "Bookmarks");
+	M_DrawQuakeBar(x - 8, y - 16, cols + 2);
+
+	M_List_GetVisibleRange(&bookmarksmenu.list, &firstvis, &numvis);
+	for (i = 0; i < numvis; i++)
+	{
+		int idx = i + firstvis;
+		qboolean selected = (idx == bookmarksmenu.list.cursor);
+
+		bookmarksitem_t bookmarks;
+		bookmarks.active = false;
+
+		const char* lastmphostWithoutPort = COM_StripPort(lastmphost);
+		const char* HistoryEntryWithoutPort = COM_StripPort(bookmarksmenu.items[idx].name);
+		const char* ResolvedLastmphostWithoutPort = COM_StripPort(ResolveHostname(lastmphost));
+
+		char portStr[10];
+		q_snprintf(portStr, sizeof(portStr), "%d", DEFAULTnet_hostport);
+
+		if (cls.state == ca_connected && lanConfig_port == DEFAULTnet_hostport) // highlight if connected to a server in the list
+		{
+			qboolean hasNonStandardPort = (strstr(lastmphost, ":") && !strstr(lastmphost, portStr)) ||
+				(strstr(bookmarksmenu.items[idx].name, ":") && !strstr(bookmarksmenu.items[idx].name, portStr));
+
+			if (hasNonStandardPort) // ports > 26000
+			{
+				if (!strcmp(bookmarksmenu.items[idx].name, lastmphost)) // exact match
+					bookmarks.active = true;
+
+				if (!strcmp(bookmarksmenu.items[idx].name, ResolveHostname(lastmphost))) // exact match but convert name to ip
+					bookmarks.active = true;
+			}
+			else
+			{
+				if (!strcmp(HistoryEntryWithoutPort, lastmphostWithoutPort)) // treat 26000 and blank portthe same
+					bookmarks.active = true;
+
+				if (!strcmp(HistoryEntryWithoutPort, ResolvedLastmphostWithoutPort)) // convert name to ip
+					bookmarks.active = true;
+			}
+		}
+		else
+			bookmarks.active = false;
+
+		M_PrintScroll(x, y + i * 8, (cols - 2) * 8, bookmarksmenu.items[idx].alias, selected ? bookmarksmenu.ticker.scroll_time : 0.0, !bookmarks.active);
+
+		// Show pin indicator for pinned bookmarks
+		if (bookmarksmenu.items[idx].pinned)
+		{
+			int alias_len = strlen(bookmarksmenu.items[idx].alias);
+			if (alias_len < cols - 3)
+				Draw_Character_Rotation(x + (alias_len + 1) * 8, y + i * 8, 141, 90); // Rotated arrow, same as multiplayer menu
+		}
+
+		if (selected)
+			M_DrawCharacter(x - 8, y + i * 8, 12 + ((int)(realtime * 4) & 1));
+
+		char serverStr[40];
+		q_snprintf(serverStr, sizeof(serverStr), "%-34.34s", bookmarksmenu.items[idx].name);
+
+		if (selected)
+			M_PrintWhite(x, y + bookmarksmenu.list.viewsize * 8 + 12, serverStr);
+
+		if (lastmphostWithoutPort) free((void*)lastmphostWithoutPort);
+		if (HistoryEntryWithoutPort) free((void*)HistoryEntryWithoutPort);
+		if (ResolvedLastmphostWithoutPort) free((void*)ResolvedLastmphostWithoutPort);
+
+	}
+
+	if (M_List_GetOverflow(&bookmarksmenu.list) > 0)
+	{
+		M_List_DrawScrollbar(&bookmarksmenu.list, x + cols * 8 - 8, y);
+
+		if (bookmarksmenu.list.scroll > 0)
+			M_DrawEllipsisBar(x, y - 8, cols);
+		if (bookmarksmenu.list.scroll + bookmarksmenu.list.viewsize < bookmarksmenu.list.numitems)
+			M_DrawEllipsisBar(x, y + bookmarksmenu.list.viewsize * 8, cols);
+	}
+
+	M_Print(x, y + 2 + bookmarksmenu.list.viewsize * 8 + 20, "ctrl+  a:add  e:edit  backspace:delete");
+}
+
+qboolean M_Bookmarks_Match(int index, char initial)
+{
+	return q_tolower(bookmarksmenu.items[index].alias[0]) == initial;
+}
+
+void M_Bookmarks_Key(int key)
+{
+	int x, y; // woods #mousemenu
+
+	if (bookmarksmenu.scrollbar_grab)
+	{
+		switch (key)
+		{
+		case K_ESCAPE:
+		case K_BBUTTON:
+		case K_MOUSE4:
+		case K_MOUSE2:
+			bookmarksmenu.scrollbar_grab = false;
+			break;
+		}
+		return;
+	}
+
+	if (M_List_Key(&bookmarksmenu.list, key))
+		return;
+
+	if (M_List_CycleMatch(&bookmarksmenu.list, key, M_Bookmarks_Match) && !keydown[K_CTRL])
+		return;
+
+	if (M_Ticker_Key(&bookmarksmenu.ticker, key))
+		return;
+
+	switch (key)
+	{
+	case K_ESCAPE:
+	case K_BBUTTON:
+	case K_MOUSE4: // woods #mousemenu
+	case K_MOUSE2:
+		M_Menu_LanConfig_f();
+		break;
+
+	case K_ENTER:
+	case K_KP_ENTER:
+	case K_ABUTTON:
+	enter:
+		m_return_state = m_state;
+		m_return_onerror = true;
+		key_dest = key_game;
+		m_state = m_none;
+		IN_UpdateGrabs();
+		CL_MarkNextConnectFromMenu();
+		Cbuf_AddText(va("connect \"%s\"\n", bookmarksmenu.items[bookmarksmenu.list.cursor].name));
+		break;
+
+	case K_MOUSE1: // woods #mousemenu
+		x = m_mousex - bookmarksmenu.x - (bookmarksmenu.cols - 1) * 8;
+		y = m_mousey - bookmarksmenu.y;
+		if (x < -8 || !M_List_UseScrollbar(&bookmarksmenu.list, y))
+			goto enter;
+		bookmarksmenu.scrollbar_grab = true;
+		M_Bookmarks_Mousemove(m_mousex, m_mousey);
+		break;
+
+	case 'a':
+	case 'A':
+		if (keydown[K_CTRL])
+		{
+			bookmarks_edit_new = true;
+			M_Menu_Bookmarks_Edit_f();
+		}
+		break;
+
+	case 'e':
+	case 'E':
+		if (keydown[K_CTRL])
+		{
+			if (bookmarksmenu.items != NULL)
+				M_Menu_Bookmarks_Edit_f();
+		}
+		break;
+
+	case K_BACKSPACE:
+		if (bookmarksmenu.items != NULL && keydown[K_CTRL])
+		{ 
+			FileList_Subtract(bookmarksmenu.items[bookmarksmenu.list.cursor].name, &bookmarkslist);
+			BookmarksList_Write();
+			M_Menu_Bookmarks_f();
+		}
+		break;
+
+	default:
+		break;
+	}
+}
+
+void M_Bookmarks_Mousemove(int cx, int cy) // woods #mousemenu
+{
+	cy -= bookmarksmenu.y;
+
+	if (bookmarksmenu.scrollbar_grab)
+	{
+		if (!keydown[K_MOUSE1])
+		{
+			bookmarksmenu.scrollbar_grab = false;
+			return;
+		}
+		M_List_UseScrollbar(&bookmarksmenu.list, cy);
+		// Note: no return, we also update the cursor
+	}
+
+	M_List_Mousemove(&bookmarksmenu.list, cy);
+}
+
+/* Bookmarks Edit menu */
+
+static int		bookmarks_edit_cursor = 3;
+static int		bookmarks_edit_cursor_table[] = { 54, 86, 114, 138 };
+
+static char temp_alias[45];
+static char temp_name[45];
+static menu_textfield_t bookmarks_edit_name_field;
+static menu_textfield_t bookmarks_edit_alias_field;
+static qboolean	temp_pinned;
+static qboolean	bookmarks_edit_original_pinned;
+static char		bookmarks_edit_status[64];
+static double	bookmarks_edit_status_until;
+
+#define	NUM_BOOKMARKS_EDIT_CMDS	4
+
+static void M_Bookmarks_Edit_ClearStatus(void)
+{
+	bookmarks_edit_status[0] = '\0';
+	bookmarks_edit_status_until = 0;
+}
+
+static void M_Bookmarks_Edit_ShowStatus(const char* message)
+{
+	if (!message)
+	{
+		M_Bookmarks_Edit_ClearStatus();
+		return;
+	}
+
+	q_strlcpy(bookmarks_edit_status, message, sizeof(bookmarks_edit_status));
+	bookmarks_edit_status_until = realtime + 3.0;
+}
+
+static qboolean M_Bookmarks_Edit_SetPinned(qboolean pinned)
+{
+	if (temp_pinned == pinned)
+	{
+		if (!pinned)
+			M_Bookmarks_Edit_ClearStatus();
+		return true;
+	}
+
+	if (pinned)
+	{
+		int pinned_count = M_Bookmarks_CountPinned();
+		if (!bookmarks_edit_new && bookmarks_edit_original_pinned && pinned_count > 0)
+			pinned_count--;
+
+		if (pinned_count >= MAX_PINNED_BOOKMARKS)
+		{
+			M_Bookmarks_Edit_ShowStatus(va("Max %d pins reached", MAX_PINNED_BOOKMARKS));
+			S_LocalSound("misc/menu2.wav");
+			return false;
+		}
+	}
+
+	temp_pinned = pinned;
+	M_Bookmarks_Edit_ClearStatus();
+	S_LocalSound("misc/menu3.wav");
+	return true;
+}
+
+static void M_Bookmarks_ListAdd(const char* name, const char* alias, qboolean pinned)
+{
+	char data[BOOKMARK_DATA_LENGTH];
+	BookmarkData_Format(data, sizeof(data), alias, pinned);
+	FileList_Add(name, data, &bookmarkslist);
+}
+
+static menu_textfield_t *M_Bookmarks_Edit_GetFieldForCursor(void)
+{
+	if (bookmarks_edit_cursor == 0)
+		return &bookmarks_edit_name_field;
+	if (bookmarks_edit_cursor == 1)
+		return &bookmarks_edit_alias_field;
+	return NULL;
+}
+
+static void M_Bookmarks_Edit_ClearTextSelections(void)
+{
+	M_TextField_ClearSelection(&bookmarks_edit_name_field);
+	M_TextField_ClearSelection(&bookmarks_edit_alias_field);
+}
+
+void M_Menu_Bookmarks_Edit_f (void)
+{
+	key_dest = key_menu;
+	m_state = m_bookmarks_edit;
+	m_entersound = true;
+	IN_UpdateGrabs();
+
+	bookmarks_edit_cursor = 3;
+	M_Bookmarks_Edit_ClearStatus();
+
+	if (bookmarks_edit_new)
+	{
+		if (cls.state == ca_connected)
+			q_snprintf(temp_name, sizeof(temp_name), "%s", lastmphost);
+		else
+			temp_name[0] = 0;
+		temp_alias[0] = 0;
+		temp_pinned = false;
+		bookmarks_edit_original_pinned = false;
+	}
+	else if (bookmarksmenu.list.cursor >= 0 && bookmarksmenu.list.cursor < bookmarksmenu.list.numitems)
+	{
+		strncpy(temp_alias, bookmarksmenu.items[bookmarksmenu.list.cursor].alias, sizeof(temp_alias) - 1);
+		temp_alias[sizeof(temp_alias) - 1] = 0;
+		strncpy(temp_name, bookmarksmenu.items[bookmarksmenu.list.cursor].name, sizeof(temp_name) - 1);
+		temp_name[sizeof(temp_name) - 1] = 0;
+		temp_pinned = bookmarksmenu.items[bookmarksmenu.list.cursor].pinned;
+		bookmarks_edit_original_pinned = temp_pinned;
+	}
+	else
+	{
+		M_Menu_Bookmarks_f();  // Fall back to the bookmarks menu if the index is invalid
+		temp_pinned = false;
+		bookmarks_edit_original_pinned = false;
+		return;
+	}
+
+	M_TextField_Init(&bookmarks_edit_name_field, temp_name, 37, false);
+	M_TextField_Init(&bookmarks_edit_alias_field, temp_alias, 37, false);
+}
+
+void M_Shortcut_Bookmarks_Edit_f(void)
+{
+	bookmarks_edit_new = true;
+	bookmarks_edit_shortcut = true;
+	M_Menu_Bookmarks_Edit_f();
+}
+
+
+void M_Bookmarks_Edit_Draw(void)
+{
+	M_TextField_CheckMouseRelease();
+
+	M_Print(10, 40, "Hostname/IP");
+	M_DrawTextBox(6, 46, 38, 1);
+	M_TextField_DrawHighlight(&bookmarks_edit_name_field, 14, 54);
+	M_PrintWhite(14, 54, temp_name);
+
+	M_Print(10, 72, "Bookmark Name");
+	M_DrawTextBox(6, 78, 38, 1);
+	M_TextField_DrawHighlight(&bookmarks_edit_alias_field, 14, 86);
+	M_PrintWhite(14, 86, temp_alias);
+
+	M_Print(10, 114, "Pin");
+	M_DrawCheckboxBox(36, 114, temp_pinned);
+
+	M_DrawTextBox(6, 138 - 8, 14, 1);
+	M_Print(15, 138, "Accept Changes");
+
+	M_DrawCharacter(0, bookmarks_edit_cursor_table[bookmarks_edit_cursor], 12 + ((int)(realtime * 4) & 1));
+
+	if (bookmarks_edit_cursor == 0)
+		M_TextField_DrawCursor(&bookmarks_edit_name_field, 13, bookmarks_edit_cursor_table[bookmarks_edit_cursor]);
+
+	if (bookmarks_edit_cursor == 1)
+		M_TextField_DrawCursor(&bookmarks_edit_alias_field, 13, bookmarks_edit_cursor_table[bookmarks_edit_cursor]);
+
+	if (bookmarks_edit_status[0] && realtime < bookmarks_edit_status_until)
+	{
+		int box_width = (int)strlen(bookmarks_edit_status) + 2;
+		if (box_width & 1)
+			box_width++;
+		M_DrawTextBox(6, 160, box_width, 1);
+		M_PrintWhite(14, 168, bookmarks_edit_status);
+	}
+}
+
+void M_Bookmarks_Edit_Key(int k)
+{
+	menu_textfield_t *active_field = M_Bookmarks_Edit_GetFieldForCursor();
+	if (active_field && M_TextField_Key(active_field, k))
+		return;
+
+	switch (k)
+	{
+	case K_ESCAPE:
+	case K_BBUTTON:
+	case K_MOUSE4: // woods #mousemenu
+	case K_MOUSE2: // woods #mousemenu
+		if (bookmarks_edit_shortcut)
+		{
+			key_dest = key_game;
+			m_state = m_none;
+			bookmarks_edit_shortcut = false;
+			bookmarks_edit_new = false;
+		}
+		else
+		{
+			M_Menu_Bookmarks_f();
+			bookmarks_edit_new = false;
+		}
+		break;
+
+	case K_UPARROW:
+		S_LocalSound("misc/menu1.wav");
+		M_Bookmarks_Edit_ClearTextSelections();
+		bookmarks_edit_cursor--;
+		if (bookmarks_edit_cursor < 0)
+			bookmarks_edit_cursor = NUM_BOOKMARKS_EDIT_CMDS - 1;
+		break;
+
+	case K_DOWNARROW:
+	case K_TAB:
+		S_LocalSound("misc/menu1.wav");
+		M_Bookmarks_Edit_ClearTextSelections();
+		bookmarks_edit_cursor++;
+		if (bookmarks_edit_cursor >= NUM_BOOKMARKS_EDIT_CMDS)
+			bookmarks_edit_cursor = 0;
+		break;
+
+	case K_MWHEELDOWN:
+	case K_LEFTARROW:
+		if (bookmarks_edit_cursor == 2)
+		{
+			M_Bookmarks_Edit_SetPinned(!temp_pinned);
+			return;
+		}
+		if (bookmarks_edit_cursor < 2)
+			return;
+		S_LocalSound("misc/menu3.wav");
+		break;
+	case K_MWHEELUP:
+	case K_RIGHTARROW:
+		if (bookmarks_edit_cursor == 2)
+		{
+			M_Bookmarks_Edit_SetPinned(!temp_pinned);
+			return;
+		}
+		if (bookmarks_edit_cursor < 2)
+			return;
+		S_LocalSound("misc/menu3.wav");
+		break;
+
+	case K_ENTER:
+	case K_KP_ENTER:
+	case K_ABUTTON:
+	case K_MOUSE1: // woods #mousemenu
+		if (k == K_MOUSE1 && bookmarks_edit_cursor == 0)
+		{
+			if (M_TextField_MouseInRow(m_mousey, bookmarks_edit_cursor_table[0]))
+				M_TextField_MouseClick(&bookmarks_edit_name_field, m_mousex, 14);
+			return;
+		}
+		if (k == K_MOUSE1 && bookmarks_edit_cursor == 1)
+		{
+			if (M_TextField_MouseInRow(m_mousey, bookmarks_edit_cursor_table[1]))
+				M_TextField_MouseClick(&bookmarks_edit_alias_field, m_mousex, 14);
+			return;
+		}
+
+		if (bookmarks_edit_cursor == 0 || bookmarks_edit_cursor == 1)
+			return;
+
+		if (bookmarks_edit_cursor == 2)
+		{
+			M_Bookmarks_Edit_SetPinned(!temp_pinned);
+			return;
+		}
+
+		// (Accept Changes)
+		if (!bookmarks_edit_new) // edit + save
+		{
+			if ((Q_strcmp(bookmarksmenu.items[bookmarksmenu.list.cursor].alias, temp_alias) != 0 ||
+			     Q_strcmp(bookmarksmenu.items[bookmarksmenu.list.cursor].name, temp_name) != 0 ||
+			     bookmarksmenu.items[bookmarksmenu.list.cursor].pinned != temp_pinned)
+				&& (strcmp(temp_alias, "") && (Valid_IP(temp_name) || Valid_Domain(temp_name))))
+			{
+				FileList_Subtract(bookmarksmenu.items[bookmarksmenu.list.cursor].name, &bookmarkslist);
+				M_Bookmarks_ListAdd(temp_name, temp_alias, temp_pinned);
+				BookmarksList_Write();
+				bookmarks_edit_new = false;
+			}
+		}
+		
+		if (bookmarks_edit_new && (strcmp(temp_alias, "") && (Valid_IP(temp_name) || Valid_Domain(temp_name)))) // new + save
+		{
+			M_Bookmarks_ListAdd(temp_name, temp_alias, temp_pinned);
+			BookmarksList_Write();
+			bookmarks_edit_new = false;
+		}
+
+			m_entersound = true;
+
+			M_Menu_Bookmarks_f();
+			break;
+	}
+}
+
+void M_Bookmarks_Edit_Char(int k)
+{
+	menu_textfield_t *active_field = M_Bookmarks_Edit_GetFieldForCursor();
+	if (active_field)
+		M_TextField_Char(active_field, k);
+}
+
+qboolean M_Bookmarks_Edit_TextEntry(void)
+{
+	return (bookmarks_edit_cursor == 0 || bookmarks_edit_cursor == 1);
+}
+
+void M_Bookmarks_Edit_Mousemove(int cx, int cy) // woods #mousemenu
+{
+	int old_cursor;
+
+	if (textfield_mouse_dragging &&
+		(textfield_drag_field == &bookmarks_edit_name_field || textfield_drag_field == &bookmarks_edit_alias_field))
+	{
+		M_TextField_MouseDrag(cx);
+		return;
+	}
+
+	old_cursor = bookmarks_edit_cursor;
+	M_UpdateCursorWithTable(cy, bookmarks_edit_cursor_table, NUM_BOOKMARKS_EDIT_CMDS, &bookmarks_edit_cursor);
+	if (bookmarks_edit_cursor != old_cursor)
+		M_Bookmarks_Edit_ClearTextSelections();
+}
+
+qboolean M_LanConfig_TextEntry (void)
+{
+	return (lanConfig_cursor == LANCONFIG_CURSOR_PORT ||
+		(M_LanConfig_ShowRoomField() && lanConfig_cursor == LANCONFIG_CURSOR_NEWGAME_ROOM) ||
+		lanConfig_cursor == LANCONFIG_CURSOR_JOINGAME_JOIN); // woods #historymenu #bookmarksmenu
+}
+
+void M_LanConfig_Mousemove(int cx, int cy)
+{
+	int numCommands;
+	int old_cursor;
+
+	if (textfield_mouse_dragging &&
+		(textfield_drag_field == &lanConfig_port_field ||
+		textfield_drag_field == &lanConfig_room_field ||
+		textfield_drag_field == &lanConfig_join_field))
+	{
+		M_TextField_MouseDrag(cx);
+		return;
+	}
+
+	// First check if mouse is over IP addresses
+	for (int i = 0; i < 2; i++)
+	{
+		if (cx >= ip_clickables[i].x &&
+			cx <= ip_clickables[i].x + ip_clickables[i].width &&
+			cy >= ip_clickables[i].y &&
+			cy <= ip_clickables[i].y + 8)
+		{
+			// Mouse is over an IP address - could add visual feedback here
+			return; // Don't update menu cursor when over IPs
+		}
+	}
+
+	// If not over IPs, handle regular menu cursor movement
+	numCommands = NUM_LANCONFIG_CMDS;
+	old_cursor = lanConfig_cursor;
+	M_UpdateCursorWithTable(cy, lanConfig_cursor_ptr, numCommands, &lanConfig_cursor);
+	if (lanConfig_cursor != old_cursor)
+	{
+		if (!(JoiningGame && lanConfig_cursor == LANCONFIG_CURSOR_JOINGAME_JOIN))
+			lanConfig_join_tabpartial[0] = '\0';
+		M_LanConfig_ClearTextSelections();
+	}
+}
+
+/*
+==================
+New Game Options Menu
+==================
+*/
+
+typedef struct
+{
+	const char	*name;
+	const char	*description;
+} level_t;
+
+level_t		levels[] =
+{
+	{"start", "Condominio Residencial"},	// 0
+
+	//{"e1m1", "Slipgate Complex"},				// 1
+	{"e1m2_escola_Taquara", "Bagunca  na escola na  Taquara "},
+	{"e1m3_Baile_funk", "BaileCoqueTchu_Taquara"},
+	{"e1m4_BancoMeme", "Banco Meme"},
+	{"e1m5_Buzao", "Buzao_Posuido"},
+	{"e1m6_shopping", "Shoping_Bairo_Tanque"},
+	{"e1m7_Sin_BR", "Sede  Sin BR"},
+	{"e1m8_arena_arauto", "Arena do Boss  Demonio Comunista"},
+
+	{"e2m1", "The Installation"},				// 9
+	{"e2m2", "Ogre Citadel"},
+	{"e2m3", "Crypt of Decay"},
+	{"e2m4", "The Ebon Fortress"},
+	{"e2m5", "The Wizard's Manse"},
+	{"e2m6", "The Dismal Oubliette"},
+	{"e2m7", "Underearth"},
+
+	{"e3m1", "Termination Central"},			// 16
+	{"e3m2", "The Vaults of Zin"},
+	{"e3m3", "The Tomb of Terror"},
+	{"e3m4", "Satan's Dark Delight"},
+	{"e3m5", "Wind Tunnels"},
+	{"e3m6", "Chambers of Torment"},
+	{"e3m7", "The Haunted Halls"},
+
+	{"e4m1", "The Sewage System"},				// 23
+	{"e4m2", "The Tower of Despair"},
+	{"e4m3", "The Elder God Shrine"},
+	{"e4m4", "The Palace of Hate"},
+	{"e4m5", "Hell's Atrium"},
+	{"e4m6", "The Pain Maze"},
+	{"e4m7", "Azure Agony"},
+	{"e4m8", "The Nameless City"},
+
+	{"end", "Shub-Niggurath's Pit"},			// 31
+
+	{"dm1", "Place of Two Deaths"},				// 32
+	{"dm2", "Claustrophobopolis"},
+	{"dm3", "The Abandoned Base"},
+	{"dm4", "The Bad Place"},
+	{"dm5", "The Cistern"},
+	{"dm6", "The Dark Zone"}
+};
+
+//MED 01/06/97 added hipnotic levels
+level_t     hipnoticlevels[] =
+{
+	{"start", "Command HQ"},	// 0
+
+	{"hip1m1", "The Pumping Station"},			// 1
+	{"hip1m2", "Storage Facility"},
+	{"hip1m3", "The Lost Mine"},
+	{"hip1m4", "Research Facility"},
+	{"hip1m5", "Military Complex"},
+
+	{"hip2m1", "Ancient Realms"},				// 6
+	{"hip2m2", "The Black Cathedral"},
+	{"hip2m3", "The Catacombs"},
+	{"hip2m4", "The Crypt"},
+	{"hip2m5", "Mortum's Keep"},
+	{"hip2m6", "The Gremlin's Domain"},
+
+	{"hip3m1", "Tur Torment"},				// 12
+	{"hip3m2", "Pandemonium"},
+	{"hip3m3", "Limbo"},
+	{"hip3m4", "The Gauntlet"},
+
+	{"hipend", "Armagon's Lair"},				// 16
+
+	{"hipdm1", "The Edge of Oblivion"}			// 17
+};
+
+//PGM 01/07/97 added rogue levels
+//PGM 03/02/97 added dmatch level
+level_t		roguelevels[] =
+{
+	{"start",	"Split Decision"},
+	{"r1m1",	"Deviant's Domain"},
+	{"r1m2",	"Dread Portal"},
+	{"r1m3",	"Judgement Call"},
+	{"r1m4",	"Cave of Death"},
+	{"r1m5",	"Towers of Wrath"},
+	{"r1m6",	"Temple of Pain"},
+	{"r1m7",	"Tomb of the Overlord"},
+	{"r2m1",	"Tempus Fugit"},
+	{"r2m2",	"Elemental Fury I"},
+	{"r2m3",	"Elemental Fury II"},
+	{"r2m4",	"Curse of Osiris"},
+	{"r2m5",	"Wizard's Keep"},
+	{"r2m6",	"Blood Sacrifice"},
+	{"r2m7",	"Last Bastion"},
+	{"r2m8",	"Source of Evil"},
+	{"ctf1",    "Division of Change"}
+};
+
+typedef struct
+{
+	const char	*description;
+	int		firstLevel;
+	int		levels;
+} episode_t;
+
+episode_t	episodes[] =
+{
+	{"Welcome to Quake", 0, 1},
+	{"Doomed Dimension", 1, 8},
+	{"Realm of Black Magic", 9, 7},
+	{"Netherworld", 16, 7},
+	{"The Elder World", 23, 8},
+	{"Final Level", 31, 1},
+	{"Deathmatch Arena", 32, 6}
+};
+
+//MED 01/06/97  added hipnotic episodes
+episode_t   hipnoticepisodes[] =
+{
+	{"Scourge of Armagon", 0, 1},
+	{"Fortress of the Dead", 1, 5},
+	{"Dominion of Darkness", 6, 6},
+	{"The Rift", 12, 4},
+	{"Final Level", 16, 1},
+	{"Deathmatch Arena", 17, 1}
+};
+
+//PGM 01/07/97 added rogue episodes
+//PGM 03/02/97 added dmatch episode
+episode_t	rogueepisodes[] =
+{
+	{"Introduction", 0, 1},
+	{"Hell's Fortress", 1, 7},
+	{"Corridors of Time", 8, 8},
+	{"Deathmatch Arena", 16, 1}
+};
+
+extern cvar_t sv_public;
+
+int	startepisode;
+int	startlevel;
+int maxplayers;
+enum
+{
+	GAMEOPTIONS_BEGIN,
+	GAMEOPTIONS_MAXPLAYERS,
+	GAMEOPTIONS_PUBLIC,
+	GAMEOPTIONS_GAMETYPE,
+	GAMEOPTIONS_TEAMPLAY,
+	GAMEOPTIONS_SKILL,
+	GAMEOPTIONS_FRAGLIMIT,
+	GAMEOPTIONS_TIMELIMIT,
+	GAMEOPTIONS_MOD,
+	GAMEOPTIONS_EPISODE,
+	GAMEOPTIONS_LEVEL,
+	GAMEOPTIONS_SELECT_LEVEL,
+	GAMEOPTIONS_ENTER_LEVEL,
+	NUM_GAMEOPTIONS
+};
+static int gameoptions_cursor_table[] = {40, 56, 64, 72, 80, 88, 96, 104, 112, 128, 136, 160, 176};
+#define GAMEOPTIONS_LEVEL_FIELD_BOX_X	152
+#define GAMEOPTIONS_LEVEL_FIELD_TEXT_X	160
+#define GAMEOPTIONS_LEVEL_FIELD_BOX_WIDTH	18
+int		gameoptions_cursor;
+static int gameoptions_mod_index;
+typedef struct
+{
+	char name[MAX_QPATH];
+} gameoptions_mod_t;
+static gameoptions_mod_t *gameoptions_mods;
+
+static char goptions_levelname[MAX_QPATH];
+static char goptions_levelhint[MAX_QPATH];
+static qboolean goptions_levelvalid;
+static menu_textfield_t goptions_level_field;
+
+static void M_GameOptions_UpdateLevelHint(void);
+static qboolean M_GameOptions_UsingDefaultMod(void);
+static void M_GameOptions_ClampCursor(void);
+static void M_GameOptions_RebuildMods(void);
+
+void M_Menu_GameOptions_f (void)
+{
+	key_dest = key_menu;
+	m_state = m_gameoptions;
+	IN_UpdateGrabs();
+	m_entersound = true;
+	if (maxplayers == 0)
+		maxplayers = svs.maxclients;
+	if (maxplayers < 2)
+		maxplayers = 16;
+	M_TextField_Init(&goptions_level_field, goptions_levelname, MAX_QPATH - 1, false);
+	M_GameOptions_UpdateLevelHint();
+	M_GameOptions_RebuildMods();
+	M_GameOptions_ClampCursor();
+}
+
+
+static menu_textfield_t *M_GameOptions_GetFieldForCursor(void)
+{
+	if (gameoptions_cursor == GAMEOPTIONS_ENTER_LEVEL)
+		return &goptions_level_field;
+	return NULL;
+}
+
+static void M_GameOptions_ClearTextSelections(void)
+{
+	M_TextField_ClearSelection(&goptions_level_field);
+}
+
+static void M_GameOptions_ClearTypedLevel(void)
+{
+	goptions_levelname[0] = '\0';
+	goptions_levelhint[0] = '\0';
+	goptions_levelvalid = false;
+	goptions_level_field.cursor = 0;
+	goptions_level_field.sel_start = -1;
+}
+
+/*
+============
+M_GameOptions_UpdateLevelHint
+
+Scans extralevels for a map matching the typed input and updates hint text.
+============
+*/
+static void M_GameOptions_UpdateLevelHint(void)
+{
+	filelist_item_t *level;
+	int len = (int)strlen(goptions_levelname);
+
+	goptions_levelhint[0] = '\0';
+	goptions_levelvalid = false;
+
+	if (len <= 0)
+		return;
+
+	for (level = extralevels; level; level = level->next)
+	{
+		if (!q_strncasecmp(level->name, goptions_levelname, len))
+		{
+			if (!goptions_levelhint[0])
+				q_strlcpy(goptions_levelhint, level->name + len, sizeof(goptions_levelhint));
+
+			if (!q_strcasecmp(level->name, goptions_levelname))
+			{
+				/* Exact map name typed: valid and no hint needed. */
+				goptions_levelvalid = true;
+				goptions_levelhint[0] = '\0';
+				return;
+			}
+		}
+	}
+}
+
+/*
+============
+M_GameOptions_IsValidLevel
+
+Returns true if goptions_levelname exactly matches a map in extralevels.
+============
+*/
+static qboolean M_GameOptions_IsValidLevel(void)
+{
+	return goptions_levelvalid;
+}
+
+static void M_GameOptions_AcceptLevelHint(void)
+{
+	if (!goptions_levelhint[0])
+		return;
+
+	/* Only complete when the caret is at the end of the field text. */
+	if (goptions_level_field.cursor != (int)strlen(goptions_levelname))
+		return;
+
+	q_strlcat(goptions_levelname, goptions_levelhint, sizeof(goptions_levelname));
+	goptions_levelhint[0] = '\0';
+	goptions_level_field.cursor = (int)strlen(goptions_levelname);
+	goptions_level_field.sel_start = -1;
+	M_TextField_ClampCursor(&goptions_level_field);
+	M_GameOptions_UpdateLevelHint();
+}
+
+/*
+============
+M_GameOptions_CheckLeave
+
+Called when leaving Enter Level; validates and resolves priority with Select Level.
+============
+*/
+static void M_GameOptions_CheckLeave(void)
+{
+	if (!goptions_levelname[0])
+	{
+		goptions_levelhint[0] = '\0';
+		M_TextField_ClearSelection(&goptions_level_field);
+		return;
+	}
+
+	M_GameOptions_AcceptLevelHint();
+
+	if (M_GameOptions_IsValidLevel())
+	{
+		/* Valid typed map takes priority over Select Level. */
+		m_skill_mapname[0] = '\0';
+	}
+	else
+	{
+		/* Invalid input is cleared when leaving the field. */
+		M_GameOptions_ClearTypedLevel();
+	}
+
+	M_TextField_ClearSelection(&goptions_level_field);
+	M_GameOptions_UpdateLevelHint();
+}
+
+static qboolean M_GameOptions_ModIsSelectable(const char *name)
+{
+	char check_path[MAX_OSPATH];
+	char game_dir[MAX_OSPATH];
+	char game_path[MAX_OSPATH];
+	FILE *check_file;
+	int pak_num;
+
+	if (!name || !*name || !q_strcasecmp(name, GAMENAME))
+		return false;
+
+	if (!COM_ResolveGameDir(name, game_dir, sizeof(game_dir)))
+		return false;
+
+	q_snprintf(game_path, sizeof(game_path), "%s/%s", com_basedir, game_dir);
+	q_snprintf(check_path, sizeof(check_path), "%s/progs.dat", game_path);
+	check_file = fopen(check_path, "rb");
+	if (check_file)
+	{
+		fclose(check_file);
+		return true;
+	}
+
+	for (pak_num = 0; pak_num < 10; pak_num++)
+	{
+		q_snprintf(check_path, sizeof(check_path), "%s/pak%d.pak", game_path, pak_num);
+		check_file = fopen(check_path, "rb");
+		if (check_file)
+		{
+			fclose(check_file);
+			return true;
+		}
+	}
+
+	return false;
+}
+
+static void M_GameOptions_RebuildMods(void)
+{
+	filelist_item_t *mod;
+	gameoptions_mod_t item;
+
+	VEC_CLEAR(gameoptions_mods);
+	for (mod = modlist; mod; mod = mod->next)
+	{
+		if (M_GameOptions_ModIsSelectable(mod->name))
+		{
+			q_strlcpy(item.name, mod->name, sizeof(item.name));
+			VEC_PUSH(gameoptions_mods, item);
+		}
+	}
+
+	if (gameoptions_mod_index > (int)VEC_SIZE(gameoptions_mods))
+		gameoptions_mod_index = 0;
+}
+
+static int M_GameOptions_ModCount(void)
+{
+	return (int)VEC_SIZE(gameoptions_mods) + 1;
+}
+
+static const char *M_GameOptions_ModNameForIndex(int index)
+{
+	if (index <= 0)
+		return NULL;
+
+	if (index > (int)VEC_SIZE(gameoptions_mods))
+		return NULL;
+
+	return gameoptions_mods[index - 1].name;
+}
+
+static const char *M_GameOptions_SelectedMod(void)
+{
+	const char *mod = M_GameOptions_ModNameForIndex(gameoptions_mod_index);
+
+	if (!mod)
+		gameoptions_mod_index = 0;
+
+	return mod;
+}
+
+static qboolean M_GameOptions_UsingDefaultMod(void)
+{
+	return M_GameOptions_SelectedMod() == NULL;
+}
+
+static int M_GameOptions_NumItems(void)
+{
+	return NUM_GAMEOPTIONS;
+}
+
+static void M_GameOptions_ClampCursor(void)
+{
+	int count = M_GameOptions_NumItems();
+
+	if (gameoptions_cursor >= count)
+		gameoptions_cursor = count - 1;
+	if (gameoptions_cursor < 0)
+		gameoptions_cursor = 0;
+}
+
+static void M_GameOptions_PrintMaybeDim(int x, int y, const char *str, qboolean dim, qboolean white)
+{
+	if (dim)
+		M_PrintRGBA(x, y, str, CL_PLColours_Parse("0xffffff"), 0.5f, !white);
+	else if (white)
+		M_PrintWhite(x, y, str);
+	else
+		M_Print(x, y, str);
+}
+
+qboolean HasBots(void) // woods -- check if deathmatch needs difficulty #botdetect
+{
+	if (!progs_check_done)
+	{
+		FILE* file;
+		byte* buffer;
+		long size;
+		unsigned short crc;
+
+		const unsigned short valid_crcs[] = { 32913, 10067, 51593 }; // shareware/steam/regisrted pak0, rogue, hipnotic
+		const size_t num_valid_crcs = sizeof(valid_crcs) / sizeof(valid_crcs[0]);
+
+		const char* custom_marker = "crx"; // custom progs without bots
+		size_t custom_marker_len = strlen(custom_marker);
+
+		if (COM_FOpenFile("progs.dat", &file, NULL) < 0 || !file)
+		{
+			progs_check_done = true;
+			return false;
+		}
+
+		fseek(file, 0, SEEK_END);
+		size = ftell(file);
+		fseek(file, 0, SEEK_SET);
+
+		buffer = (byte*)malloc(size);
+		if (!buffer)
+		{
+			fclose(file);
+			progs_check_done = true;
+			return false;
+		}
+
+		if (fread(buffer, 1, size, file) != (size_t)size)
+		{
+			free(buffer);
+			fclose(file);
+			progs_check_done = true;
+			return false;
+		}
+		fclose(file);
+
+		crc = CRC_Block(buffer, size);
+
+		qboolean is_valid_crc = false;
+		for (size_t i = 0; i < num_valid_crcs; i++)
+		{
+			if (crc == valid_crcs[i]) {
+				is_valid_crc = true;
+				break;
+			}
+		}
+
+		if (is_valid_crc) 
+			has_custom_progs = false;
+		else if (q_memmem(buffer, size, custom_marker, custom_marker_len) != NULL)
+			has_custom_progs = false;
+		else 
+			has_custom_progs = true;
+
+		free(buffer);
+		progs_check_done = true;
+	}
+	return has_custom_progs;
+}
+
+void M_GameOptions_Draw (void)
+{
+	qpic_t	*p;
+	int y = 40;
+	const char *selected_mod;
+	qboolean mod_selected;
+	qboolean dim_builtin_level;
+
+	M_TextField_CheckMouseRelease();
+	M_GameOptions_ClampCursor();
+
+	M_DrawTransPic (16, 4, Draw_CachePic ("gfx/qplaque.lmp") );
+	p = Draw_CachePic ("gfx/p_multi.lmp");
+	M_DrawPic ( (320-p->width)/2, 4, p);
+
+	M_DrawTextBox (152, y-8, 10, 1);
+	M_Print (160, y, "begin game");
+	y+=16;
+
+	M_Print (0, y, "      Max players");
+	M_Print (160, y, va("%i", maxplayers) );
+	y+=8;
+
+	M_Print (0, y, "           Public");
+	if (sv_public.value)
+		M_Print (160, y, "Yes");
+	else
+		M_Print (160, y, "No");
+	y+=8;
+
+	M_Print (0, y, "        Game Type");
+	if (coop.value)
+		M_Print (160, y, "Cooperative");
+	else
+		M_Print (160, y, "Deathmatch");
+	y+=8;
+
+	M_Print (0, y, "         Teamplay");
+	if (rogue)
+	{
+		const char *msg;
+
+		switch((int)teamplay.value)
+		{
+			case 1: msg = "No Friendly Fire"; break;
+			case 2: msg = "Friendly Fire"; break;
+			case 3: msg = "Tag"; break;
+			case 4: msg = "Capture the Flag"; break;
+			case 5: msg = "One Flag CTF"; break;
+			case 6: msg = "Three Team CTF"; break;
+			default: msg = "Off"; break;
+		}
+		M_Print (160, y, msg);
+	}
+	else
+	{
+		const char *msg;
+
+		switch((int)teamplay.value)
+		{
+			case 1: msg = "No Friendly Fire"; break;
+			case 2: msg = "Friendly Fire"; break;
+			default: msg = "Off"; break;
+		}
+		M_Print (160, y, msg);
+	}
+	y+=8;
+
+	M_Print (0, y, "            Skill");
+	if (!coop.value && !HasBots()) // woods #botdetect
+	{ 
+		M_PrintRGBA(160, y, "Normal difficulty", CL_PLColours_Parse("0xffffff"), 0.5f, true);
+	}
+	else if (skill.value == 0)
+		M_Print (160, y, "Easy difficulty");
+	else if (skill.value == 1)
+		M_Print (160, y, "Normal difficulty");
+	else if (skill.value == 2)
+		M_Print (160, y, "Hard difficulty");
+	else
+		M_Print (160, y, "Nightmare difficulty");
+	y+=8;
+
+	M_Print (0, y, "       Frag Limit");
+	if (fraglimit.value == 0)
+		M_Print (160, y, "none");
+	else
+		M_Print (160, y, va("%i frags", (int)fraglimit.value));
+	y+=8;
+
+	M_Print (0, y, "       Time Limit");
+	if (timelimit.value == 0)
+		M_Print (160, y, "none");
+	else
+		M_Print (160, y, va("%i minutes", (int)timelimit.value));
+	y+=8;
+
+	M_Print (0, y, "             Mod");
+	selected_mod = M_GameOptions_SelectedMod();
+	if (selected_mod)
+		M_PrintScroll(160, y, 19 * 8, selected_mod, gameoptions_cursor == GAMEOPTIONS_MOD ? realtime : 0.0, false);
+	else
+	{
+		M_Print (160, y, "Default (");
+		M_PrintWhite (232, y, "id1");
+		M_Print (256, y, ")");
+	}
+	y+=8;
+
+	y+=8;
+
+	mod_selected = selected_mod != NULL;
+
+	M_GameOptions_PrintMaybeDim(0, y, "          Episode", mod_selected, false);
+	// MED 01/06/97 added hipnotic episodes
+	if (hipnotic)
+		M_GameOptions_PrintMaybeDim(160, y, hipnoticepisodes[startepisode].description, mod_selected, false);
+	// PGM 01/07/97 added rogue episodes
+	else if (rogue)
+		M_GameOptions_PrintMaybeDim(160, y, rogueepisodes[startepisode].description, mod_selected, false);
+	else
+		M_GameOptions_PrintMaybeDim(160, y, episodes[startepisode].description, mod_selected, false);
+	y+=8;
+
+	M_GameOptions_PrintMaybeDim(0, y, "            Level", mod_selected, false);
+	dim_builtin_level = mod_selected || m_skill_mapname[0] || (goptions_levelname[0] && M_GameOptions_IsValidLevel());
+	// MED 01/06/97 added hipnotic episodes
+	if (hipnotic)
+	{
+		M_GameOptions_PrintMaybeDim(160, y, hipnoticlevels[hipnoticepisodes[startepisode].firstLevel + startlevel].description, mod_selected, false);
+		if (dim_builtin_level)  // Custom map/mod selected - show faded level name
+			M_PrintRGBA(160, y + 8, hipnoticlevels[hipnoticepisodes[startepisode].firstLevel + startlevel].name,
+				CL_PLColours_Parse("0xffffff"), 0.5, false);
+		else  // No custom map - show normal level name
+			M_PrintWhite (160, y+8, hipnoticlevels[hipnoticepisodes[startepisode].firstLevel + startlevel].name);
+	}
+	// PGM 01/07/97 added rogue episodes
+	else if (rogue)
+	{
+		M_GameOptions_PrintMaybeDim(160, y, roguelevels[rogueepisodes[startepisode].firstLevel + startlevel].description, mod_selected, false);
+		if (dim_builtin_level)  // Custom map/mod selected - show faded level name
+			M_PrintRGBA(160, y+8, roguelevels[rogueepisodes[startepisode].firstLevel + startlevel].name,
+				CL_PLColours_Parse("0xffffff"), 0.5, false);
+		else  // No custom map - show normal level name
+			M_PrintWhite(160, y+8, roguelevels[rogueepisodes[startepisode].firstLevel + startlevel].name);
+	}
+	else
+	{
+		M_GameOptions_PrintMaybeDim(160, y, levels[episodes[startepisode].firstLevel + startlevel].description, mod_selected, false);
+		if (dim_builtin_level)  // Custom map/mod selected - show faded level name
+			M_PrintRGBA(160, y+8, levels[episodes[startepisode].firstLevel + startlevel].name,
+				CL_PLColours_Parse("0xffffff"), 0.5, false);
+		else  // No custom map - show normal level name
+			M_PrintWhite(160, y+8, levels[episodes[startepisode].firstLevel + startlevel].name);
+	}
+	y +=24;
+	M_Print(0, y, "    Select Level");
+	if (m_skill_mapname[0])
+		M_PrintWhite(160, y, m_skill_mapname);
+	else
+		M_Print(160, y, "...");
+	y += 16;
+
+	M_Print(0, y, "     Enter Level");
+	M_DrawTextBox(GAMEOPTIONS_LEVEL_FIELD_BOX_X, y - 8, GAMEOPTIONS_LEVEL_FIELD_BOX_WIDTH, 1);
+	M_TextField_DrawHighlight(&goptions_level_field, GAMEOPTIONS_LEVEL_FIELD_TEXT_X, y);
+	if (goptions_levelname[0])
+		M_PrintWhite(GAMEOPTIONS_LEVEL_FIELD_TEXT_X, y, goptions_levelname);
+
+	if (goptions_levelhint[0] &&
+		gameoptions_cursor == GAMEOPTIONS_ENTER_LEVEL &&
+		goptions_level_field.cursor == (int)strlen(goptions_levelname))
+	{
+		int hint_x = GAMEOPTIONS_LEVEL_FIELD_TEXT_X + (int)strlen(goptions_levelname) * 8;
+		M_PrintRGBA(hint_x, y, goptions_levelhint, CL_PLColours_Parse("0xffffff"), 0.5f, true);
+	}
+
+	if (gameoptions_cursor == GAMEOPTIONS_ENTER_LEVEL)
+		M_TextField_DrawCursor(&goptions_level_field, GAMEOPTIONS_LEVEL_FIELD_TEXT_X, y);
+	y += 8;
+
+// line cursor
+	M_DrawCharacter (144, gameoptions_cursor_table[gameoptions_cursor], 12+((int)(realtime*4)&1));
+}
+
+
+void M_NetStart_Change (int dir)
+{
+	int count;
+	float	f;
+
+	switch (gameoptions_cursor)
+	{
+	case GAMEOPTIONS_MAXPLAYERS:
+		maxplayers += dir;
+		if (maxplayers > svs.maxclientslimit)
+			maxplayers = svs.maxclientslimit;
+		if (maxplayers < 2)
+			maxplayers = 2;
+		break;
+
+	case GAMEOPTIONS_PUBLIC:
+		Cvar_SetQuick (&sv_public, sv_public.value ? "0" : "1");
+		break;
+
+	case GAMEOPTIONS_GAMETYPE:
+		Cvar_Set ("coop", coop.value ? "0" : "1");
+		break;
+
+	case GAMEOPTIONS_TEAMPLAY:
+		count = (rogue) ? 6 : 2;
+		f = teamplay.value + dir;
+		if (f > count)	f = 0;
+		else if (f < 0)	f = count;
+		Cvar_SetValue ("teamplay", f);
+		break;
+
+	case GAMEOPTIONS_SKILL:
+		f = skill.value + dir;
+		if (f > 3)	f = 0;
+		else if (f < 0)	f = 3;
+		Cvar_SetValue ("skill", f);
+		break;
+
+	case GAMEOPTIONS_FRAGLIMIT:
+		f = fraglimit.value + dir * 10;
+		if (f > 100)	f = 0;
+		else if (f < 0)	f = 100;
+		Cvar_SetValue ("fraglimit", f);
+		break;
+
+	case GAMEOPTIONS_TIMELIMIT:
+		f = timelimit.value + dir * 5;
+		if (f > 60)	f = 0;
+		else if (f < 0)	f = 60;
+		Cvar_SetValue ("timelimit", f);
+		break;
+
+	case GAMEOPTIONS_MOD:
+		count = M_GameOptions_ModCount();
+		gameoptions_mod_index += dir;
+		if (gameoptions_mod_index < 0)
+			gameoptions_mod_index = count - 1;
+		if (gameoptions_mod_index >= count)
+			gameoptions_mod_index = 0;
+		M_GameOptions_ClampCursor();
+		break;
+
+	case GAMEOPTIONS_EPISODE:
+		if (!M_GameOptions_UsingDefaultMod())
+			break;
+		m_skill_mapname[0] = 0;
+		M_GameOptions_ClearTypedLevel();
+		startepisode += dir;
+	//MED 01/06/97 added hipnotic count
+		if (hipnotic)
+			count = 6;
+	//PGM 01/07/97 added rogue count
+	//PGM 03/02/97 added 1 for dmatch episode
+		else if (rogue)
+			count = 4;
+		else if (registered.value)
+			count = 7;
+		else
+			count = 2;
+
+		if (startepisode < 0)
+			startepisode = count - 1;
+
+		if (startepisode >= count)
+			startepisode = 0;
+
+		startlevel = 0;
+		break;
+
+	case GAMEOPTIONS_LEVEL:
+		if (!M_GameOptions_UsingDefaultMod())
+			break;
+		m_skill_mapname[0] = 0;
+		M_GameOptions_ClearTypedLevel();
+		startlevel += dir;
+	//MED 01/06/97 added hipnotic episodes
+		if (hipnotic)
+			count = hipnoticepisodes[startepisode].levels;
+	//PGM 01/06/97 added hipnotic episodes
+		else if (rogue)
+			count = rogueepisodes[startepisode].levels;
+		else
+			count = episodes[startepisode].levels;
+
+		if (startlevel < 0)
+			startlevel = count - 1;
+
+		if (startlevel >= count)
+			startlevel = 0;
+		break;
+
+	case GAMEOPTIONS_SELECT_LEVEL: // Select Level option - open maps menu
+		maps_from_gameoptions = true;
+		M_Menu_Maps_f();
+		break;
+
+	case GAMEOPTIONS_ENTER_LEVEL: // Enter Level field - left/right handled by textfield
+		break;
+	}
+}
+
+void M_GameOptions_Key (int key)
+{
+	menu_textfield_t *active_field = M_GameOptions_GetFieldForCursor();
+	int option_count;
+	if (active_field && M_TextField_Key(active_field, key))
+	{
+		M_GameOptions_UpdateLevelHint();
+		return;
+	}
+
+	M_GameOptions_ClampCursor();
+	option_count = M_GameOptions_NumItems();
+
+	switch (key)
+	{
+	case K_ESCAPE:
+	case K_BBUTTON:
+	case K_MOUSE4: // woods #mousemenu
+	case K_MOUSE2:
+		M_Menu_MultiPlayer_f (); // woods #skipipx
+		break;
+
+	case K_UPARROW:
+		S_LocalSound ("misc/menu1.wav");
+		if (gameoptions_cursor == GAMEOPTIONS_ENTER_LEVEL && goptions_levelname[0])
+			M_GameOptions_CheckLeave();
+		M_GameOptions_ClearTextSelections();
+		gameoptions_cursor--;
+		if (gameoptions_cursor < 0)
+			gameoptions_cursor = option_count - 1;
+		break;
+
+	case K_DOWNARROW:
+		S_LocalSound ("misc/menu1.wav");
+		if (gameoptions_cursor == GAMEOPTIONS_ENTER_LEVEL && goptions_levelname[0])
+			M_GameOptions_CheckLeave();
+		M_GameOptions_ClearTextSelections();
+		gameoptions_cursor++;
+		if (gameoptions_cursor >= option_count)
+			gameoptions_cursor = 0;
+		break;
+
+	case K_LEFTARROW:
+	//case K_MOUSE2:
+		if (gameoptions_cursor == GAMEOPTIONS_BEGIN || gameoptions_cursor == GAMEOPTIONS_ENTER_LEVEL)
+			break;
+		S_LocalSound ("misc/menu3.wav");
+		M_NetStart_Change (-1);
+		break;
+
+	case K_MWHEELDOWN:
+		if (gameoptions_cursor == GAMEOPTIONS_BEGIN || gameoptions_cursor == GAMEOPTIONS_SELECT_LEVEL || gameoptions_cursor == GAMEOPTIONS_ENTER_LEVEL)
+			break;
+		S_LocalSound ("misc/menu3.wav");
+		M_NetStart_Change (-1);
+		break;
+
+	case K_RIGHTARROW:
+		if (gameoptions_cursor == GAMEOPTIONS_BEGIN || gameoptions_cursor == GAMEOPTIONS_ENTER_LEVEL)
+			break;
+		S_LocalSound ("misc/menu3.wav");
+		M_NetStart_Change (1);
+		break;
+
+	case K_MWHEELUP:
+		if (gameoptions_cursor == GAMEOPTIONS_BEGIN || gameoptions_cursor == GAMEOPTIONS_SELECT_LEVEL || gameoptions_cursor == GAMEOPTIONS_ENTER_LEVEL)
+			break;
+		S_LocalSound ("misc/menu3.wav");
+		M_NetStart_Change (1);
+		break;
+
+	case K_BACKSPACE:
+	case K_DEL:
+		if (gameoptions_cursor == GAMEOPTIONS_SELECT_LEVEL)
+		{
+			m_skill_mapname[0] = 0;
+		}
+		else if (gameoptions_cursor == GAMEOPTIONS_ENTER_LEVEL)
+		{
+			M_GameOptions_UpdateLevelHint();
+		}
+		break;
+
+	case K_TAB:
+		if (gameoptions_cursor == GAMEOPTIONS_ENTER_LEVEL && goptions_levelhint[0])
+		{
+			M_GameOptions_AcceptLevelHint();
+			m_skill_mapname[0] = '\0';
+			S_LocalSound("misc/menu2.wav");
+		}
+		break;
+
+	case K_ENTER:
+	case K_KP_ENTER:
+	case K_ABUTTON:
+	case K_MOUSE1: // woods #mousemenu
+		if (key == K_MOUSE1 && gameoptions_cursor == GAMEOPTIONS_ENTER_LEVEL)
+		{
+			if (M_TextField_MouseInRow(m_mousey, gameoptions_cursor_table[GAMEOPTIONS_ENTER_LEVEL]))
+				M_TextField_MouseClick(&goptions_level_field, m_mousex, GAMEOPTIONS_LEVEL_FIELD_TEXT_X);
+			return;
+		}
+
+		if (gameoptions_cursor == GAMEOPTIONS_ENTER_LEVEL)
+		{
+			M_GameOptions_CheckLeave();
+			if (goptions_levelname[0] && M_GameOptions_IsValidLevel())
+				S_LocalSound("misc/menu2.wav");
+			else
+				S_LocalSound("misc/menu3.wav");
+			return;
+		}
+
+		S_LocalSound ("misc/menu2.wav");
+		if (gameoptions_cursor == GAMEOPTIONS_BEGIN)
+		{
+			const char *selected_mod = M_GameOptions_SelectedMod();
+			char selected_map[MAX_QPATH];
+
+			selected_map[0] = '\0';
+
+			if (sv.active)
+				Cbuf_AddText ("disconnect\n");
+			Cbuf_AddText ("listen 0\n");	// so host_netport will be re-examined
+			Cbuf_AddText ( va ("maxplayers %u\n", maxplayers) );
+			SCR_BeginLoadingPlaque ();
+
+			if (goptions_levelname[0])
+				M_GameOptions_CheckLeave();
+
+			if (goptions_levelname[0] && M_GameOptions_IsValidLevel())  // Enter Level has priority
+				q_strlcpy(selected_map, goptions_levelname, sizeof(selected_map));
+			else if (m_skill_mapname[0])  // Fallback to Select Level
+				q_strlcpy(selected_map, m_skill_mapname, sizeof(selected_map));
+
+			if (selected_mod)
+			{
+				if (COM_GameDirMatches(selected_mod))
+				{
+					if (selected_map[0])
+						Cbuf_AddText(va("map %s\n", selected_map));
+					else
+						Cbuf_AddText("modvote_startmap\n");
+				}
+				else
+				{
+					if (selected_map[0])
+						Cvar_Set("sv_defaultmap", selected_map);
+					COM_SetModvoteAutostart();
+					Cbuf_AddText(va("game %s\n", selected_mod));
+				}
+				return;
+			}
+
+			if (selected_map[0])
+			{
+				Cbuf_AddText(va("map %s\n", selected_map));
+			}
+			else  // Use regular episode/level selection
+			{
+				if (hipnotic)
+					Cbuf_AddText ( va ("map %s\n", hipnoticlevels[hipnoticepisodes[startepisode].firstLevel + startlevel].name) );
+				else if (rogue)
+					Cbuf_AddText ( va ("map %s\n", roguelevels[rogueepisodes[startepisode].firstLevel + startlevel].name) );
+				else
+					Cbuf_AddText ( va ("map %s\n", levels[episodes[startepisode].firstLevel + startlevel].name) );
+			}
+
+			return;
+		}
+
+		M_NetStart_Change (1);
+		break;
+	}
+}
+
+void M_GameOptions_Mousemove(int cx, int cy) // woods #mousemenu
+{
+	int old_cursor;
+
+	if (textfield_mouse_dragging && textfield_drag_field == &goptions_level_field)
+	{
+		M_TextField_MouseDrag(cx);
+		return;
+	}
+
+	M_GameOptions_ClampCursor();
+	old_cursor = gameoptions_cursor;
+	M_UpdateCursorWithTable(cy, gameoptions_cursor_table, M_GameOptions_NumItems(), &gameoptions_cursor);
+	if (gameoptions_cursor != old_cursor)
+	{
+		if (old_cursor == GAMEOPTIONS_ENTER_LEVEL && goptions_levelname[0])
+			M_GameOptions_CheckLeave();
+		M_GameOptions_ClearTextSelections();
+	}
+}
+
+void M_GameOptions_Char(int key)
+{
+	menu_textfield_t *active_field = M_GameOptions_GetFieldForCursor();
+	if (active_field && M_TextField_Char(active_field, key))
+		M_GameOptions_UpdateLevelHint();
+}
+
+qboolean M_GameOptions_TextEntry(void)
+{
+	return (gameoptions_cursor == GAMEOPTIONS_ENTER_LEVEL);
+}
+
+/*
+==================
+Server Search Menu
+==================
+*/
+
+qboolean	searchComplete = false;
+double		searchCompleteTime;
+enum slistScope_e searchLastScope = SLIST_LAN;
+void ResetHostlist (void); // woods #resethostlist
+
+void M_Menu_Search_f (enum slistScope_e scope)
+{
+	key_dest = key_menu;
+	m_state = m_search;
+	IN_UpdateGrabs();
+	m_entersound = false;
+	slistSilent = true;
+	ResetHostlist(); // woods #resethostlist
+	slistScope = searchLastScope = scope;
+	searchComplete = false;
+	NET_Slist_f();
+
+}
+
+
+void M_Search_Draw (void)
+{
+	qpic_t	*p;
+	int x;
+
+	p = Draw_CachePic ("gfx/p_multi.lmp");
+	M_DrawPic ( (320-p->width)/2, 4, p);
+	x = (320/2) - ((12*8)/2) + 4;
+	M_DrawTextBox (x-8, 32, 12, 1);
+	Draw_StringGradientSweep (x, 40, "Searching...", 96.0f, 48.0f, 1.0f, true); // woods
+
+	if(slistInProgress)
+	{
+		NET_Poll();
+		return;
+	}
+
+	if (! searchComplete)
+	{
+		searchComplete = true;
+		searchCompleteTime = realtime;
+	}
+
+	if (hostCacheCount)
+	{
+		M_Menu_ServerList_f ();
+		return;
+	}
+
+	M_PrintWhite ((320/2) - ((22*8)/2), 64, "No Quake servers found");
+	if ((realtime - searchCompleteTime) < 3.0)
+		return;
+
+	M_Menu_LanConfig_f ();
+}
+
+
+void M_Search_Key (int key)
+{
+}
+
+/*
+==================
+Server List Menu
+==================
+*/
+
+#define MAX_VIS_SERVERS 17
+#define PING_COOLDOWN 2.0
+#define MAX_PING_QUEUE 5
+
+// number of worker threads used for the initial server ping sweep
+#ifndef MAX_PING_THREADS
+#define MAX_PING_THREADS 4
+#endif
+
+typedef struct {
+	const char* name;
+	const char* ip;
+	int users;
+	int maxusers;
+	const char* map;
+	const char* players;  // comma-separated player names (NULL if unavailable)
+	int ping;
+	qboolean active;
+	double lastPingTime;
+	qboolean isLoading;  // New flag to indicate loading state
+} servertitem_t;
+
+static struct {
+	menulist_t list;
+	enum m_state_e prev;
+	int x, y, cols;
+	int prev_cursor;
+	menuticker_t ticker;
+	qboolean scrollbar_grab;
+    servertitem_t* items;
+    int* order;
+    int* filtered_indices;
+    int servercount;
+    int slist_first;
+    qboolean pingSortDirty;
+	SDL_Thread* pingThreads[MAX_PING_THREADS];
+	qboolean initialPingComplete;
+	int initialPingThreadsRemaining;
+	int pingQueue[MAX_PING_QUEUE];
+	int pingQueueSize;
+	qboolean pingThreadRunning;
+	SDL_Thread* pingThread;
+	int sort_mode;
+	qboolean sort_descending;
+} serversmenu;
+
+enum {
+	SORT_NAME,
+	SORT_MAP,
+	SORT_USERS,
+	SORT_PING
+};
+
+//=============================================================================
+// woods servers.quakeone.com support curl+json parsing #serversmenu
+//=============================================================================
+
+static volatile qboolean pingThreadsShouldExit = false;
+SDL_mutex* pingMutex = NULL;
+
+int UDP_Ping_Host(const char* host);
+char *UDP_QueryPlayers(const char *host, int maxslots);
+
+static int ServersMenu_ResolveIndex(int displayIndex);
+static void SortServers(qboolean lockMutex);
+
+static void ServerList_CopyTrimmedToken(const char* start, size_t len, char* out, size_t outsize)
+{
+	const char* end = start + len;
+
+	while (start < end && (*start == ' ' || *start == '\t'))
+		start++;
+	while (end > start && (end[-1] == ' ' || end[-1] == '\t'))
+		end--;
+
+	len = end - start;
+	if (!outsize)
+		return;
+	if (len >= outsize)
+		len = outsize - 1;
+
+	memcpy(out, start, len);
+	out[len] = 0;
+}
+
+static void ServerList_GetBaseName(const char* name, char* out, size_t outsize)
+{
+	if (!name)
+		name = "";
+	if (*name == '*')
+		name++;
+	q_strlcpy(out, name, outsize);
+}
+
+static void ServerList_GetHostOnly(const char* address, char* out, size_t outsize)
+{
+	const char* start;
+	const char* end;
+
+	if (!outsize)
+		return;
+	out[0] = 0;
+
+	if (!address || !*address)
+		return;
+
+	if (address[0] == '[')
+	{
+		start = address + 1;
+		end = strchr(start, ']');
+		if (!end)
+			end = address + strlen(address);
+	}
+	else
+	{
+		const char* last_colon = strrchr(address, ':');
+		start = address;
+		end = last_colon ? last_colon : address + strlen(address);
+	}
+
+	ServerList_CopyTrimmedToken(start, end - start, out, outsize);
+}
+
+static qboolean ServerList_IsIgnored(const char* name, const char* ip)
+{
+	const char* list = net_master_ignore.string;
+	char token[256];
+	char baseName[256];
+	char hostOnly[NET_NAMELEN];
+
+	if (!list || !*list)
+		return false;
+
+	ServerList_GetBaseName(name, baseName, sizeof(baseName));
+	ServerList_GetHostOnly(ip, hostOnly, sizeof(hostOnly));
+
+	while (*list)
+	{
+		const char* comma = strchr(list, ',');
+		size_t len = comma ? (size_t)(comma - list) : strlen(list);
+
+		ServerList_CopyTrimmedToken(list, len, token, sizeof(token));
+		if (*token)
+		{
+			qboolean tokenLooksLikeAddress = strchr(token, '.') || strchr(token, ':') || strchr(token, '[') || strchr(token, ']');
+
+			if ((name && !q_strcasecmp(token, name)) ||
+				(baseName[0] && !q_strcasecmp(token, baseName)) ||
+				(ip && !q_strcasecmp(token, ip)) ||
+				(hostOnly[0] && !q_strcasecmp(token, hostOnly)) ||
+				(tokenLooksLikeAddress && ((name && q_strcasestr(name, token)) ||
+				(baseName[0] && q_strcasestr(baseName, token)))))
+				return true;
+		}
+
+		if (!comma)
+			break;
+		list = comma + 1;
+	}
+
+	return false;
+}
+
+static void ServerList_FreeItem(servertitem_t* item)
+{
+	if (!item)
+		return;
+
+	free((void *)item->name);
+	free((void *)item->ip);
+	free((void *)item->map);
+	free((void *)item->players);
+
+	item->name = NULL;
+	item->ip = NULL;
+	item->map = NULL;
+	item->players = NULL;
+}
+
+static void ServerList_FreeItems(servertitem_t* items, int count)
+{
+	int i;
+
+	if (!items)
+		return;
+
+	for (i = 0; i < count; ++i)
+		ServerList_FreeItem(&items[i]);
+
+	free(items);
+}
+
+static void ServerList_MoveItem(servertitem_t* dst, servertitem_t* src)
+{
+	if (!dst || !src || dst == src)
+		return;
+
+	*dst = *src;
+	memset(src, 0, sizeof(*src));
+}
+
+void InitializePingMutex(void)
+{
+	pingMutex = SDL_CreateMutex();
+	if (pingMutex == NULL) {
+		Con_DPrintf("SDL_CreateMutex failed: %s\n", SDL_GetError());
+	}
+}
+
+void CleanupPingMutex(void)
+{
+	if (pingMutex != NULL) {
+		SDL_DestroyMutex(pingMutex);
+		pingMutex = NULL;
+	}
+}
+
+void PingSingleServer(int index)
+{
+	if (index < 0 || index >= serversmenu.servercount)
+		return;
+
+	char serverAddress[256];
+	int  previousPing;
+	int  users;
+
+	SDL_LockMutex(pingMutex);
+	q_strlcpy(serverAddress, serversmenu.items[index].ip, sizeof(serverAddress));
+	previousPing = serversmenu.items[index].ping;
+	users = serversmenu.items[index].users;
+	serversmenu.items[index].isLoading = true;  // Set loading flag
+	SDL_UnlockMutex(pingMutex);
+
+	int ping = UDP_Ping_Host(serverAddress);
+
+	SDL_LockMutex(pingMutex);
+	if (ping >= 0)
+	{
+		serversmenu.items[index].ping = ping;
+	}
+	else if (previousPing >= 0)
+	{
+		serversmenu.items[index].ping = previousPing;
+	}
+	else
+	{
+		serversmenu.items[index].ping = -1;  // -1 indicates "failed"
+	}
+	serversmenu.items[index].isLoading = false;  // Clear loading flag
+	SDL_UnlockMutex(pingMutex);
+
+	/* refresh player names on re-ping if server has players */
+	if (ping >= 0 && users > 0)
+	{
+		char *playernames = UDP_QueryPlayers(serverAddress, users);
+		SDL_LockMutex(pingMutex);
+		if (playernames)
+		{
+			free((void *)serversmenu.items[index].players);
+			serversmenu.items[index].players = playernames;
+		}
+		SDL_UnlockMutex(pingMutex);
+	}
+}
+
+int ProcessPingQueue(void* data)
+{
+	while (!pingThreadsShouldExit)
+	{
+		int serverIndex = -1;
+
+		SDL_LockMutex(pingMutex);
+		if (serversmenu.pingQueueSize > 0)
+		{
+			serverIndex = serversmenu.pingQueue[0];
+			for (int i = 0; i < serversmenu.pingQueueSize - 1; i++)
+				serversmenu.pingQueue[i] = serversmenu.pingQueue[i + 1];
+			serversmenu.pingQueueSize--;
+		}
+		SDL_UnlockMutex(pingMutex);
+
+		if (serverIndex != -1)
+			PingSingleServer(serverIndex);
+		else
+			SDL_Delay(10);  // Short delay to prevent busy-waiting
+	}
+
+	SDL_LockMutex(pingMutex);
+	serversmenu.pingThreadRunning = false;
+	SDL_UnlockMutex(pingMutex);
+
+	return 0;
+}
+
+int PingSingleServerThread(void* data)
+{
+	int index = (int)(intptr_t)data;
+	PingSingleServer(index);
+	return 0;
+}
+
+void TriggerServerPing(int index)
+{
+	int actualIndex;
+
+	SDL_LockMutex(pingMutex);
+	qboolean canPing = serversmenu.initialPingComplete;
+	actualIndex = ServersMenu_ResolveIndex(index);
+	SDL_UnlockMutex(pingMutex);
+
+	if (!canPing || actualIndex < 0)
+		return;
+
+	if (actualIndex < serversmenu.servercount)
+	{
+		double currentTime = Sys_DoubleTime();
+
+		if ((currentTime - serversmenu.items[actualIndex].lastPingTime) >= PING_COOLDOWN)
+		{
+			SDL_LockMutex(pingMutex);
+			if (serversmenu.pingQueueSize < MAX_PING_QUEUE)
+			{
+				serversmenu.pingQueue[serversmenu.pingQueueSize++] = actualIndex;
+				serversmenu.items[actualIndex].lastPingTime = currentTime;
+			}
+			if (!serversmenu.pingThreadRunning)
+			{
+				serversmenu.pingThread = SDL_CreateThread(ProcessPingQueue, "PingQueueThread", NULL);
+				if (serversmenu.pingThread == NULL)
+				{
+					Con_DPrintf("SDL_CreateThread failed: %s\n", SDL_GetError());
+				}
+				else
+				{
+					serversmenu.pingThreadRunning = true;
+				}
+			}
+			SDL_UnlockMutex(pingMutex);
+		}
+	}
+}
+
+int PingServers(void* data)
+{
+	if (!data)
+	{
+		Con_DPrintf("PingServers received a null pointer\n");
+		return -1; // Return an error if data is null
+	}
+
+	int start = ((int*)data)[0];
+	int end = ((int*)data)[1];
+
+	for (int i = start; i < end; i++)
+	{
+		if (pingThreadsShouldExit)
+			break;
+
+		SDL_LockMutex(pingMutex);
+		if (serversmenu.items && serversmenu.items[i].ip)
+		{
+			char serverAddress[256];
+			int users;
+			qboolean has_players_already;
+			q_strlcpy(serverAddress, serversmenu.items[i].ip, sizeof(serverAddress));
+			users = serversmenu.items[i].users;
+			has_players_already = (serversmenu.items[i].players != NULL);
+			SDL_UnlockMutex(pingMutex);
+
+			int ping = UDP_Ping_Host(serverAddress);
+
+			SDL_LockMutex(pingMutex);
+			serversmenu.items[i].ping = (ping >= 0) ? ping : -1;
+			SDL_UnlockMutex(pingMutex);
+
+			/* query player names if server responded to ping and has players */
+			if (ping >= 0 && users > 0 && !has_players_already)
+			{
+				char *playernames = UDP_QueryPlayers(serverAddress, users);
+				if (playernames)
+				{
+					SDL_LockMutex(pingMutex);
+					serversmenu.items[i].players = playernames;
+					SDL_UnlockMutex(pingMutex);
+				}
+			}
+		}
+		else
+		{
+			SDL_UnlockMutex(pingMutex);
+			Con_DPrintf("Invalid server item or IP\n");
+		}
+	}
+
+	free(data);
+
+	// Check if this is the last thread to finish
+	SDL_LockMutex(pingMutex);
+	if (serversmenu.initialPingThreadsRemaining > 0)
+		serversmenu.initialPingThreadsRemaining--;
+	if (serversmenu.initialPingThreadsRemaining <= 0)
+	{
+		serversmenu.initialPingThreadsRemaining = 0;
+		serversmenu.initialPingComplete = true;
+		serversmenu.pingSortDirty = true;
+	}
+	SDL_UnlockMutex(pingMutex);
+
+	return 0;
+}
+
+void WaitForPingThreads(void)
+{
+	pingThreadsShouldExit = true; // Signal threads to exit
+
+	for (int i = 0; i < MAX_PING_THREADS; ++i)
+	{
+		SDL_Thread* t = serversmenu.pingThreads[i];
+		if (t)
+		{
+			SDL_WaitThread(t, NULL);
+			serversmenu.pingThreads[i] = NULL; // Set to NULL after joining
+		}
+	}
+
+	pingThreadsShouldExit = false; // Reset the exit flag
+
+	SDL_LockMutex(pingMutex);
+	serversmenu.initialPingThreadsRemaining = 0;
+	serversmenu.initialPingComplete = true;
+	SDL_UnlockMutex(pingMutex);
+}
+
+void PingAllServers(void)
+{
+	int servercount = serversmenu.servercount;
+
+	for (int i = 0; i < MAX_PING_THREADS; ++i)
+		serversmenu.pingThreads[i] = NULL;
+
+	if (servercount <= 0)
+	{
+		SDL_LockMutex(pingMutex);
+		serversmenu.initialPingThreadsRemaining = 0;
+		serversmenu.initialPingComplete = true;
+		serversmenu.pingSortDirty = true;
+		SDL_UnlockMutex(pingMutex);
+		return;
+	}
+
+	int desiredThreads = MAX_PING_THREADS;
+	if (desiredThreads > servercount)
+		desiredThreads = servercount; // don't spawn more threads than servers
+
+	int base = servercount / desiredThreads;
+	int rem  = servercount % desiredThreads;
+
+	int launchedThreads = 0;
+	int start = 0;
+	for (int i = 0; i < desiredThreads; ++i)
+	{
+		int count = base + (i < rem ? 1 : 0);
+		int end = start + count;
+
+		int* range = (int*)malloc(2 * sizeof(int));
+		if (!range)
+		{
+			Con_DPrintf("Memory allocation failed\n");
+			continue;
+		}
+		range[0] = start;
+		range[1] = end;
+
+		char namebuf[32];
+		q_snprintf(namebuf, sizeof(namebuf), "PingServersThread%d", i + 1);
+		serversmenu.pingThreads[i] = SDL_CreateThread(PingServers, namebuf, (void*)range);
+		if (serversmenu.pingThreads[i] == NULL)
+		{
+			Con_DPrintf("SDL_CreateThread failed: %s\n", SDL_GetError());
+			free(range);
+		}
+		else
+		{
+			launchedThreads++;
+		}
+
+		start = end;
+	}
+
+	SDL_LockMutex(pingMutex);
+	serversmenu.initialPingThreadsRemaining = launchedThreads;
+	serversmenu.initialPingComplete = (launchedThreads == 0);
+	if (launchedThreads == 0)
+		serversmenu.pingSortDirty = true;
+	SDL_UnlockMutex(pingMutex);
+}
+
+struct MemoryStruct
+{
+	char* memory;
+	size_t size;
+};
+
+static size_t WriteMemoryCallback (void* contents, size_t size, size_t nmemb, void* userp)
+{
+	size_t realSize = size * nmemb;
+	struct MemoryStruct* mem = (struct MemoryStruct*)userp;
+
+	char* ptr = realloc(mem->memory, mem->size + realSize + 1);
+	if (!ptr) {
+		Con_DPrintf("not enough memory (realloc returned NULL)\n");
+		return 0;
+	}
+
+	mem->memory = ptr;
+	memcpy(&(mem->memory[mem->size]), contents, realSize);
+	mem->size += realSize;
+	mem->memory[mem->size] = 0;
+
+	return realSize;
+}
+
+void setStatusFlagBasedOnTimestamp (const char* timestamp, const char* lastQuery, qboolean* status)
+{
+	char bufTimestamp[20], bufLastQuery[20]; // Extract time components up to seconds
+	Q_strncpy(bufTimestamp, timestamp, 19);
+	bufTimestamp[19] = '\0';
+	Q_strncpy(bufLastQuery, lastQuery, 19);
+	bufLastQuery[19] = '\0';
+
+	if (Q_strcmp(bufTimestamp, bufLastQuery) == 0) // Compare the timestamp and lastQuery to the second
+		*status = true;
+	else
+		*status = false;
+}
+
+void populateServersFromJSON (const char* jsonText, servertitem_t** items, int* actualServerCount)
+{
+	json_t* json = JSON_Parse(jsonText);
+	if (!json || !json->root || json->root->type != JSON_ARRAY) 
+	{
+		Con_DPrintf("Failed to parse JSON or JSON is not an array.\n");
+		if (json) JSON_Free(json);
+		return;
+	}
+
+	const jsonentry_t* serverEntry;
+	for (serverEntry = json->root->firstchild; serverEntry; serverEntry = serverEntry->next)
+	{
+		const char* name = JSON_FindString(serverEntry, "hostname");
+		const char* address = JSON_FindString(serverEntry, "address");
+		const double* maxPlayers = JSON_FindNumber(serverEntry, "maxPlayers");
+		const char* map = JSON_FindString(serverEntry, "map");
+		const char* parameters = JSON_FindString(serverEntry, "parameters");
+		const double* gameId = JSON_FindNumber(serverEntry, "gameId");
+		const double* port = JSON_FindNumber(serverEntry, "port");
+		const char* timestamp = JSON_FindString(serverEntry, "timestamp");
+		const char* lastQuery = JSON_FindString(serverEntry, "lastQuery");
+
+		const jsonentry_t* playersArray = JSON_Find(serverEntry, "players", JSON_ARRAY);
+
+		int numPlayers = 0;
+		char playerNames[512] = "";
+		int playerNamesLen = 0;
+		if (playersArray)
+		{
+			const jsonentry_t* playerEntry;
+			for (playerEntry = playersArray->firstchild; playerEntry; playerEntry = playerEntry->next)
+			{
+				const char* pname = JSON_FindString(playerEntry, "name");
+				if (pname && pname[0])
+				{
+					// trim trailing spaces
+					int plen = (int)strlen(pname);
+					while (plen > 0 && pname[plen - 1] == ' ')
+						plen--;
+					if (plen > 0 && playerNamesLen + plen + 2 < (int)sizeof(playerNames))
+					{
+						if (playerNamesLen > 0)
+						{
+							playerNames[playerNamesLen++] = ',';
+							playerNames[playerNamesLen++] = ' ';
+						}
+						memcpy(playerNames + playerNamesLen, pname, plen);
+						playerNamesLen += plen;
+						playerNames[playerNamesLen] = '\0';
+					}
+				}
+				numPlayers++;
+			}
+		}
+
+		qboolean status;
+		setStatusFlagBasedOnTimestamp(timestamp, lastQuery, &status);
+
+		if (!status || !name || !address || !port || !gameId || (*gameId != 0 && (*gameId != 5 || !parameters || !strstr(parameters, "fte")))) continue; // Skip if essential info is missing or server is down
+
+		servertitem_t* resizedItems = realloc(*items, sizeof(servertitem_t) * (*actualServerCount + 1));
+		if (!resizedItems) {
+			Con_DPrintf("Memory allocation failed.\n");
+			break;
+		}
+		*items = resizedItems;
+
+                size_t address_len = strlen(address);
+                qboolean needs_brackets = false;
+                if (address_len > 0)
+                {
+                        const char* colon = strchr(address, ':');
+                        const char* dot = strchr(address, '.');
+
+                        if (address[0] == '[')
+                                needs_brackets = false; // already bracketed
+                        else if (colon && (!dot || dot > colon))
+                                needs_brackets = true; // treat colon-only hosts as IPv6 literals
+                }
+
+                size_t addressLength = address_len + 1 /* colon */ + 6 /* max length of port number */ + 1 /* null terminator */;
+                if (needs_brackets)
+                        addressLength += 2; /* enclosing [] */
+
+                char* addressWithPort = malloc(addressLength);
+                if (!addressWithPort) {
+                        Con_DPrintf("Memory allocation for address with port failed.\n");
+                        break;
+                }
+		if (needs_brackets)
+			q_snprintf(addressWithPort, addressLength, "[%s]:%d", address, (int)*port);
+		else
+			q_snprintf(addressWithPort, addressLength, "%s:%d", address, (int)*port);
+
+		if (ServerList_IsIgnored(name, addressWithPort))
+		{
+			free(addressWithPort);
+			continue;
+		}
+
+		servertitem_t* newItem = &(*items)[*actualServerCount];
+		newItem->name = strdup(name ? name : "Unknown");
+                newItem->ip = strdup(addressWithPort);
+                free(addressWithPort);
+		newItem->users = numPlayers;
+		newItem->maxusers = maxPlayers ? (int)*maxPlayers : 0;
+		newItem->map = strdup(map ? map : "Unknown");
+		newItem->players = playerNamesLen > 0 ? strdup(playerNames) : NULL;
+		newItem->active = true;
+		newItem->ping = -1;
+		newItem->isLoading = false;
+
+		(*actualServerCount)++;
+	}
+
+	JSON_Free(json);
+}
+
+void CurlServerList (servertitem_t** items, int* actualServerCount) 
+{
+	CURL* curl;
+	CURLcode res;
+	struct MemoryStruct chunk;
+
+	chunk.memory = malloc(1);  // Initial allocation
+	chunk.size = 0;    // No data at this point
+
+	curl_global_init(CURL_GLOBAL_ALL);
+	curl = curl_easy_init();
+
+	if (curl) 
+	{
+		curl_easy_setopt(curl, CURLOPT_URL, "https://servers.quakeone.com/api/servers/status");
+		curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, WriteMemoryCallback);
+		curl_easy_setopt(curl, CURLOPT_WRITEDATA, (void*)&chunk);
+		curl_easy_setopt(curl, CURLOPT_USERAGENT, "libcurl-agent/1.0");
+
+		res = curl_easy_perform(curl);
+		if (res != CURLE_OK)
+			Con_DPrintf("curl_easy_perform() failed: %s\n", curl_easy_strerror(res));
+		else
+			populateServersFromJSON(chunk.memory, items, actualServerCount);
+
+		free(chunk.memory);
+		curl_easy_cleanup(curl);
+	}
+
+	curl_global_cleanup();
+}
+
+static int CompareServers(const void* a, const void* b)
+{
+        int indexA = *(const int*)a;
+        int indexB = *(const int*)b;
+        const servertitem_t* serverA = &serversmenu.items[indexA];
+        const servertitem_t* serverB = &serversmenu.items[indexB];
+	int res = 0;
+
+	switch (serversmenu.sort_mode) {
+	case SORT_NAME:
+		res = q_strcasecmp(serverA->name, serverB->name);
+		break;
+	case SORT_MAP:
+		res = q_strcasecmp(serverA->map, serverB->map);
+		break;
+	case SORT_USERS:
+		res = serverA->users - serverB->users;
+		break;
+	case SORT_PING:
+		{
+        int pingA = (serverA->ping >= 0) ? serverA->ping : INT_MAX;
+        int pingB = (serverB->ping >= 0) ? serverB->ping : INT_MAX;
+			res = pingA - pingB;
+		}
+		break;
+	}
+
+	if (res == 0) {
+		if (serversmenu.sort_mode != SORT_PING) {
+			int pingA = (serverA->ping >= 0) ? serverA->ping : INT_MAX;
+			int pingB = (serverB->ping >= 0) ? serverB->ping : INT_MAX;
+        if (pingA != pingB)
+                return pingA - pingB;
+		}
+        return q_strcasecmp(serverA->name, serverB->name);
+}
+
+	return serversmenu.sort_descending ? -res : res;
+}
+
+static int ServersMenu_ResolveIndex(int displayIndex)
+{
+	// When search is active, use filtered_indices
+	if (serversmenu.list.search.len > 0 && serversmenu.filtered_indices)
+	{
+		if (displayIndex < 0 || displayIndex >= VEC_SIZE(serversmenu.filtered_indices))
+			return -1;
+		int sortedIndex = serversmenu.filtered_indices[displayIndex];
+		if (!serversmenu.order)
+			return sortedIndex;
+		return serversmenu.order[sortedIndex];
+	}
+
+        if (displayIndex < 0 || displayIndex >= serversmenu.servercount)
+                return -1;
+
+        if (!serversmenu.order)
+                return displayIndex;
+
+        return serversmenu.order[displayIndex];
+}
+
+static void M_ServerList_Refilter(void)
+{
+    int i;
+    VEC_CLEAR(serversmenu.filtered_indices);
+
+    for (i = 0; i < serversmenu.servercount; i++)
+    {
+        int actual_idx = serversmenu.order ? serversmenu.order[i] : i;
+        if (actual_idx < 0 || actual_idx >= serversmenu.servercount)
+            continue;
+
+        const servertitem_t* server = &serversmenu.items[actual_idx];
+        
+        if (serversmenu.list.search.len == 0 ||
+            q_strcasestr(server->name, serversmenu.list.search.text) ||
+            q_strcasestr(server->map, serversmenu.list.search.text) ||
+            q_strcasestr(server->ip, serversmenu.list.search.text))
+        {
+            VEC_PUSH(serversmenu.filtered_indices, i);
+        }
+    }
+
+    serversmenu.list.numitems = VEC_SIZE(serversmenu.filtered_indices);
+
+    if (serversmenu.list.cursor >= serversmenu.list.numitems)
+        serversmenu.list.cursor = serversmenu.list.numitems - 1;
+
+    if (serversmenu.list.cursor < 0 && serversmenu.list.numitems > 0)
+        serversmenu.list.cursor = 0;
+
+    M_List_CenterCursor(&serversmenu.list);
+}
+
+
+static void SortServers(qboolean lockMutex)
+{
+        qboolean locked = false;
+
+        if (lockMutex && pingMutex)
+        {
+                SDL_LockMutex(pingMutex);
+                locked = true;
+        }
+
+        if (!serversmenu.items || !serversmenu.order)
+        {
+                serversmenu.pingSortDirty = false;
+                if (locked)
+                        SDL_UnlockMutex(pingMutex);
+                return;
+        }
+
+        int selectedActual = ServersMenu_ResolveIndex(serversmenu.list.cursor);
+
+        if (serversmenu.servercount >= 2)
+		qsort(serversmenu.order, serversmenu.servercount, sizeof(serversmenu.order[0]), CompareServers);
+
+        if (selectedActual >= 0)
+        {
+                for (int i = 0; i < serversmenu.servercount; ++i)
+                {
+                        if (serversmenu.order[i] == selectedActual)
+                        {
+                                serversmenu.list.cursor = i;
+                                break;
+                        }
+                }
+        }
+        else if (serversmenu.servercount > 0 &&
+                (serversmenu.list.cursor < 0 || serversmenu.list.cursor >= serversmenu.servercount))
+        {
+                serversmenu.list.cursor = CLAMP(0, serversmenu.list.cursor, serversmenu.servercount - 1);
+        }
+
+        if (serversmenu.list.viewsize > 0)
+                M_List_Rescroll(&serversmenu.list);
+
+        serversmenu.pingSortDirty = false;
+
+        if (locked)
+                SDL_UnlockMutex(pingMutex);
+}
+
+void RemoveDuplicateServers (servertitem_t** items, int* actualServerCount) 
+{
+	int writeIndex = 0;
+	for (int i = 0; i < *actualServerCount; i++)
+	{
+		int duplicateIndex = -1;
+		const char* candidateName = (*items)[i].name ? (*items)[i].name : "";
+		const char* candidateBaseName = (*items)[i].name && (*items)[i].name[0] == '*' ? (*items)[i].name + 1 : candidateName;
+		qboolean candidateStarred = (*items)[i].name && (*items)[i].name[0] == '*';
+
+		for (int j = 0; j < writeIndex; j++)
+		{
+			const char* existingName = (*items)[j].name ? (*items)[j].name : "";
+			const char* existingBaseName = (*items)[j].name && (*items)[j].name[0] == '*' ? (*items)[j].name + 1 : existingName;
+			qboolean existingStarred = (*items)[j].name && (*items)[j].name[0] == '*';
+
+			if (strcmp((*items)[i].ip, (*items)[j].ip) == 0)
+			{
+				duplicateIndex = j;
+				break;
+			}
+
+			// Public search can surface the same ICE-capable server twice:
+			// once as an unsupported starred UDP listing and again as a normal broker/API listing.
+			if ((candidateStarred || existingStarred) &&
+				!q_strcasecmp(candidateBaseName, existingBaseName) &&
+				!q_strcasecmp((*items)[i].map, (*items)[j].map) &&
+				(*items)[i].users == (*items)[j].users &&
+				(*items)[i].maxusers == (*items)[j].maxusers)
+			{
+				duplicateIndex = j;
+				break;
+			}
+		}
+
+		if (duplicateIndex >= 0)
+		{
+			qboolean existingStarred = (*items)[duplicateIndex].name && (*items)[duplicateIndex].name[0] == '*';
+			if (existingStarred && !candidateStarred)
+			{
+				ServerList_FreeItem(&(*items)[duplicateIndex]);
+				ServerList_MoveItem(&(*items)[duplicateIndex], &(*items)[i]);
+			}
+			else
+			{
+				ServerList_FreeItem(&(*items)[i]);
+			}
+			continue;
+		}
+
+		if (writeIndex != i)
+		{
+			ServerList_FreeItem(&(*items)[writeIndex]);
+			ServerList_MoveItem(&(*items)[writeIndex], &(*items)[i]);
+		}
+		writeIndex++;
+	}
+	*actualServerCount = writeIndex;
+}
+
+void FetchAndSortServers (void) 
+{
+        ServerList_FreeItems(serversmenu.items, serversmenu.servercount);
+        serversmenu.items = NULL;
+        free(serversmenu.order);
+        serversmenu.order = NULL;
+        int actualServerCount = 0;
+
+	for (int i = 0; i < HOSTCACHESIZE; i++) // Fetch and add servers from the dp list
+	{
+		const char* serverName = NET_SlistPrintServerInfo(i, SERVER_NAME);
+		const char* serverIP = NET_SlistPrintServerInfo(i, SERVER_CNAME);
+		int users = atoi(NET_SlistPrintServerInfo(i, SERVER_USERS));
+		int maxusers = atoi(NET_SlistPrintServerInfo(i, SERVER_MAX_USERS));
+		const char* map = NET_SlistPrintServerInfo(i, SERVER_MAP);
+
+		unsigned char* ch; // woods dequake
+		for (ch = (unsigned char*)serverName; *ch; ch++)
+			*ch = dequake[*ch];
+
+		if (ServerList_IsIgnored(serverName, serverIP))
+			continue;
+
+		if (serverName && serverName[0] != '\0') 
+		{
+			servertitem_t* resizedItems = (servertitem_t*)realloc(serversmenu.items, sizeof(servertitem_t) * (actualServerCount + 1));
+			if (!resizedItems)
+			{
+				Con_DPrintf("Memory allocation failed.\n");
+				break;
+			}
+			serversmenu.items = resizedItems;
+
+			serversmenu.items[actualServerCount].name = strdup(serverName);
+			serversmenu.items[actualServerCount].ip = strdup(serverIP);
+			serversmenu.items[actualServerCount].users = users;
+			serversmenu.items[actualServerCount].maxusers = maxusers;
+			serversmenu.items[actualServerCount].map = strdup(map);
+			serversmenu.items[actualServerCount].players = NULL;
+			serversmenu.items[actualServerCount].active = true;
+			serversmenu.items[actualServerCount].ping = -1;
+			serversmenu.items[actualServerCount].isLoading = false;
+
+			actualServerCount++;
+		}
+	}
+
+	if (searchLastScope == SLIST_INTERNET)
+	CurlServerList (&serversmenu.items, &actualServerCount);// fetch and add servers from the server.quakeone.com json API
+
+	RemoveDuplicateServers(&serversmenu.items, &actualServerCount);
+
+        serversmenu.servercount = actualServerCount;
+        serversmenu.list.numitems = actualServerCount;
+
+        if (actualServerCount > 0)
+        {
+                serversmenu.order = (int*)malloc(sizeof(int) * actualServerCount);
+                if (serversmenu.order)
+                {
+                        for (int i = 0; i < actualServerCount; ++i)
+                                serversmenu.order[i] = i;
+                }
+        }
+
+	serversmenu.pingSortDirty = false;
+	SortServers(false);
+
+        if (serversmenu.list.cursor >= actualServerCount)
+                serversmenu.list.cursor = actualServerCount > 0 ? actualServerCount - 1 : 0;
+	if (serversmenu.slist_first > serversmenu.list.cursor)
+		serversmenu.slist_first = serversmenu.list.cursor;
+}
+
+void M_Menu_ServerList_f (void)
+{
+	key_dest = key_menu;
+	m_state = m_slist;
+	IN_UpdateGrabs();
+	m_entersound = true;
+
+	serversmenu.list.cursor = -1;
+	serversmenu.list.scroll = 0;
+	serversmenu.list.numitems = 0;
+	serversmenu.servercount = 0;
+	serversmenu.scrollbar_grab = false;
+	serversmenu.initialPingComplete = false;
+	serversmenu.initialPingThreadsRemaining = 0;
+	serversmenu.pingQueueSize = 0;
+	serversmenu.pingThreadRunning = false;
+	pingThreadsShouldExit = false;
+
+	FetchAndSortServers();
+	InitializePingMutex();
+	PingAllServers();
+
+	serversmenu.list.viewsize = MAX_VIS_SERVERS;
+	memset(&serversmenu.list.search, 0, sizeof(serversmenu.list.search));
+	serversmenu.list.search.maxlen = 32;
+	VEC_CLEAR(serversmenu.filtered_indices);
+
+	M_Ticker_Init(&serversmenu.ticker);
+
+	M_List_CenterCursor(&serversmenu.list);
+}
+
+void M_ServerList_Draw (void)
+{
+	int x, y, i, cols;
+	int firstvis, numvis;
+	const char* title;
+
+	x = 16;
+	y = 36;
+	cols = 36;
+
+	switch (searchLastScope)
+	{
+	case SLIST_INTERNET:
+		title = "Servers (Public)";
+		break;
+	case SLIST_LAN:
+		title = "Servers (Local)";
+		break;
+	default:
+		title = "Servers";
+		break;
+	}
+
+        serversmenu.x = x;
+        serversmenu.y = y;
+        serversmenu.cols = cols;
+
+        if (serversmenu.pingSortDirty)
+                SortServers(true);
+
+        if (!keydown[K_MOUSE1])
+                serversmenu.scrollbar_grab = false;
+
+	if (serversmenu.prev_cursor != serversmenu.list.cursor) {
+		serversmenu.prev_cursor = serversmenu.list.cursor;
+		M_Ticker_Init(&serversmenu.ticker);
+	}
+	else {
+		M_Ticker_Update(&serversmenu.ticker);
+	}
+
+	Draw_String(x, y - 36, title);
+	M_DrawQuakeBar(x - 8, y - 24, cols + 2);
+	// Header drawing
+	int header_y = y - 16;
+	const char *hdr_name = "Name";
+	const char *hdr_map = "Map";
+	const char *hdr_users = "Plys";
+	const char *hdr_ping = "Ping";
+	
+	if (serversmenu.sort_mode == SORT_NAME) M_PrintWhite(x, header_y, hdr_name);
+	else M_Print(x, header_y, hdr_name);
+
+	if (serversmenu.sort_mode == SORT_MAP) M_PrintWhite(x + 18 * 8, header_y, hdr_map);
+	else M_Print(x + 18 * 8, header_y, hdr_map);
+	
+	if (serversmenu.sort_mode == SORT_USERS) M_PrintWhite(x + 25 * 8, header_y, hdr_users);
+	else M_Print(x + 25 * 8, header_y, hdr_users);
+	
+	if (serversmenu.sort_mode == SORT_PING) M_PrintWhite(x + 31 * 8, header_y, hdr_ping);
+	else M_Print(x + 31 * 8, header_y, hdr_ping);
+
+        // Reduce visible items when search is active to make room for search box and tooltip
+        int saved_viewsize = serversmenu.list.viewsize;
+        if (serversmenu.list.search.len > 0 && serversmenu.list.viewsize > 13)
+                serversmenu.list.viewsize = 13;
+
+        M_List_GetVisibleRange(&serversmenu.list, &firstvis, &numvis);
+        for (i = 0; i < numvis; i++) {
+                int idx = i + firstvis;
+                qboolean selected = (idx == serversmenu.list.cursor);
+                int actualIndex = ServersMenu_ResolveIndex(idx);
+
+                if (actualIndex < 0 || actualIndex >= serversmenu.servercount)
+                        continue;
+
+                const servertitem_t* server = &serversmenu.items[actualIndex];
+                qboolean isActive = false;
+
+                if (cls.state == ca_connected) // highlight if connected to a server in the list
+                {
+                        if (!strcmp(lastmphost, server->ip))
+                                isActive = true;
+                        else if (Valid_Domain(lastmphost))
+                                isActive = !strcmp((ResolveHostname(lastmphost)), server->ip);
+                        else if (Valid_IP(lastmphost))
+                                isActive = !strcmp(lastmphost, server->ip);
+                }
+
+                char pingStrBuffer[8];
+                char* pingStrToPrint = pingStrBuffer;
+
+                if (server->ping == -1) {
+                        pingStrBuffer[0] = '\0';
+                }
+                else {
+                        q_snprintf(pingStrBuffer, sizeof(pingStrBuffer), "%3i", server->ping);
+                        while (*pingStrToPrint == ' ' && *pingStrToPrint != '\0') {
+                                pingStrToPrint++;
+                        }
+                }
+
+		char plysStr[16];
+		q_snprintf(plysStr, sizeof(plysStr), "%u/%u", server->users, server->maxusers);
+
+                char linePrefixStr[32];
+		q_snprintf(linePrefixStr, sizeof(linePrefixStr), "%-16.16s  %-6.6s %-5s ",
+                        server->name,
+                        server->map,
+			plysStr);
+
+                int current_y_pos = y + i * 8;
+                int current_x_pos = x;
+
+                if (serversmenu.list.search.len > 0) {
+                        M_PrintHighlight(current_x_pos, current_y_pos, linePrefixStr,
+                                serversmenu.list.search.text, serversmenu.list.search.len);
+                }
+                else if (isActive) {
+                        M_PrintWhite(current_x_pos, current_y_pos, linePrefixStr);
+                }
+                else {
+                        M_Print(current_x_pos, current_y_pos, linePrefixStr);
+                }
+
+                int ping_display_x = current_x_pos + ((int)strlen(linePrefixStr) * 8);
+
+                if (pingStrToPrint[0] != '\0') {
+                        int current_ping = server->ping;
+                        if (current_ping <= 60) {
+                                M_PrintWhite(ping_display_x, current_y_pos, pingStrToPrint); // Green for pings <= 60
+                        }
+                        else if (current_ping <= 120) {
+                                M_Print2(ping_display_x, current_y_pos, pingStrToPrint); // White for pings 61-120
+                        }
+                        else { // Pings > 120
+                                if (isActive) { // Active servers with high ping remain white
+                                        M_PrintWhite(ping_display_x, current_y_pos, pingStrToPrint);
+                                }
+                                else { // Inactive servers with high ping use default M_Print color
+                                        M_Print(ping_display_x, current_y_pos, pingStrToPrint);
+                                }
+                        }
+                }
+
+                if (selected)
+                        M_DrawCharacter(x - 8, current_y_pos, 12 + ((int)(realtime * 4) & 1));
+
+                if (selected)
+                {
+                        int info_y = y + serversmenu.list.viewsize * 8 + 12;
+                        int plys_text_x = x + 25 * 8;
+                        int plys_text_w = (int)strlen(plysStr) * 8;
+                        qboolean hover_plys = (m_mousex >= plys_text_x &&
+                                m_mousex < plys_text_x + plys_text_w &&
+                                m_mousey >= current_y_pos &&
+                                m_mousey < current_y_pos + 8);
+                        qboolean tab_held = keydown[K_TAB];
+
+                        if ((hover_plys || tab_held) && server->players && server->players[0])
+                        {
+                                // Display player names with word-wrapping (like demos menu)
+                                char players_copy[512];
+                                q_strlcpy(players_copy, server->players, sizeof(players_copy));
+
+                                char *pos = players_copy;
+                                char line_buffer[64];
+                                int line_pos = 0;
+                                int line_count = 0;
+                                int current_y = info_y;
+
+                                while (*pos)
+                                {
+                                        char *next_comma = strchr(pos, ',');
+                                        int name_len;
+
+                                        if (next_comma)
+                                        {
+                                                name_len = (int)(next_comma - pos);
+                                                while (next_comma[1] == ' ') next_comma++;
+                                        }
+                                        else
+                                        {
+                                                name_len = (int)strlen(pos);
+                                        }
+
+                                        if (name_len > 40)
+                                                name_len = 40;
+
+                                        int comma_space = next_comma ? 2 : 0;
+                                        int needed_space = name_len + comma_space;
+
+                                        if (line_pos > 0 && line_pos + needed_space > 40)
+                                        {
+                                                if (line_count >= 2)
+                                                {
+                                                        if (line_pos + 4 <= 40)
+                                                        {
+                                                                line_buffer[line_pos++] = ' ';
+                                                                line_buffer[line_pos++] = '.';
+                                                                line_buffer[line_pos++] = '.';
+                                                                line_buffer[line_pos++] = '.';
+                                                        }
+                                                        line_buffer[line_pos] = '\0';
+                                                        M_PrintWhite(x, current_y, line_buffer);
+                                                        break;
+                                                }
+
+                                                line_buffer[line_pos] = '\0';
+                                                M_PrintWhite(x, current_y, line_buffer);
+                                                current_y += 8;
+                                                line_count++;
+                                                line_pos = 0;
+                                        }
+
+                                        memcpy(line_buffer + line_pos, pos, name_len);
+                                        line_pos += name_len;
+
+                                        if (next_comma)
+                                        {
+                                                line_buffer[line_pos++] = ',';
+                                                line_buffer[line_pos++] = ' ';
+                                                pos = next_comma + 1;
+                                        }
+                                        else
+                                                break;
+                                }
+
+                                if (line_pos > 0 && line_count < 3)
+                                {
+                                        line_buffer[line_pos] = '\0';
+                                        M_PrintWhite(x, current_y, line_buffer);
+                                }
+                        }
+                        else
+                        {
+                                char infoStr[40];
+                                q_snprintf(infoStr, sizeof(infoStr), "%-34.34s", server->name);
+                                M_PrintWhite(x, info_y, infoStr);
+                                q_snprintf(infoStr, sizeof(infoStr), "%-34.34s", server->ip);
+                                M_PrintWhite(x, info_y + 8, infoStr);
+                        }
+                }
+        }
+
+	if (M_List_GetOverflow(&serversmenu.list) > 0) {
+		M_List_DrawScrollbar(&serversmenu.list, x + cols * 8 - 8, y);
+
+		if (serversmenu.list.scroll > 0)
+			M_DrawEllipsisBar(x, y - 8, cols);
+		if (serversmenu.list.scroll + serversmenu.list.viewsize < serversmenu.list.numitems)
+			M_DrawEllipsisBar(x, y + serversmenu.list.viewsize * 8, cols);
+	}
+
+	// Restore viewsize
+	serversmenu.list.viewsize = saved_viewsize;
+
+	// Draw search box
+	if (serversmenu.list.search.len > 0)
+	{
+		M_DrawTextBox(16, 180, 32, 1);
+		M_PrintHighlight(24, 188, serversmenu.list.search.text,
+			serversmenu.list.search.text,
+			serversmenu.list.search.len);
+		int cursor_x = 24 + 8 * serversmenu.list.search.len;
+		if (serversmenu.list.numitems == 0)
+			M_DrawCharacter(cursor_x, 188, 11 ^ 128);
+		else
+			M_DrawCharacter(cursor_x, 188, 10 + ((int)(realtime * 4) & 1));
+	}
+}
+
+qboolean M_Servers_Match(int index, char initial)
+{
+        int actualIndex = ServersMenu_ResolveIndex(index);
+        if (actualIndex < 0)
+                return false;
+
+        const char* name = serversmenu.items[actualIndex].name;
+        if (!name || !name[0])
+                return false;
+
+        return q_tolower(name[0]) == initial;
+}
+
+void CleanupPingThreads()
+{
+	WaitForPingThreads();
+
+	if (serversmenu.pingThreadRunning)
+	{
+		pingThreadsShouldExit = true;
+		if (serversmenu.pingThread)
+		{
+			SDL_WaitThread(serversmenu.pingThread, NULL);
+			serversmenu.pingThread = NULL; // Set to NULL after joining
+		}
+	}
+
+	CleanupPingMutex();
+}
+
+void M_ServerList_Key(int key)
+{
+
+	int x, y; // woods #mousemenu
+	int prev_cursor = serversmenu.list.cursor;
+
+	
+	// Handle Ctrl+U or Ctrl+Backspace first
+	if (keydown[K_CTRL])
+	{
+		if ((key == 'u' || key == 'U') && serversmenu.list.search.len > 0)
+		{
+			serversmenu.list.search.len = 0;
+			serversmenu.list.search.text[0] = 0;
+			M_ServerList_Refilter();
+			return;
+		}
+		else if (key == K_BACKSPACE && serversmenu.list.search.len > 0)
+		{
+			M_DeletePrevWord(&serversmenu.list.search);
+			M_ServerList_Refilter();
+			return;
+		}
+	}
+
+	// Handle search input - printable characters
+	if (key >= 32 && key < 127)
+	{
+		if (serversmenu.list.search.len < serversmenu.list.search.maxlen)
+		{
+			serversmenu.list.search.text[serversmenu.list.search.len++] = key;
+			serversmenu.list.search.text[serversmenu.list.search.len] = 0;
+			M_ServerList_Refilter();
+			return;
+		}
+	}
+
+	// Handle backspace for search
+	if (key == K_BACKSPACE)
+	{
+		if (serversmenu.list.search.len > 0)
+		{
+			serversmenu.list.search.text[--serversmenu.list.search.len] = 0;
+			M_ServerList_Refilter();
+			return;
+		}
+	}
+
+	if (serversmenu.scrollbar_grab)
+	{
+		switch (key)
+		{
+		case K_ESCAPE:
+		case K_BBUTTON:
+		case K_MOUSE4:
+		case K_MOUSE2:
+			serversmenu.scrollbar_grab = false;
+			break;
+		}
+		return;
+	}
+
+	if (M_List_Key(&serversmenu.list, key))
+	{
+		if (serversmenu.list.cursor != prev_cursor)
+			TriggerServerPing(serversmenu.list.cursor);
+	
+		return;
+	}
+
+		if (M_List_CycleMatch(&serversmenu.list, key, M_Servers_Match))
+		{
+			if (serversmenu.list.cursor != prev_cursor)
+				TriggerServerPing(serversmenu.list.cursor);
+			return;
+		}
+
+	if (M_Ticker_Key(&serversmenu.ticker, key))
+		return;
+
+	switch (key)
+	{
+	case K_ESCAPE:
+		if (serversmenu.list.search.len > 0)
+		{
+			serversmenu.list.search.len = 0;
+			serversmenu.list.search.text[0] = 0;
+			M_ServerList_Refilter();
+			return;
+		}
+		// Fall through to exit menu if search is already empty
+	case K_BBUTTON:
+	case K_MOUSE4: // woods #mousemenu
+	case K_MOUSE2:
+		CleanupPingThreads();
+		M_Menu_LanConfig_f();
+		break;
+
+	case K_ENTER:
+	case K_KP_ENTER:
+	case K_ABUTTON:
+	enter:
+	{
+		int actualIndex = ServersMenu_ResolveIndex(serversmenu.list.cursor);
+
+		if (actualIndex < 0 || actualIndex >= serversmenu.servercount)
+		{
+			break;
+		}
+
+		m_return_state = m_state;
+		m_return_onerror = true;
+		key_dest = key_game;
+		m_state = m_none;
+		IN_UpdateGrabs();
+		CL_MarkNextConnectFromMenu();
+		Cbuf_AddText(va("connect \"%s\"\n", serversmenu.items[actualIndex].ip));
+		CleanupPingThreads();
+	}
+	break;
+
+	case K_MOUSE1: // woods #mousemenu
+{
+		// Check header click
+		int hx = m_mousex - serversmenu.x;
+		int hy = m_mousey - (serversmenu.y - 16);
+		if (hy >= 0 && hy < 8) {
+			int new_sort = -1;
+			if (hx >= 0 && hx < 16 * 8) new_sort = SORT_NAME;
+			else if (hx >= 18 * 8 && hx < (18 + 6) * 8) new_sort = SORT_MAP;
+			else if (hx >= 25 * 8 && hx < (25 + 5) * 8) new_sort = SORT_USERS;
+			else if (hx >= 32 * 8 && hx < (32 + 4) * 8) new_sort = SORT_PING;
+			
+			if (new_sort != -1) {
+				if (serversmenu.sort_mode == new_sort) {
+					serversmenu.sort_descending = !serversmenu.sort_descending;
+				} else {
+					serversmenu.sort_mode = new_sort;
+                    // Default sort directions
+                    if (new_sort == SORT_USERS) serversmenu.sort_descending = true;
+                    else serversmenu.sort_descending = false;
+				}
+				SortServers(true);
+				S_LocalSound("misc/menu2.wav");
+				return;
+			}
+		}
+		x = m_mousex - serversmenu.x - (serversmenu.cols - 1) * 8;
+		y = m_mousey - serversmenu.y;
+		if (x < -8 || !M_List_UseScrollbar(&serversmenu.list, y))
+			goto enter;
+		serversmenu.scrollbar_grab = true;
+		M_Mods_Mousemove(m_mousex, m_mousey);
+
+}
+	default:
+		break;
+	}
+}
+
+void M_ServerList_Mousemove(int cx, int cy) // woods
+{
+	int prev_cursor = serversmenu.list.cursor;
+	cy -= serversmenu.y;
+
+	if (serversmenu.scrollbar_grab)
+	{
+		if (!keydown[K_MOUSE1])
+		{
+			serversmenu.scrollbar_grab = false;
+			return;
+		}
+		M_List_UseScrollbar(&serversmenu.list, cy);
+		// Note: no return, we also update the cursor
+	}
+
+	M_List_Mousemove(&serversmenu.list, cy);
+
+	if (serversmenu.list.cursor != prev_cursor)
+		TriggerServerPing(serversmenu.list.cursor);
+}
+
+/*
+==================
+Mods Menu (iw)
+==================
+*/
+
+#define MAX_VIS_MODS	19
+
+typedef struct
+{
+	const char* name;
+	char		description[64];
+	qboolean	active;
+} moditem_t;
+
+static struct
+{
+	menulist_t			list;
+	enum m_state_e		prev;
+	int					x, y, cols;
+	int					modcount;
+	int					prev_cursor;
+	menuticker_t		ticker;
+	qboolean			scrollbar_grab;
+	moditem_t			*items;
+	int*				filtered_indices;
+} modsmenu;
+
+static qboolean M_Mods_IsActive(const char* game)
+{
+	extern char com_gamenames[];
+	const char* list, * end, * p;
+
+	if (!q_strcasecmp(game, GAMENAME))
+		return !*com_gamenames;
+
+	list = com_gamenames;
+	while (*list)
+	{
+		end = list;
+		while (*end && *end != ';')
+			end++;
+
+		p = game;
+		while (*p && list != end)
+			if (q_tolower(*p) == q_tolower(*list))
+				p++, list++;
+			else
+				break;
+
+		if (!*p && list == end)
+			return true;
+
+		list = end;
+		if (*list)
+			list++;
+	}
+
+	return false;
+}
+
+static void M_Mods_Add(const char* name)
+{
+	char check_path[MAX_OSPATH];
+	char game_dir[MAX_OSPATH];
+	char game_path[MAX_OSPATH];
+	FILE *check_file;
+	qboolean has_progs = false;
+	qboolean has_pak = false;
+
+	if (!COM_ResolveGameDir(name, game_dir, sizeof(game_dir)))
+		return;
+	q_snprintf(game_path, sizeof(game_path), "%s/%s", com_basedir, game_dir);
+	
+	// Check for progs.dat
+	q_snprintf(check_path, sizeof(check_path), "%s/progs.dat", game_path);
+	check_file = fopen(check_path, "rb");
+	if (check_file)
+	{
+		has_progs = true;
+		fclose(check_file);
+	}
+	
+	// Check for pak files (pak0.pak, pak1.pak, etc)
+	if (!has_progs)
+	{
+		for (int pak_num = 0; pak_num < 10 && !has_pak; pak_num++)
+		{
+			q_snprintf(check_path, sizeof(check_path), "%s/pak%d.pak", game_path, pak_num);
+			check_file = fopen(check_path, "rb");
+			if (check_file)
+			{
+				has_pak = true;
+				fclose(check_file);
+			}
+		}
+	}
+	
+	// Only add if it has progs.dat or pak files
+	if (!has_progs && !has_pak)
+		return;
+	
+	
+	moditem_t mod;
+	mod.name = name;
+	
+	// Special case: Auto-detect known mods by scanning PAK files
+	{
+		char pakpath[MAX_OSPATH];
+		qboolean found_ad_signature = false;
+		qboolean found_hip_demo1 = false;
+		qboolean found_hip_demo2 = false;
+		qboolean found_hip_demo3 = false;
+		qboolean found_hip_demo4 = false;
+		qboolean found_rog_end1 = false;
+		qboolean found_rog_end2 = false;
+		qboolean found_rog_r1m1 = false;
+		qboolean found_rog_r1m2 = false;
+		qboolean found_rog_r1m3 = false;
+		qboolean found_rog_r1m4 = false;
+		qboolean found_mg_hub = false;
+		qboolean found_mg_mgend = false;
+		qboolean found_mg_mge1m1 = false;
+		qboolean found_mg_horde1 = false;
+		int pak_num;
+		
+		// PAK file structures (local definitions)
+		#pragma pack(push, 1)
+		typedef struct { char name[56]; int filepos; int filelen; } pak_entry_t;
+		typedef struct { char id[4]; unsigned int dirofs; unsigned int dirlen; } pak_header_t;
+		#pragma pack(pop)
+		
+		// Scan pak0.pak through pak9.pak
+		for (pak_num = 0; pak_num < 10; pak_num++)
+		{
+			FILE *pakfile;
+			pak_header_t header;
+			unsigned int numfiles, j;
+			
+			q_snprintf(pakpath, sizeof(pakpath), "%s/pak%d.pak", game_path, pak_num);
+			pakfile = fopen(pakpath, "rb");
+			if (!pakfile)
+				continue;
+			
+			// Read PAK header
+			if (fread(&header, 1, sizeof(header), pakfile) != sizeof(header))
+			{
+				fclose(pakfile);
+				continue;
+			}
+			
+			// Verify PAK signature
+			if (header.id[0] != 'P' || header.id[1] != 'A' || header.id[2] != 'C' || header.id[3] != 'K')
+			{
+				fclose(pakfile);
+				continue;
+			}
+			
+			header.dirofs = LittleLong(header.dirofs);
+			header.dirlen = LittleLong(header.dirlen);
+			numfiles = header.dirlen / sizeof(pak_entry_t);
+			
+			if (numfiles > 4096 || header.dirlen < 0 || header.dirofs < 0)
+			{
+				fclose(pakfile);
+				continue;
+			}
+			
+			// Seek to directory
+			fseek(pakfile, header.dirofs, SEEK_SET);
+			
+			// Read and scan entries one at a time
+			for (j = 0; j < numfiles; j++)
+			{
+				pak_entry_t entry;
+				if (fread(&entry, sizeof(entry), 1, pakfile) != 1)
+					break;
+				
+				// Check for Arcane Dimensions signature
+				// Check for Arcane Dimensions signature
+				if (!strcmp(entry.name, "maps/ad_chapters.bsp"))
+					found_ad_signature = true;
+				
+				// Check for Hipnotic (Mission Pack 1) demos
+				else if (!strcmp(entry.name, "hipdemo1.dem"))
+					found_hip_demo1 = true;
+				else if (!strcmp(entry.name, "hipdemo2.dem"))
+					found_hip_demo2 = true;
+				else if (!strcmp(entry.name, "hipdemo3.dem"))
+					found_hip_demo3 = true;
+				else if (!strcmp(entry.name, "hipdemo4.dem"))
+					found_hip_demo4 = true;
+				
+				// Check for Rogue (Mission Pack 2) files
+				else if (!strcmp(entry.name, "end1.bin"))
+					found_rog_end1 = true;
+				else if (!strcmp(entry.name, "end2.bin"))
+					found_rog_end2 = true;
+				else if (!strcmp(entry.name, "maps/r1m1.bsp"))
+					found_rog_r1m1 = true;
+				else if (!strcmp(entry.name, "maps/r1m2.bsp"))
+					found_rog_r1m2 = true;
+				else if (!strcmp(entry.name, "maps/r1m3.bsp"))
+					found_rog_r1m3 = true;
+				else if (!strcmp(entry.name, "maps/r1m4.bsp"))
+					found_rog_r1m4 = true;
+				
+				// Check for Dimension of the Machine (MachineGames) files
+				else if (!strcmp(entry.name, "maps/hub.bsp"))
+					found_mg_hub = true;
+				else if (!strcmp(entry.name, "maps/mgend.bsp"))
+					found_mg_mgend = true;
+				else if (!strcmp(entry.name, "maps/mge1m1.bsp"))
+					found_mg_mge1m1 = true;
+				else if (!strcmp(entry.name, "maps/horde1.bsp"))
+					found_mg_horde1 = true;
+			}
+			
+			fclose(pakfile);
+		}
+		
+		// Set description based on detected mod
+		if (found_ad_signature)
+		{
+			q_strlcpy(mod.description, "Arcane Dimensions", sizeof(mod.description));
+		}
+		else if (found_hip_demo1 && found_hip_demo2 && found_hip_demo3 && found_hip_demo4)
+		{
+			q_strlcpy(mod.description, "Mission Pack 1: Scourge of Armagon - Hipnotic", sizeof(mod.description));
+		}
+		else if (found_rog_end1 && found_rog_end2 && found_rog_r1m1 && found_rog_r1m2 && found_rog_r1m3 && found_rog_r1m4)
+		{
+			q_strlcpy(mod.description, "Mission Pack 2: Dissolution of Eternity - Rogue", sizeof(mod.description));
+		}
+		else if (found_mg_hub && found_mg_mgend && found_mg_mge1m1 && found_mg_horde1)
+		{
+			q_strlcpy(mod.description, "Dimension of the Machine - MachineGames", sizeof(mod.description));
+		}
+		else
+		{
+			mod.description[0] = '\0'; // No description yet
+		}
+	}
+	
+	
+	
+	
+	
+	// Read description from descript.ion file
+	{
+		char desc_path[MAX_OSPATH];
+		FILE *f;
+		q_snprintf(desc_path, sizeof(desc_path), "%s/descript.ion", game_path);
+		f = fopen(desc_path, "r");
+		if (f)
+		{
+			if (fgets(mod.description, sizeof(mod.description), f))
+			{
+				// Remove trailing newline if present
+				size_t len = strlen(mod.description);
+				if (len > 0 && mod.description[len-1] == '\n')
+					mod.description[len-1] = '\0';
+			}
+			fclose(f);
+		}
+		else
+		{
+			// mod.description[0] = '\0';  // Don't clear - preserve auto-detected description
+		}
+	}
+	
+	mod.active = M_Mods_IsActive(name);
+	if (mod.active && modsmenu.list.cursor == -1)
+		modsmenu.list.cursor = modsmenu.modcount;
+	
+	// Ensure there's enough space for one more item
+	VEC_PUSH(modsmenu.items, mod);
+
+	modsmenu.items[modsmenu.modcount] = mod;
+	modsmenu.modcount++;
+}
+
+static void M_Mods_Refilter(void)
+{
+	int i;
+	VEC_CLEAR(modsmenu.filtered_indices);
+
+	for (i = 0; i < modsmenu.modcount; i++)
+	{
+		if (modsmenu.list.search.len == 0 || 
+			q_strcasestr(modsmenu.items[i].name, modsmenu.list.search.text) || 
+			q_strcasestr(modsmenu.items[i].description, modsmenu.list.search.text))
+		{
+			VEC_PUSH(modsmenu.filtered_indices, i);
+		}
+	}
+
+	modsmenu.list.numitems = VEC_SIZE(modsmenu.filtered_indices);
+
+	if (modsmenu.list.cursor >= modsmenu.list.numitems)
+		modsmenu.list.cursor = modsmenu.list.numitems - 1;
+
+	if (modsmenu.list.cursor < 0 && modsmenu.list.numitems > 0)
+		modsmenu.list.cursor = 0;
+
+	M_List_CenterCursor(&modsmenu.list);
+}
+
+static void M_Mods_Init(void)
+{
+	filelist_item_t* item;
+
+	modsmenu.list.viewsize = MAX_VIS_MODS;
+	modsmenu.list.cursor = -1;
+	modsmenu.list.scroll = 0;
+	modsmenu.list.numitems = 0;
+	modsmenu.modcount = 0;
+	modsmenu.scrollbar_grab = false;
+	VEC_CLEAR(modsmenu.items);
+	VEC_CLEAR(modsmenu.filtered_indices);
+
+	memset(&modsmenu.list.search, 0, sizeof(modsmenu.list.search));
+	modsmenu.list.search.maxlen = 32;
+
+	M_Ticker_Init(&modsmenu.ticker);
+
+	for (item = modlist; item; item = item->next)
+		M_Mods_Add(item->name);
+
+	// Force 12 chars for consistent column alignment as requested
+	max_word_length = 12;
+
+	M_Mods_Refilter();
+
+	if (modsmenu.list.cursor == -1)
+		modsmenu.list.cursor = 0;
+
+	M_List_CenterCursor(&modsmenu.list);
+}
+
+void M_Menu_Mods_f(void)
+{
+	key_dest = key_menu;
+	modsmenu.prev = m_state;
+	m_state = m_mods;
+	m_entersound = true;
+	M_Mods_Init();
+}
+
+void M_Mods_Draw(void)
+{
+	int x, y, i, cols;
+	int firstvis, numvis;
+
+	x = 16;
+	y = 32;
+	cols = 36;
+
+	modsmenu.x = x;
+	modsmenu.y = y;
+	modsmenu.cols = cols;
+
+	if (!keydown[K_MOUSE1])
+		modsmenu.scrollbar_grab = false;
+
+	if (modsmenu.prev_cursor != modsmenu.list.cursor)
+	{
+		modsmenu.prev_cursor = modsmenu.list.cursor;
+		M_Ticker_Init(&modsmenu.ticker);
+	}
+	else
+		M_Ticker_Update(&modsmenu.ticker);
+
+	Draw_String(x, y - 28, "Mods");
+	M_DrawQuakeBar(x - 8, y - 16, cols + 2);
+
+	M_List_GetVisibleRange(&modsmenu.list, &firstvis, &numvis);
+	for (i = 0; i < numvis; i++) 
+	{
+		int idx = i + firstvis;
+		int mod_idx = modsmenu.filtered_indices[idx];
+		qboolean selected = (idx == modsmenu.list.cursor);
+
+		if (modsmenu.list.search.len > 0)
+		{
+			M_PrintHighlightScroll2(x, y + i * 8, (cols - 2) * 8,
+				modsmenu.items[mod_idx].name,
+				modsmenu.items[mod_idx].description,
+				modsmenu.list.search.text,
+				selected ? modsmenu.ticker.scroll_time : 0.0);
+		}
+		else
+		{
+			M_PrintScroll2(x, y + i * 8, (cols - 2) * 8,
+				modsmenu.items[mod_idx].name,
+				modsmenu.items[mod_idx].description,
+				selected ? modsmenu.ticker.scroll_time : 0.0,
+				!modsmenu.items[mod_idx].active);
+		}
+
+		if (selected)
+			M_DrawCharacter(x - 8, y + i * 8, 12 + ((int)(realtime * 4) & 1));
+	}
+
+	if (M_List_GetOverflow(&modsmenu.list) > 0)
+	{
+		M_List_DrawScrollbar(&modsmenu.list, x + cols * 8 - 8, y);
+
+		if (modsmenu.list.scroll > 0)
+			M_DrawEllipsisBar(x, y - 8, cols);
+		if (modsmenu.list.scroll + modsmenu.list.viewsize < modsmenu.list.numitems)
+			M_DrawEllipsisBar(x, y + modsmenu.list.viewsize * 8, cols);
+	}
+
+	if (modsmenu.list.search.len > 0) // Draw search box if search is active
+	{
+		M_DrawTextBox(16, 176, 32, 1);
+		M_PrintHighlight(24, 184, modsmenu.list.search.text,
+			modsmenu.list.search.text,
+			modsmenu.list.search.len);
+		int cursor_x = 24 + 8 * modsmenu.list.search.len;
+		if (modsmenu.list.numitems == 0)
+			M_DrawCharacter(cursor_x, 184, 11 ^ 128);
+		else
+			M_DrawCharacter(cursor_x, 184, 10 + ((int)(realtime * 4) & 1));
+	}
+}
+
+qboolean M_Mods_Match(int index, char initial)
+{
+	int mod_idx = modsmenu.filtered_indices[index];
+	return q_tolower(modsmenu.items[mod_idx].name[0]) == initial;
+}
+
+void M_Mods_Key(int key)
+{
+	
+	int x, y; // woods #mousemenu
+
+	if (keydown[K_CTRL])
+	{
+		if ((key == 'u' || key == 'U') && modsmenu.list.search.len > 0)
+		{
+			modsmenu.list.search.len = 0;
+			modsmenu.list.search.text[0] = 0;
+			M_Mods_Refilter();
+			return;
+		}
+		else if (key == K_BACKSPACE && modsmenu.list.search.len > 0)
+		{
+			M_DeletePrevWord(&modsmenu.list.search);
+			M_Mods_Refilter();
+			return;
+		}
+	}
+
+	if (key >= 32 && key < 127) // Handle search input first, printable characters
+	{
+		if (modsmenu.list.search.len < modsmenu.list.search.maxlen)
+		{
+			modsmenu.list.search.text[modsmenu.list.search.len++] = key;
+			modsmenu.list.search.text[modsmenu.list.search.len] = 0;
+			M_Mods_Refilter();
+			return;
+		}
+	}
+
+	if (modsmenu.scrollbar_grab)
+	{
+		switch (key)
+		{
+		case K_ESCAPE:
+		case K_BBUTTON:
+		case K_MOUSE4:
+		case K_MOUSE2:
+			modsmenu.scrollbar_grab = false;
+			break;
+		}
+		return;
+	}
+	
+	if (M_List_Key(&modsmenu.list, key))
+		return;
+
+	if (M_List_CycleMatch(&modsmenu.list, key, M_Mods_Match))
+		return;
+
+	if (M_Ticker_Key(&modsmenu.ticker, key))
+		return;
+
+	switch (key)
+	{
+	case K_ESCAPE:
+		if (modsmenu.list.search.len > 0) // Clear search but stay in menu
+		{
+			modsmenu.list.search.len = 0;
+			modsmenu.list.search.text[0] = 0;
+			M_Mods_Refilter();
+			return;
+		}
+	case K_BBUTTON:
+	case K_MOUSE4: // woods #mousemenu
+	case K_MOUSE2:
+		if (modsmenu.prev == m_options)
+			M_Menu_Options_f();
+		else
+			M_Menu_Main_f();
+		break;
+	case K_BACKSPACE:
+		if (modsmenu.list.search.len > 0)
+		{
+			modsmenu.list.search.text[--modsmenu.list.search.len] = 0;
+			M_Mods_Refilter();
+			return;
+		}
+		break;
+
+	case K_ENTER:
+	case K_KP_ENTER:
+	case K_ABUTTON:
+	enter:
+		if (modsmenu.list.numitems > 0)
+		{
+			int mod_idx = modsmenu.filtered_indices[modsmenu.list.cursor];
+			Cbuf_AddText(va("game %s\n", modsmenu.items[mod_idx].name));
+			M_Menu_Main_f();
+		}
+		break;
+
+	case K_MOUSE1: // woods #mousemenu
+		x = m_mousex - modsmenu.x - (modsmenu.cols - 1) * 8;
+		y = m_mousey - modsmenu.y;
+		if (x < -8 || !M_List_UseScrollbar(&modsmenu.list, y))
+			goto enter;
+		modsmenu.scrollbar_grab = true;
+		M_Mods_Mousemove(m_mousex, m_mousey);
+
+	default:
+		break;
+	}
+}
+
+void M_Mods_Mousemove(int cx, int cy) // woods #mousemenu
+{
+		cy -= modsmenu.y;
+
+	if (modsmenu.scrollbar_grab)
+	{
+		if (!keydown[K_MOUSE1])
+		{
+			modsmenu.scrollbar_grab = false;
+			return;
+		}
+		M_List_UseScrollbar(&modsmenu.list, cy);
+		// Note: no return, we also update the cursor
+	}
+
+	M_List_Mousemove(&modsmenu.list, cy);
+}
+
+/*
+==================
+Demos Menu
+==================
+*/
+
+#define MAX_VIS_DEMOS	11
+#define DEMOS_PATH_ROW_Y	32
+#define DEMOS_PATH_LABEL_X	16
+#define DEMOS_PATH_BOX_X	56
+#define DEMOS_PATH_TEXT_X	64
+#define DEMOS_PATH_BOX_CHARS	30
+#define DEMOS_PATH_MAX_DEPTH	8
+#define DEMOS_ID1_ROW_Y	44
+#define DEMOS_ID1_TEXT_X	(DEMOS_PATH_BOX_X + 8)
+#define DEMOS_ID1_TEXT_SCALE	0.8125f
+
+typedef struct
+{
+	char        name[MAX_QPATH];
+	char        display[MAX_QPATH + 8];
+	char        date[32];
+	char        map[64];
+	char        players[256];
+	char        duration[16];
+	char        filesize[16];
+	qboolean    active;
+	qboolean    parsed;
+	qboolean    from_id1;
+} demoitem_t;
+	
+typedef struct
+{
+	char        map[64];
+	char        players[256];
+	float       duration;
+	float       filesize_mb;
+} demoinfo_t;
+
+static void FormatDuration(float secs, char *out, size_t outlen)
+{
+	int m = (int)(secs / 60);
+	int s = (int)(secs + 0.5f) % 60;
+	q_snprintf(out, outlen, "%d:%02d", m, s);
+}
+
+static qboolean M_IsTimestampStart(const char *s)
+{
+	return q_isdigit((unsigned char)s[0]) && q_isdigit((unsigned char)s[1]) &&
+		s[2] == '-' &&
+		q_isdigit((unsigned char)s[3]) && q_isdigit((unsigned char)s[4]) &&
+		s[5] == '-' &&
+		q_isdigit((unsigned char)s[6]) && q_isdigit((unsigned char)s[7]) &&
+		q_isdigit((unsigned char)s[8]) && q_isdigit((unsigned char)s[9]) &&
+		s[10] == '-';
+}
+
+static qboolean M_IsDatePrefix(const char *s)
+{
+	return q_isdigit((unsigned char)s[0]) &&
+		q_isdigit((unsigned char)s[1]) &&
+		q_isdigit((unsigned char)s[2]) &&
+		q_isdigit((unsigned char)s[3]) &&
+		s[4] == '-' &&
+		q_isdigit((unsigned char)s[5]) &&
+		q_isdigit((unsigned char)s[6]) &&
+		s[7] == '-' &&
+		q_isdigit((unsigned char)s[8]) &&
+		q_isdigit((unsigned char)s[9]) &&
+		(s[10] == '-' || s[10] == '_');
+}
+
+static void M_InferDemoMapName(const char *name, char *out, size_t outlen)
+{
+	char base[MAX_QPATH];
+	size_t i;
+
+	COM_FileBase(COM_SkipPath(name), base, sizeof(base));
+	if (!base[0])
+	{
+		out[0] = '\0';
+		return;
+	}
+
+	if (M_IsDatePrefix(base))
+		memmove(base, base + 11, strlen(base + 11) + 1);
+
+	for (i = 0; base[i]; ++i)
+	{
+		if ((base[i] == '_' || base[i] == '-') && M_IsTimestampStart(base + i + 1))
+		{
+			base[i] = '\0';
+			break;
+		}
+	}
+
+	if (!strncmp(base, "start_", 6) || !strncmp(base, "start-", 6))
+		base[0] = '\0';
+
+	q_strlcpy(out, base, outlen);
+}
+
+static qboolean M_IsDemoMapNameChar(int c)
+{
+	return q_isalnum((unsigned char)c) || c == '_' || c == '-' || c == '+';
+}
+
+static qboolean M_FindDemoMapNameInData(const byte *data, int start, int length,
+	char *out, size_t outlen)
+{
+	int scan_limit;
+	int i;
+
+	scan_limit = q_min(length, 512 * 1024);
+	for (i = start; i <= scan_limit - 9; ++i)
+	{
+		int name_start;
+		int j;
+
+		if (memcmp(data + i, "maps/", 5))
+			continue;
+
+		name_start = i + 5;
+		for (j = name_start; j <= scan_limit - 4; ++j)
+		{
+			int name_len;
+
+			if (!memcmp(data + j, ".bsp", 4))
+			{
+				name_len = j - name_start;
+				if (name_len <= 0)
+					break;
+				if (name_len >= (int)outlen)
+					name_len = (int)outlen - 1;
+				memcpy(out, data + name_start, name_len);
+				out[name_len] = '\0';
+				return true;
+			}
+
+			if (!M_IsDemoMapNameChar(data[j]))
+				break;
+		}
+	}
+
+	return false;
+}
+
+static inline int SkipCStringOffset(const byte* base, int off, int limit)
+{
+	const void* p = memchr(base + off, 0, (size_t)(limit - off));
+	return p ? (int)((const byte*)p - base) + 1 : limit;
+}
+
+static int CompareFrags(const void* a, const void* b)
+{
+	const struct { char name[MAX_QPATH]; int frags; } *pa = a, * pb = b;
+	return pb->frags - pa->frags;
+}
+
+static byte *M_LoadDemoInfoData(const char *name, int *length_out)
+{
+	return CL_LoadDemoBuffer(name, length_out);
+}
+
+static qboolean Parse_DemoInfo(const char* name, demoinfo_t* info)
+{
+	int length;
+	byte* data = M_LoadDemoInfoData(name, &length);
+	if (!data) return false;
+
+	if (length <= 0) { free(data); return false; }
+
+	info->map[0] = info->players[0] = '\0';
+	info->duration = 0.0f;
+	info->filesize_mb = length / (1024.0f * 1024.0f);
+
+	int maxclients = 16;
+
+	int  player_peak_frags[32];
+	memset(player_peak_frags, 0x9D, sizeof(player_peak_frags));   /* -99 */
+	qboolean player_has_name[32] = { 0 };
+	char player_names[32][MAX_QPATH];
+	memset(player_names, 0, sizeof(player_names));
+
+	/* skip header line */
+	int off = 0;
+	while (off < length && data[off] != '\n') off++;
+	if (off < length) off++;
+
+	qboolean map_found = M_FindDemoMapNameInData(data, off, length,
+		info->map, sizeof(info->map));
+	float last_time = 0.0f;
+	int frame_count = 0;
+
+	while (off < length - 16)
+	{
+		if (off + 4 > length) break;
+
+		int msg_len = LittleLong(*(int*)(data + off));
+		off += 4;
+
+		if (msg_len <= 0 || msg_len > 32768 || off + 12 + msg_len > length)
+			break;
+
+		off += 12;                    /* skip view angles */
+		int msg_end = off + msg_len;  /* inner loop bound */
+
+		while (off < msg_end)
+		{
+			byte cmd = data[off++];
+
+			switch (cmd)
+			{
+			case svc_print:
+			case svc_stufftext:
+				off = SkipCStringOffset(data, off, msg_end);
+				break;
+
+			case svc_serverinfo:
+			{
+				int pos = off;
+				while (pos + 4 < msg_end)
+				{
+					int proto = LittleLong(*(int*)(data + pos));
+					pos += 4;
+
+					/* skip extension blocks -------------------------- */
+					if (proto == 0x80000001 || proto == 0x80000002      // QuakeSpasm/QSS
+						|| proto == 0x31544546 || proto == 0x32455446)    // 'FTE1' / 'FTE2'
+					{
+						pos += 4;           // skip associated flags/size field
+						continue;
+					}
+
+					/* FITZQUAKE (666) carries an extra flags int */
+					if (proto == 666)
+					{
+						int fitzFlags = LittleLong(*(int*)(data + pos));
+						Con_DPrintf("\n%i", fitzFlags);
+						pos += 4;           // you might want to store this if you care
+					}
+
+					/* now the next byte really *is* maxclients */
+					if (pos < msg_end)
+					{
+						maxclients = data[pos];
+						if (maxclients > 32) maxclients = 32;
+					}
+					break;
+				}
+
+				if (!map_found)
+				{
+					for (int i = off; i < msg_end - 5; i++)
+					{
+						if (!memcmp(data + i, "maps/", 5))
+						{
+							int j = i + 5;
+							while (j < msg_end && data[j] && data[j] != '/') j++;
+							int end = j;
+							for (; end < msg_end - 4; end++)
+								if (!memcmp(data + end, ".bsp", 4)) break;
+							if (end < msg_end - 4)
+							{
+								int nlen = end - (i + 5);
+								if (nlen >= (int)sizeof(info->map)) nlen = sizeof(info->map) - 1;
+								memcpy(info->map, data + i + 5, nlen);
+								info->map[nlen] = '\0';
+								char* ext = strstr(info->map, ".bsp");
+								if (ext) *ext = '\0';
+								map_found = true;
+								off = msg_end;           /* early skip */
+								goto msg_end_reached;
+							}
+							break;
+						}
+					}
+				}
+				off = msg_end;         /* skip rest */
+				goto msg_end_reached;
+			}
+
+			case svc_updatename:
+				if (off < msg_end)
+				{
+					int pl = data[off++];
+					if (pl >= 0 && pl < maxclients)
+					{
+						int start = off;
+						off = SkipCStringOffset(data, off, msg_end);
+						int nlen = off - start - 1;
+						if (nlen > 0 && nlen < MAX_QPATH)
+						{
+							char tmp[MAX_QPATH];
+							memcpy(tmp, data + start, nlen); tmp[nlen] = '\0';
+
+							char clean[16]; q_strlcpy(clean, tmp, sizeof(clean));
+							size_t len = strlen(clean);
+							while (len && isspace((unsigned char)clean[len - 1])) clean[--len] = '\0';
+
+							if (len && strcmp(clean, "unconnected") &&
+								strncmp(clean, "Player ", 7))
+							{
+								q_strlcpy(player_names[pl], clean, sizeof(player_names[pl]));
+								player_has_name[pl] = true;
+							}
+						}
+					}
+					else off = SkipCStringOffset(data, off, msg_end);
+				}
+				break;
+
+			case svc_updatefrags:
+				if (off + 3 <= msg_end)
+				{
+					int pl = data[off++];
+					int fr = LittleShort(*(int16_t*)(data + off));
+					off += 2;
+					if (pl >= 0 && pl < maxclients && fr > player_peak_frags[pl])
+						player_peak_frags[pl] = fr;
+				}
+				else goto msg_end_reached;
+				break;
+
+			case svc_updatecolors:
+				off += (off + 2 <= msg_end) ? 2 : 0;
+				break;
+
+			case svc_signonnum:
+				off += (off + 1 <= msg_end) ? 1 : 0;
+				break;
+
+			case svc_intermission:
+				if (map_found) goto build_result;
+				break;
+
+			default:
+				off = msg_end; /* unknown - skip rest */
+				break;
+			}
+		}
+	msg_end_reached:
+		off = msg_end;
+		if (++frame_count > 50000) break;
+	}
+
+build_result:
+{
+	struct { char name[MAX_QPATH]; int frags; } list[32];
+	int cnt = 0;
+
+	for (int p = 0; p < maxclients; p++)
+		if (player_has_name[p] && cnt < 32)
+		{
+			qboolean dup = false;
+			for (int i = 0; i < cnt; i++)
+				if (!strcmp(list[i].name, player_names[p]))
+				{
+					if (player_peak_frags[p] > list[i].frags)
+						list[i].frags = player_peak_frags[p];
+					dup = true;
+					break;
+				}
+			if (!dup)
+			{
+				q_strlcpy(list[cnt].name, player_names[p],
+					sizeof(list[cnt].name));
+				list[cnt].frags = player_peak_frags[p];
+				cnt++;
+			}
+		}
+
+	qsort(list, cnt, sizeof(list[0]), CompareFrags);
+
+	for (int i = 0; i < cnt; i++)
+	{
+		if (i) q_strlcat(info->players, ", ", sizeof(info->players));
+		char buf[MAX_QPATH];
+		q_snprintf(buf, sizeof(buf), "%s (%d)",
+			list[i].name, list[i].frags);
+		q_strlcat(info->players, buf, sizeof(info->players));
+	}
+
+	info->duration = last_time;
+	if (frame_count > 1000 && info->duration < 60.0f)
+		info->duration = frame_count / 40.0f;
+	if (!info->map[0])
+		M_InferDemoMapName(name, info->map, sizeof(info->map));
+}
+
+free(data);
+return true;
+}
+
+static struct
+{
+	menulist_t			list;
+	enum m_state_e		prev;
+	int					x, y, cols;
+	int					democount;
+	int					prev_cursor;
+	menuticker_t		ticker;
+	demoitem_t			*items;
+	qboolean			scrollbar_grab;
+	int*                filtered_indices;
+	menu_textfield_t	path_field;
+	char				path_suffix[MAX_QPATH];
+	char				remembered_path_suffix[MAX_QPATH];
+	char				path_hint[MAX_QPATH];
+	char				path_tabpartial[MAX_QPATH];
+	filelist_item_t		*path_folders;
+	qboolean			path_editing;
+	qboolean			path_valid;
+	qboolean			show_id1;
+} demosmenu;
+
+static const char *M_Demos_CurrentGameName(void)
+{
+	const char *gamedir = COM_SkipPath(com_gamedir);
+
+	if (!gamedir || !gamedir[0])
+		gamedir = GAMENAME;
+
+	return gamedir;
+}
+
+static qboolean M_Demos_CurrentGameIsId1(void)
+{
+	return !q_strcasecmp(M_Demos_CurrentGameName(), GAMENAME);
+}
+
+static const char *M_Demos_PathBase(void)
+{
+	static char base[MAX_QPATH];
+	const char *gamedir = M_Demos_CurrentGameName();
+
+	q_snprintf(base, sizeof(base), "/%s/demos", gamedir);
+	return base;
+}
+
+static const char *M_Demos_SkipPathBasePrefix(const char *path)
+{
+	char game_base[MAX_QPATH];
+	const char *gamedir = M_Demos_CurrentGameName();
+	size_t len;
+
+	while (*path == '/')
+		++path;
+
+	q_snprintf(game_base, sizeof(game_base), "%s/demos", gamedir);
+	len = strlen(game_base);
+	if (!q_strncasecmp(path, game_base, len) && (path[len] == '\0' || path[len] == '/'))
+	{
+		path += len;
+		while (*path == '/')
+			++path;
+		return path;
+	}
+
+	if (!q_strncasecmp(path, "id1/demos", 9) && (path[9] == '\0' || path[9] == '/'))
+	{
+		path += 9;
+		while (*path == '/')
+			++path;
+		return path;
+	}
+
+	if (!q_strncasecmp(path, "demos", 5) && (path[5] == '\0' || path[5] == '/'))
+	{
+		path += 5;
+		while (*path == '/')
+			++path;
+	}
+
+	return path;
+}
+
+static qboolean M_Demos_SearchPathMatchesGame(searchpath_t *search, const char *gamedir)
+{
+	size_t len;
+
+	if (!search || !gamedir || !gamedir[0])
+		return false;
+
+	len = strlen(gamedir);
+	return !q_strncasecmp(search->purename, gamedir, len) &&
+		(search->purename[len] == '\0' ||
+		 search->purename[len] == '/' ||
+		 search->purename[len] == '\\');
+}
+
+static qboolean M_Demos_SearchPathAllowed(searchpath_t *search, qboolean *from_id1)
+{
+	qboolean is_id1;
+
+	if (from_id1)
+		*from_id1 = false;
+
+	if (M_Demos_SearchPathMatchesGame(search, M_Demos_CurrentGameName()))
+		return true;
+
+	is_id1 = M_Demos_SearchPathMatchesGame(search, GAMENAME);
+	if (!M_Demos_CurrentGameIsId1() && demosmenu.show_id1 && is_id1)
+	{
+		if (from_id1)
+			*from_id1 = true;
+		return true;
+	}
+
+	return false;
+}
+
+static qboolean M_Demos_HasId1SearchPath(void)
+{
+	searchpath_t *search;
+
+	for (search = com_searchpaths; search; search = search->next)
+	{
+		if (M_Demos_SearchPathMatchesGame(search, GAMENAME))
+			return true;
+	}
+
+	return false;
+}
+
+static qboolean M_Demos_ShowId1Toggle(void)
+{
+	return !M_Demos_CurrentGameIsId1() && M_Demos_HasId1SearchPath();
+}
+
+static void M_Demos_ClearFileList(filelist_item_t **list)
+{
+	filelist_item_t *next;
+
+	while (*list)
+	{
+		next = (*list)->next;
+		Z_Free(*list);
+		*list = next;
+	}
+}
+
+static void M_Demos_FreeItems(void)
+{
+	if (demosmenu.items)
+	{
+		Vec_Free((void**)&demosmenu.items);
+		demosmenu.items = NULL;
+	}
+	if (demosmenu.filtered_indices)
+	{
+		Vec_Free((void**)&demosmenu.filtered_indices);
+		demosmenu.filtered_indices = NULL;
+	}
+	demosmenu.democount = 0;
+}
+
+static void M_Demos_AddEx(const char* name, const char* date, const char *display, qboolean from_id1)
+{
+    demoitem_t tempDemo;
+	char display_with_source[MAX_QPATH + 8];
+	int i;
+
+	if (!date)
+		date = "Unknown Date";
+
+	for (i = 0; i < demosmenu.democount; i++)
+	{
+		if (!q_strcasecmp(name, demosmenu.items[i].name))
+			return;
+	}
+
+	q_strlcpy(tempDemo.name, name, sizeof(tempDemo.name));
+	if (from_id1 && !M_Demos_CurrentGameIsId1())
+	{
+		q_snprintf(display_with_source, sizeof(display_with_source), "%s [id1]",
+			display && display[0] ? display : name);
+		q_strlcpy(tempDemo.display, display_with_source, sizeof(tempDemo.display));
+	}
+	else
+		q_strlcpy(tempDemo.display, display && display[0] ? display : name, sizeof(tempDemo.display));
+	q_strlcpy(tempDemo.date, date, sizeof(tempDemo.date));
+	tempDemo.map[0] = '\0';
+	tempDemo.players[0] = '\0';
+	tempDemo.duration[0] = '\0';
+	tempDemo.filesize[0] = '\0';
+    tempDemo.active = false;
+	tempDemo.parsed = false;
+	tempDemo.from_id1 = from_id1;
+
+    int insertPos = demosmenu.democount;
+
+    for (int i = 0; i < demosmenu.democount; i++)
+    {
+        if (q_sortdemos(date, demosmenu.items[i].date) > 0) // If new date is newer
+        {
+            insertPos = i;
+            break;
+        }
+    }
+
+    // Increase the size of demosmenu.items by one
+    Vec_Grow((void**)&demosmenu.items, sizeof(demoitem_t), demosmenu.democount + 1);
+
+    if (insertPos != demosmenu.democount)
+    {
+        // Shift items to make room for the new demo
+        memmove(&demosmenu.items[insertPos + 1], &demosmenu.items[insertPos], sizeof(demoitem_t) * (demosmenu.democount - insertPos));
+    }
+
+    // Insert the new demo
+    demosmenu.items[insertPos] = tempDemo;
+
+    demosmenu.democount++;
+}
+
+static void M_Demos_AddFolderAncestors(const char *relpath)
+{
+	char folder[MAX_QPATH];
+	char *slash;
+
+	if (!relpath || !relpath[0])
+		return;
+
+	q_strlcpy(folder, relpath, sizeof(folder));
+	for (slash = folder; *slash; ++slash)
+	{
+		if (*slash == '/' || *slash == '\\')
+		{
+			*slash = '\0';
+			if (folder[0])
+				FileList_Add(folder, NULL, &demosmenu.path_folders);
+			*slash = '/';
+		}
+	}
+
+	FileList_Add(folder, NULL, &demosmenu.path_folders);
+}
+
+static void M_Demos_AddFolderFromDemoPath(const char *path)
+{
+	const char *rel;
+	const char *slash;
+	char folder[MAX_QPATH];
+	size_t len;
+
+	if (q_strncasecmp(path, "demos/", 6))
+		return;
+
+	rel = path + 6;
+	slash = strrchr(rel, '/');
+	if (!slash)
+		return;
+
+	len = (size_t)(slash - rel);
+	if (len <= 0)
+		return;
+	if (len >= sizeof(folder))
+		len = sizeof(folder) - 1;
+
+	memcpy(folder, rel, len);
+	folder[len] = '\0';
+	M_Demos_AddFolderAncestors(folder);
+}
+
+static void M_Demos_ScanPakFolders(void)
+{
+	searchpath_t *search;
+	pack_t *pak;
+	int i;
+
+	for (search = com_searchpaths; search; search = search->next)
+	{
+		if (!search->pack)
+			continue;
+		if (!M_Demos_SearchPathAllowed(search, NULL))
+			continue;
+
+		pak = search->pack;
+		for (i = 0; i < pak->numfiles; i++)
+		{
+			const char *ext = COM_FileGetExtension(pak->files[i].name);
+			if (q_strcasecmp(ext, "dem") && q_strcasecmp(ext, "dz"))
+				continue;
+			M_Demos_AddFolderFromDemoPath(pak->files[i].name);
+		}
+	}
+}
+
+static void M_Demos_ScanPhysicalFolders(const char *basepath, const char *relpath, int depth)
+{
+	char path[MAX_OSPATH];
+
+	if (depth >= DEMOS_PATH_MAX_DEPTH)
+		return;
+
+	if (relpath && relpath[0])
+		q_snprintf(path, sizeof(path), "%s/%s", basepath, relpath);
+	else
+		q_strlcpy(path, basepath, sizeof(path));
+
+#ifdef _WIN32
+	{
+		char searchpath[MAX_OSPATH];
+		WIN32_FIND_DATA fdat;
+		HANDLE fhnd;
+
+		q_snprintf(searchpath, sizeof(searchpath), "%s/*", path);
+		fhnd = FindFirstFile(searchpath, &fdat);
+		if (fhnd == INVALID_HANDLE_VALUE)
+			return;
+
+		do
+		{
+			char child_rel[MAX_QPATH];
+
+			if (!(fdat.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY))
+				continue;
+			if (fdat.cFileName[0] == '.')
+				continue;
+
+			if (relpath && relpath[0])
+				q_snprintf(child_rel, sizeof(child_rel), "%s/%s", relpath, fdat.cFileName);
+			else
+				q_strlcpy(child_rel, fdat.cFileName, sizeof(child_rel));
+
+			FileList_Add(child_rel, NULL, &demosmenu.path_folders);
+			M_Demos_ScanPhysicalFolders(basepath, child_rel, depth + 1);
+		} while (FindNextFile(fhnd, &fdat));
+
+		FindClose(fhnd);
+	}
+#else
+	{
+		DIR *dir_p;
+		struct dirent *dir_t;
+
+		dir_p = opendir(path);
+		if (!dir_p)
+			return;
+
+		while ((dir_t = readdir(dir_p)) != NULL)
+		{
+			char fullpath[MAX_OSPATH];
+			char child_rel[MAX_QPATH];
+			struct stat st;
+
+			if (dir_t->d_name[0] == '.')
+				continue;
+
+			q_snprintf(fullpath, sizeof(fullpath), "%s/%s", path, dir_t->d_name);
+			if (stat(fullpath, &st) < 0 || !S_ISDIR(st.st_mode))
+				continue;
+
+			if (relpath && relpath[0])
+				q_snprintf(child_rel, sizeof(child_rel), "%s/%s", relpath, dir_t->d_name);
+			else
+				q_strlcpy(child_rel, dir_t->d_name, sizeof(child_rel));
+
+			FileList_Add(child_rel, NULL, &demosmenu.path_folders);
+			M_Demos_ScanPhysicalFolders(basepath, child_rel, depth + 1);
+		}
+
+		closedir(dir_p);
+	}
+#endif
+}
+
+static void M_Demos_RebuildFolderList(void)
+{
+	searchpath_t *search;
+	char demos_path[MAX_OSPATH];
+
+	M_Demos_ClearFileList(&demosmenu.path_folders);
+
+	for (search = com_searchpaths; search; search = search->next)
+	{
+		if (search->pack)
+			continue;
+		if (!M_Demos_SearchPathAllowed(search, NULL))
+			continue;
+
+		q_snprintf(demos_path, sizeof(demos_path), "%s/demos", search->filename);
+		M_Demos_ScanPhysicalFolders(demos_path, NULL, 0);
+	}
+
+	M_Demos_ScanPakFolders();
+}
+
+static void M_Demos_FormatFileDate(time_t mtime, char *out, size_t outlen)
+{
+	struct tm *tm;
+
+	if (!mtime)
+	{
+		q_strlcpy(out, "Unknown Date", outlen);
+		return;
+	}
+
+	tm = localtime(&mtime);
+	if (!tm)
+	{
+		q_strlcpy(out, "Unknown Date", outlen);
+		return;
+	}
+
+	q_snprintf(out, outlen, "%04d-%02d-%02d %02d:%02d:%02d",
+		tm->tm_year + 1900, tm->tm_mon + 1, tm->tm_mday,
+		tm->tm_hour, tm->tm_min, tm->tm_sec);
+}
+
+#define DEMO_FRAME_CACHE_MAX	512
+
+typedef struct
+{
+	char	path[MAX_OSPATH];
+	time_t	mtime;
+	size_t	fsize;
+	int		frames;
+} demo_frame_cache_entry_t;
+
+static demo_frame_cache_entry_t demo_frame_cache[DEMO_FRAME_CACHE_MAX];
+static int demo_frame_cache_count = 0;
+static int demo_frame_cache_next = 0;
+
+static int M_Demos_FrameCache_Find(const char *path)
+{
+	int i;
+	for (i = 0; i < demo_frame_cache_count; i++)
+		if (!strcmp(demo_frame_cache[i].path, path))
+			return i;
+	return -1;
+}
+
+static void M_Demos_FrameCache_Store(const char *path, time_t mtime, size_t fsize, int frames)
+{
+	int slot = M_Demos_FrameCache_Find(path);
+	if (slot < 0)
+	{
+		if (demo_frame_cache_count < DEMO_FRAME_CACHE_MAX)
+			slot = demo_frame_cache_count++;
+		else
+		{
+			slot = demo_frame_cache_next;
+			demo_frame_cache_next = (demo_frame_cache_next + 1) % DEMO_FRAME_CACHE_MAX;
+		}
+	}
+	q_strlcpy(demo_frame_cache[slot].path, path, sizeof(demo_frame_cache[slot].path));
+	demo_frame_cache[slot].mtime = mtime;
+	demo_frame_cache[slot].fsize = fsize;
+	demo_frame_cache[slot].frames = frames;
+}
+
+static qboolean M_Demos_FrameCache_Lookup(const char *path, time_t mtime, size_t fsize, int *frames_out)
+{
+	int slot = M_Demos_FrameCache_Find(path);
+	if (slot < 0 ||
+		demo_frame_cache[slot].mtime != mtime ||
+		demo_frame_cache[slot].fsize != fsize)
+		return false;
+	*frames_out = demo_frame_cache[slot].frames;
+	return true;
+}
+
+static int M_Demos_CountFrames(const char *fname, time_t mtime, size_t fsize, searchpath_t *spath)
+{
+	char key[MAX_OSPATH];
+	int frames;
+
+	if (spath && spath->pack)
+		q_snprintf(key, sizeof(key), "%s|%s", spath->filename, fname);
+	else if (spath)
+		q_snprintf(key, sizeof(key), "%s/%s", spath->filename, fname);
+	else
+		q_strlcpy(key, fname, sizeof(key));
+
+	if (M_Demos_FrameCache_Lookup(key, mtime, fsize, &frames))
+		return frames;
+
+	if (spath && !spath->pack)
+		frames = CL_CountDemoFramesInFile(key);
+	else
+	{
+		byte *data;
+		int length;
+
+		data = CL_LoadDemoBuffer(fname, &length);
+		if (!data)
+			frames = -1;
+		else
+		{
+			frames = CL_CountDemoFramesInBuffer(data, length);
+			free(data);
+		}
+	}
+
+	M_Demos_FrameCache_Store(key, mtime, fsize, frames);
+	return frames;
+}
+
+static qboolean M_Demos_BelowMinFrames(const char *fname, time_t mtime, size_t fsize, searchpath_t *spath)
+{
+	int min_frames = CL_DemoMinFramesThreshold(NULL);
+	int frames;
+
+	if (min_frames <= 0)
+		return false;
+
+	frames = M_Demos_CountFrames(fname, mtime, fsize, spath);
+	return frames >= 0 && frames < min_frames;
+}
+
+static qboolean M_Demos_AddListedFile(void *ctx, const char *fname, time_t mtime, size_t fsize, searchpath_t *spath)
+{
+	char date[32];
+	qboolean from_id1;
+
+	(void)ctx;
+
+	if (!M_Demos_SearchPathAllowed(spath, &from_id1))
+		return true;
+
+	if (M_Demos_BelowMinFrames(fname, mtime, fsize, spath))
+		return true;
+
+	M_Demos_FormatFileDate(mtime, date, sizeof(date));
+	M_Demos_AddEx(fname, date, COM_SkipPath(fname), from_id1);
+	return true;
+}
+
+static void M_Demos_CopyLookupSuffix(const char *src, char *out, size_t outlen)
+{
+	size_t len;
+
+	q_strlcpy(out, src, outlen);
+	len = strlen(out);
+	while (len > 0 && out[len - 1] == '/')
+		out[--len] = '\0';
+}
+
+static qboolean M_Demos_FindFolder(const char *suffix, char *actual, size_t actual_size)
+{
+	filelist_item_t *folder;
+	char lookup[MAX_QPATH];
+
+	M_Demos_CopyLookupSuffix(suffix, lookup, sizeof(lookup));
+	if (!lookup[0])
+	{
+		if (actual_size)
+			actual[0] = '\0';
+		return true;
+	}
+
+	for (folder = demosmenu.path_folders; folder; folder = folder->next)
+	{
+		if (!q_strcasecmp(folder->name, lookup))
+		{
+			q_strlcpy(actual, folder->name, actual_size);
+			return true;
+		}
+	}
+
+	return false;
+}
+
+static void M_Demos_CleanPathSuffix(void)
+{
+	char src[MAX_QPATH];
+	char clean[MAX_QPATH];
+	const char *p;
+	char *w;
+	size_t out = 0;
+	qboolean last_slash = false;
+
+	q_strlcpy(src, demosmenu.path_suffix, sizeof(src));
+	for (w = src; *w; ++w)
+	{
+		if (*w == '\\')
+			*w = '/';
+	}
+
+	p = M_Demos_SkipPathBasePrefix(src);
+
+	clean[0] = '\0';
+	while (*p && out < sizeof(clean) - 1)
+	{
+		char c = *p++;
+
+		if (c == ':')
+			continue;
+		if (c == '/')
+		{
+			if (out == 0 || last_slash)
+				continue;
+			clean[out++] = '/';
+			last_slash = true;
+			continue;
+		}
+
+		clean[out++] = c;
+		last_slash = false;
+	}
+	clean[out] = '\0';
+
+	if (strstr(clean, "../") || strstr(clean, "/..") || !strcmp(clean, "..") ||
+		strstr(clean, "./") || strstr(clean, "/.") || !strcmp(clean, "."))
+	{
+		char safe[MAX_QPATH];
+		size_t i = 0, j = 0;
+
+		while (clean[i] && j < sizeof(safe) - 1)
+		{
+			size_t start = i;
+			size_t len;
+
+			while (clean[i] && clean[i] != '/')
+				++i;
+			len = i - start;
+
+			if (!(len == 1 && clean[start] == '.') &&
+				!(len == 2 && clean[start] == '.' && clean[start + 1] == '.'))
+			{
+				if (j > 0 && safe[j - 1] != '/' && j < sizeof(safe) - 1)
+					safe[j++] = '/';
+				while (len-- && j < sizeof(safe) - 1)
+					safe[j++] = clean[start++];
+			}
+
+			while (clean[i] == '/')
+				++i;
+		}
+
+		if (last_slash && j > 0 && safe[j - 1] != '/' && j < sizeof(safe) - 1)
+			safe[j++] = '/';
+		safe[j] = '\0';
+		q_strlcpy(clean, safe, sizeof(clean));
+	}
+
+	if (strcmp(demosmenu.path_suffix, clean))
+	{
+		q_strlcpy(demosmenu.path_suffix, clean, sizeof(demosmenu.path_suffix));
+		demosmenu.path_field.cursor = (int)strlen(demosmenu.path_suffix);
+		demosmenu.path_field.sel_start = -1;
+		M_TextField_ClampCursor(&demosmenu.path_field);
+	}
+}
+
+static void M_Demos_UpdatePathHint(void)
+{
+	filelist_item_t *folder;
+	int len = (int)strlen(demosmenu.path_suffix);
+
+	demosmenu.path_hint[0] = '\0';
+
+	if (!demosmenu.path_editing || len <= 0 ||
+		demosmenu.path_field.cursor != len)
+		return;
+
+	for (folder = demosmenu.path_folders; folder; folder = folder->next)
+	{
+		if (q_strncasecmp(folder->name, demosmenu.path_suffix, len))
+			continue;
+		if ((int)strlen(folder->name) <= len)
+			continue;
+
+		q_strlcpy(demosmenu.path_hint, folder->name + len, sizeof(demosmenu.path_hint));
+		return;
+	}
+}
+
+static void M_Demos_Refilter(void)
+{
+    int i;
+    VEC_CLEAR(demosmenu.filtered_indices);
+
+    for (i = 0; i < demosmenu.democount; i++)
+    {
+        if (demosmenu.list.search.len == 0 ||
+            q_strcasestr(demosmenu.items[i].name, demosmenu.list.search.text) ||
+            q_strcasestr(demosmenu.items[i].display, demosmenu.list.search.text) ||
+            q_strcasestr(demosmenu.items[i].date, demosmenu.list.search.text) ||
+            q_strcasestr(demosmenu.items[i].map, demosmenu.list.search.text) ||
+            q_strcasestr(demosmenu.items[i].players, demosmenu.list.search.text))
+        {
+            VEC_PUSH(demosmenu.filtered_indices, i);
+        }
+    }
+
+    demosmenu.list.numitems = VEC_SIZE(demosmenu.filtered_indices);
+
+    if (demosmenu.list.cursor >= demosmenu.list.numitems)
+        demosmenu.list.cursor = demosmenu.list.numitems - 1;
+
+    if (demosmenu.list.cursor < 0 && demosmenu.list.numitems > 0)
+        demosmenu.list.cursor = 0;
+
+    M_List_CenterCursor(&demosmenu.list);
+}
+
+static void M_Demos_RebuildForCurrentPath(void)
+{
+	char actual_folder[MAX_QPATH];
+
+	M_Demos_FreeItems();
+	demosmenu.list.cursor = -1;
+	demosmenu.list.scroll = 0;
+	demosmenu.democount = 0;
+	VEC_CLEAR(demosmenu.items);
+	VEC_CLEAR(demosmenu.filtered_indices);
+
+	demosmenu.path_valid = M_Demos_FindFolder(demosmenu.path_suffix,
+		actual_folder, sizeof(actual_folder));
+
+	if (demosmenu.path_valid)
+	{
+		if (!actual_folder[0])
+		{
+			COM_ListAllFiles(NULL, "demos/*.dem", M_Demos_AddListedFile, 0, NULL);
+			COM_ListAllFiles(NULL, "demos/*.dz", M_Demos_AddListedFile, 0, NULL);
+		}
+		else
+		{
+			char pattern[MAX_OSPATH];
+
+			q_snprintf(pattern, sizeof(pattern), "demos/%s/*.dem", actual_folder);
+			COM_ListAllFiles(NULL, pattern, M_Demos_AddListedFile, 0, NULL);
+
+			q_snprintf(pattern, sizeof(pattern), "demos/%s/*.dz", actual_folder);
+			COM_ListAllFiles(NULL, pattern, M_Demos_AddListedFile, 0, NULL);
+		}
+	}
+
+	M_Demos_Refilter();
+
+	if (demosmenu.list.cursor == -1 && demosmenu.list.numitems > 0)
+		demosmenu.list.cursor = 0;
+
+	M_List_CenterCursor(&demosmenu.list);
+	M_Demos_UpdatePathHint();
+}
+
+static void M_Demos_ClearRememberedPath(void)
+{
+	demosmenu.remembered_path_suffix[0] = '\0';
+}
+
+static void M_Demos_PathChanged(void)
+{
+	M_Demos_CleanPathSuffix();
+	if (!demosmenu.path_suffix[0])
+		M_Demos_ClearRememberedPath();
+	demosmenu.path_tabpartial[0] = '\0';
+	M_Demos_RebuildForCurrentPath();
+}
+
+static void M_Demos_ToggleShowId1(void)
+{
+	if (!M_Demos_ShowId1Toggle())
+		return;
+
+	demosmenu.show_id1 = !demosmenu.show_id1;
+	demosmenu.path_tabpartial[0] = '\0';
+	M_Demos_RebuildFolderList();
+	M_Demos_RebuildForCurrentPath();
+	S_LocalSound("misc/menu1.wav");
+}
+
+static void M_Demos_RememberCurrentPath(void)
+{
+	q_strlcpy(demosmenu.remembered_path_suffix, demosmenu.path_suffix,
+		sizeof(demosmenu.remembered_path_suffix));
+}
+
+static void M_Demos_ResetPathToRoot(void)
+{
+	demosmenu.path_suffix[0] = '\0';
+	demosmenu.path_field.cursor = 0;
+	demosmenu.path_field.sel_start = -1;
+	demosmenu.path_tabpartial[0] = '\0';
+	demosmenu.path_hint[0] = '\0';
+	M_TextField_ClampCursor(&demosmenu.path_field);
+}
+
+static void M_Demos_Init(void)
+{
+    demosmenu.list.viewsize = MAX_VIS_DEMOS;
+    demosmenu.list.cursor = -1;
+    demosmenu.list.scroll = 0;
+    demosmenu.democount = 0;
+    demosmenu.scrollbar_grab = false;
+    VEC_CLEAR(demosmenu.items);
+	VEC_CLEAR(demosmenu.filtered_indices);
+	demosmenu.path_editing = false;
+	demosmenu.path_valid = true;
+	q_strlcpy(demosmenu.path_suffix, demosmenu.remembered_path_suffix,
+		sizeof(demosmenu.path_suffix));
+	demosmenu.path_hint[0] = '\0';
+	demosmenu.path_tabpartial[0] = '\0';
+	M_TextField_Init(&demosmenu.path_field, demosmenu.path_suffix, sizeof(demosmenu.path_suffix) - 1, false);
+
+    memset(&demosmenu.list.search, 0, sizeof(demosmenu.list.search));
+    demosmenu.list.search.maxlen = 32;
+
+	M_Ticker_Init (&demosmenu.ticker);
+
+	M_Demos_RebuildFolderList();
+	M_Demos_RebuildForCurrentPath();
+	if (demosmenu.remembered_path_suffix[0] && !demosmenu.path_valid)
+	{
+		M_Demos_ClearRememberedPath();
+		M_Demos_ResetPathToRoot();
+		M_Demos_RebuildForCurrentPath();
+	}
+}
+
+void M_Menu_Demos_f (void)
+{
+	key_dest = key_menu;
+	demosmenu.prev = m_state;
+	m_state = m_demos;
+	m_entersound = true;
+	M_Demos_Init();
+}
+
+static int M_Demos_PathSuffixVisibleChars(void)
+{
+	return q_max(0, DEMOS_PATH_BOX_CHARS - (int)strlen(M_Demos_PathBase()) - 1);
+}
+
+static int M_Demos_PathViewStart(void)
+{
+	int suffix_chars = M_Demos_PathSuffixVisibleChars();
+	int len = (int)strlen(demosmenu.path_suffix);
+
+	if (suffix_chars <= 0 || len <= suffix_chars)
+		return 0;
+
+	return CLAMP(0, demosmenu.path_field.cursor - suffix_chars, len - suffix_chars);
+}
+
+static qboolean M_Demos_ShowPathOptions(void)
+{
+	return demosmenu.path_editing &&
+		(!demosmenu.path_suffix[0] || !demosmenu.path_valid);
+}
+
+static int M_Demos_ListY(void)
+{
+	return M_Demos_ShowId1Toggle() ? 64 : 56;
+}
+
+static qboolean M_Demos_MouseInShowId1Toggle(void)
+{
+	return M_Demos_ShowId1Toggle() &&
+		M_TextField_MouseInRow(m_mousey, DEMOS_ID1_ROW_Y) &&
+		m_mousex >= DEMOS_ID1_TEXT_X &&
+		m_mousex < DEMOS_ID1_TEXT_X + (int)(22 * 8 * DEMOS_ID1_TEXT_SCALE);
+}
+
+static qboolean M_Demos_MouseInPathOptionsArea(void)
+{
+	int width = (demosmenu.cols - 2) * 8;
+	int height = demosmenu.list.viewsize * 8;
+	int left = demosmenu.x - 8;
+
+	return M_Demos_ShowPathOptions() &&
+		m_mousex >= left &&
+		m_mousex < demosmenu.x + width &&
+		m_mousey >= demosmenu.y &&
+		m_mousey < demosmenu.y + height;
+}
+
+static filelist_item_t *M_Demos_GetPathOptionAtRow(int row)
+{
+	filelist_item_t *folder;
+	const char *partial = demosmenu.path_tabpartial[0] ?
+		demosmenu.path_tabpartial : demosmenu.path_suffix;
+	int partial_len = (int)strlen(partial);
+	int shown = 0;
+
+	if (row < 0 || row >= demosmenu.list.viewsize)
+		return NULL;
+
+	for (folder = demosmenu.path_folders; folder; folder = folder->next)
+	{
+		if (partial_len && q_strncasecmp(folder->name, partial, partial_len))
+			continue;
+
+		if (shown == row)
+			return folder;
+
+		++shown;
+		if (shown >= demosmenu.list.viewsize)
+			break;
+	}
+
+	return NULL;
+}
+
+static filelist_item_t *M_Demos_GetHoveredPathOption(void)
+{
+	int row;
+
+	if (!M_Demos_MouseInPathOptionsArea())
+		return NULL;
+
+	row = (m_mousey - demosmenu.y) / 8;
+	return M_Demos_GetPathOptionAtRow(row);
+}
+
+static void M_Demos_EndPathEdit(void);
+
+static void M_Demos_SelectPathOption(filelist_item_t *folder)
+{
+	if (!folder)
+		return;
+
+	q_strlcpy(demosmenu.path_suffix, folder->name, sizeof(demosmenu.path_suffix));
+	demosmenu.path_field.cursor = (int)strlen(demosmenu.path_suffix);
+	demosmenu.path_field.sel_start = -1;
+	demosmenu.path_tabpartial[0] = '\0';
+	M_Demos_EndPathEdit();
+	M_Demos_RebuildForCurrentPath();
+}
+
+static const char *M_Demos_CommandName(const char *name)
+{
+	if (!q_strncasecmp(name, "demos/", 6) || !q_strncasecmp(name, "demos\\", 6))
+		return name + 6;
+	return name;
+}
+
+static qboolean M_Demos_SameDemoName(const char *a, const char *b)
+{
+	return !q_strcasecmp(M_Demos_CommandName(a), M_Demos_CommandName(b));
+}
+
+static qboolean M_Demos_QueuePlayDemo(const char *name)
+{
+	const char *demo_name = name;
+
+	if (strchr(demo_name, '"') || strchr(demo_name, '\n') || strchr(demo_name, '\r'))
+	{
+		Con_Printf("cannot play demo with unsupported characters in path: %s\n", demo_name);
+		S_LocalSound("misc/menu3.wav");
+		return false;
+	}
+
+	Cbuf_AddText(va("playdemo \"%s\"\n", demo_name));
+	return true;
+}
+
+static void M_Demos_DrawPathField(void)
+{
+	int row_y = DEMOS_PATH_ROW_Y;
+	const char *base = M_Demos_PathBase();
+	int base_len = (int)strlen(base);
+	int slash_x = DEMOS_PATH_TEXT_X + base_len * 8;
+	int suffix_x = slash_x + 8;
+	int suffix_chars = M_Demos_PathSuffixVisibleChars();
+	int view_start = M_Demos_PathViewStart();
+	qboolean show_separator = demosmenu.path_editing || demosmenu.path_suffix[0];
+	char visible_suffix[MAX_QPATH];
+
+	M_Print(DEMOS_PATH_LABEL_X, row_y, "path:");
+	M_DrawTextBox(DEMOS_PATH_BOX_X, row_y - 8, DEMOS_PATH_BOX_CHARS, 1);
+	M_Print(DEMOS_PATH_TEXT_X, row_y, base);
+
+	if (show_separator)
+		M_Print(slash_x, row_y, "/");
+
+	visible_suffix[0] = '\0';
+	if (show_separator && suffix_chars > 0)
+	{
+		q_strlcpy(visible_suffix, demosmenu.path_suffix + view_start, sizeof(visible_suffix));
+		visible_suffix[suffix_chars] = '\0';
+
+		if (demosmenu.path_editing)
+		{
+			menu_textfield_t visible_field = demosmenu.path_field;
+			visible_field.text = demosmenu.path_suffix + view_start;
+			visible_field.cursor = CLAMP(0, demosmenu.path_field.cursor - view_start, suffix_chars);
+			visible_field.max_len = suffix_chars;
+			if (demosmenu.path_field.sel_start >= 0)
+				visible_field.sel_start = CLAMP(0, demosmenu.path_field.sel_start - view_start, suffix_chars);
+			M_TextField_DrawHighlight(&visible_field, suffix_x, row_y);
+		}
+
+		M_Print(suffix_x, row_y, visible_suffix);
+	}
+
+	if (demosmenu.path_editing &&
+		demosmenu.path_hint[0] &&
+		demosmenu.path_field.cursor == (int)strlen(demosmenu.path_suffix))
+	{
+		int hint_col = (int)strlen(demosmenu.path_suffix) - view_start;
+		if (hint_col >= 0 && hint_col < suffix_chars)
+		{
+			int hint_x = suffix_x + hint_col * 8;
+			M_PrintRGBA(hint_x, row_y, demosmenu.path_hint,
+				CL_PLColours_Parse("0xffffff"), 0.5f, true);
+		}
+	}
+
+	if (demosmenu.path_editing)
+	{
+		menu_textfield_t visible_field = demosmenu.path_field;
+		visible_field.text = demosmenu.path_suffix + view_start;
+		visible_field.cursor = CLAMP(0, demosmenu.path_field.cursor - view_start, suffix_chars);
+		visible_field.max_len = suffix_chars;
+		visible_field.sel_start = -1;
+		M_TextField_DrawCursor(&visible_field, suffix_x, row_y);
+	}
+}
+
+static void M_Demos_DrawShowId1Toggle(void)
+{
+	const int value_x = DEMOS_ID1_TEXT_X + (int)(16 * 8 * DEMOS_ID1_TEXT_SCALE);
+
+	if (!M_Demos_ShowId1Toggle())
+		return;
+
+	glPushMatrix();
+	glTranslatef(DEMOS_ID1_TEXT_X, DEMOS_ID1_ROW_Y + 1, 0);
+	glScalef(DEMOS_ID1_TEXT_SCALE, DEMOS_ID1_TEXT_SCALE, 1.0f);
+	M_Print(0, 0, "show id1 demos:");
+	glPopMatrix();
+
+	glPushMatrix();
+	glTranslatef(value_x, DEMOS_ID1_ROW_Y + 1, 0);
+	glScalef(DEMOS_ID1_TEXT_SCALE, DEMOS_ID1_TEXT_SCALE, 1.0f);
+	M_PrintWhite(0, 0, demosmenu.show_id1 ? "on" : "off");
+	glPopMatrix();
+}
+
+static void M_Demos_DrawPathOptions(int x, int y, int cols)
+{
+	filelist_item_t *folder;
+	filelist_item_t *hovered = M_Demos_GetHoveredPathOption();
+	const char *partial = demosmenu.path_tabpartial[0] ?
+		demosmenu.path_tabpartial : demosmenu.path_suffix;
+	int partial_len = (int)strlen(partial);
+	int shown = 0;
+	int matches = 0;
+
+	for (folder = demosmenu.path_folders; folder; folder = folder->next)
+	{
+		char label[MAX_QPATH + 2];
+		int len;
+
+		if (partial_len && q_strncasecmp(folder->name, partial, partial_len))
+			continue;
+
+		++matches;
+		if (shown >= demosmenu.list.viewsize)
+			continue;
+
+		q_snprintf(label, sizeof(label), "%s/", folder->name);
+		len = (int)strlen(label);
+
+		if (folder == hovered)
+			M_DrawCharacter(x - 8, y + shown * 8, 12 + ((int)(realtime * 4) & 1));
+
+		if (partial_len > 0 && len <= cols - 2)
+			M_PrintHighlight(x, y + shown * 8, label, partial, partial_len);
+		else if (len <= cols - 2)
+			M_Print(x, y + shown * 8, label);
+		else
+			M_PrintScroll(x, y + shown * 8, (cols - 2) * 8, label, 0.0, 1);
+
+		++shown;
+	}
+
+	if (!matches)
+	{
+		if (!demosmenu.path_folders)
+			M_PrintRGBA(x, y, va("no folders under %s", M_Demos_PathBase()),
+				CL_PLColours_Parse("0xffffff"), 0.5f, true);
+		else
+			M_PrintRGBA(x, y, "no matching folders",
+				CL_PLColours_Parse("0xffffff"), 0.5f, true);
+		return;
+	}
+
+	if (matches > shown)
+		M_DrawEllipsisBar(x, y + shown * 8, cols);
+}
+
+void M_Demos_Draw (void)
+{
+    int x, y, i, cols;
+    int firstvis, numvis;
+
+    x = 16;
+    y = M_Demos_ListY();
+    cols = 36;
+
+    char demofilename[MAX_OSPATH];
+
+    demosmenu.x = x;
+    demosmenu.y = y;
+    demosmenu.cols = cols;
+
+    if (!keydown[K_MOUSE1]) // woods #mousemenu
+        demosmenu.scrollbar_grab = false;
+
+    if (demosmenu.prev_cursor != demosmenu.list.cursor)
+    {
+        demosmenu.prev_cursor = demosmenu.list.cursor;
+        M_Ticker_Init(&demosmenu.ticker);
+    }
+    else
+    {
+        M_Ticker_Update(&demosmenu.ticker);
+    }
+
+	M_TextField_CheckMouseRelease();
+
+    Draw_String(x, 4, "Demos");
+    M_DrawQuakeBar(x - 8, 16, cols + 2);
+	M_Demos_DrawPathField();
+	M_Demos_DrawShowId1Toggle();
+
+	if (M_Demos_ShowPathOptions())
+	{
+		M_Demos_DrawPathOptions(x, y, cols);
+		return;
+	}
+
+	if (!demosmenu.path_valid)
+	{
+		M_PrintRGBA(x, y, "invalid demos path",
+			CL_PLColours_Parse("0xffffff"), 0.5f, true);
+		return;
+	}
+
+    M_List_GetVisibleRange(&demosmenu.list, &firstvis, &numvis);
+    for (i = 0; i < numvis; i++)
+    {
+        int idx = i + firstvis;
+        int demo_idx = demosmenu.filtered_indices[idx];
+        demoitem_t* demo_item = &demosmenu.items[demo_idx];
+        qboolean selected = (idx == demosmenu.list.cursor);
+
+        q_strlcpy(demofilename, cls.demofilename, sizeof(demofilename));
+
+        demosmenu.items[demo_idx].active = M_Demos_SameDemoName(demo_item->name, demofilename);
+
+        int color = demosmenu.items[demo_idx].active ? 0 : 1;
+        int len = strlen(demo_item->display);
+        int maxchars = (cols - 2);
+
+        if (demosmenu.list.search.len > 0)
+        {
+            if (len <= maxchars)
+            {
+                // No scrolling needed, display with highlighting
+                M_PrintHighlight(x, y + i * 8, demo_item->display, demosmenu.list.search.text, demosmenu.list.search.len);
+            }
+            else
+            {
+                // Scrolling needed, display with scrolling and highlighting
+                M_PrintHighlightScroll(x, y + i * 8, (cols - 2) * 8,
+				demo_item->display, demosmenu.list.search.text,
+				selected ? demosmenu.ticker.scroll_time : 0.0);
+            }
+        }
+        else
+        {
+            if (len <= maxchars)
+            {
+                // No scrolling needed
+                if (color)
+                    M_Print(x, y + i * 8, demo_item->display);
+                else
+                    M_PrintWhite(x, y + i * 8, demo_item->display);
+            }
+            else
+            {
+                // Scrolling needed
+                M_PrintScroll(x, y + i * 8, (cols - 2) * 8,
+                    demo_item->display,
+                    selected ? demosmenu.ticker.scroll_time : 0.0,
+                    color);
+            }
+        }
+
+        if (selected)
+            M_DrawCharacter(x - 8, y + i * 8, 12 + ((int)(realtime * 4) & 1));
+    }
+
+	if (demosmenu.list.numitems == 0)
+		M_PrintRGBA(x, y, "no demos in this path",
+			CL_PLColours_Parse("0xffffff"), 0.5f, true);
+
+    if (M_List_GetOverflow(&demosmenu.list) > 0)
+    {
+        M_List_DrawScrollbar(&demosmenu.list, x + cols * 8 - 8, y);
+
+        if (demosmenu.list.scroll > 0)
+            M_DrawEllipsisBar(x, y - 8, cols);
+        if (demosmenu.list.scroll + demosmenu.list.viewsize < demosmenu.list.numitems)
+            M_DrawEllipsisBar(x, y + demosmenu.list.viewsize * 8, cols);
+    }
+
+    if (demosmenu.list.cursor >= 0 && demosmenu.list.cursor < demosmenu.list.numitems)
+    {
+        int demo_idx = demosmenu.filtered_indices[demosmenu.list.cursor];
+        demoitem_t* di = &demosmenu.items[demo_idx];
+        
+        // Lazy parsing: only parse when item is selected for the first time
+        if (!di->parsed)
+        {
+            demoinfo_t info;
+            if (Parse_DemoInfo(di->name, &info))
+            {
+                q_strlcpy(di->map, info.map, sizeof(di->map));
+                q_strlcpy(di->players, info.players, sizeof(di->players));
+                FormatDuration(info.duration, di->duration, sizeof(di->duration));
+                q_snprintf(di->filesize, sizeof(di->filesize), "%.1f mb", info.filesize_mb);
+            }
+            else
+            {
+                q_strlcpy(di->map, "unknown", sizeof(di->map));
+                q_strlcpy(di->players, "n/a", sizeof(di->players));
+                q_strlcpy(di->duration, "n/a", sizeof(di->duration));
+                q_strlcpy(di->filesize, "n/a", sizeof(di->filesize));
+            }
+            di->parsed = true;
+        }
+        int info_y = y + demosmenu.list.viewsize * 8 + 4;
+        qboolean at_bottom = (demosmenu.list.scroll + demosmenu.list.viewsize >= demosmenu.list.numitems);
+        if (!at_bottom && M_List_GetOverflow(&demosmenu.list) > 0)
+            info_y += 8;
+        
+        int current_y = info_y;
+        
+        if (di->map[0] && di->duration[0] && di->filesize[0])
+        {
+            M_Print(x, current_y, va("%s (%s) - %s", di->map, di->duration, di->filesize));
+            current_y += 8;
+        }
+        else if (di->map[0] && di->duration[0])
+        {
+            M_Print(x, current_y, va("%s (%s)", di->map, di->duration));
+            current_y += 8;
+        }
+        else if (di->map[0])
+        {
+            M_Print(x, current_y, di->map);
+            current_y += 8;
+        }
+        else if (di->duration[0])
+        {
+            M_Print(x, current_y, va("Duration: %s", di->duration));
+            current_y += 8;
+        }
+        
+        if (di->players[0])
+        {
+            // Handle player display with 40-character line wrapping
+            char players_copy[256];
+            q_strlcpy(players_copy, di->players, sizeof(players_copy));
+            
+            char* pos = players_copy;
+            char line_buffer[64];
+            int line_pos = 0;
+            qboolean first_line = true;
+            int line_count = 0;
+            
+            while (*pos)
+            {
+                // Find next comma or end of string
+                char* next_comma = strchr(pos, ',');
+                int name_len;
+                
+                if (next_comma)
+                {
+                    name_len = next_comma - pos;
+                    // Skip comma and space after it
+                    while (next_comma[1] == ' ') next_comma++;
+                }
+                else
+                {
+                    name_len = strlen(pos);
+                }
+                
+                // Check if this name fits on current line (including comma and space if there are more names)
+                int comma_space = next_comma ? 2 : 0; // ", " if there are more names
+                int needed_space = name_len + comma_space;
+                
+                if (line_pos > 0 && line_pos + needed_space > 40)
+                {
+                    // Check if we've reached the 3-line limit
+                    if (line_count >= 2) // 0, 1, 2 = 3 lines total
+                    {
+                        // Add ellipsis to indicate more players
+                        if (line_pos + 4 <= 40) // Space for " ..."
+                        {
+                            line_buffer[line_pos++] = ' ';
+                            line_buffer[line_pos++] = '.';
+                            line_buffer[line_pos++] = '.';
+                            line_buffer[line_pos++] = '.';
+                        }
+                        line_buffer[line_pos] = '\0';
+                        M_PrintWhite(x, current_y, line_buffer);
+                        break; // Stop processing more players
+                    }
+                    
+                    // Print current line and start new one
+                    line_buffer[line_pos] = '\0';
+                    M_PrintWhite(x, current_y, line_buffer); // Remove indent - all lines align to same x position
+                    if (first_line)
+                        first_line = false;
+                    current_y += 8;
+                    line_count++;
+                    line_pos = 0;
+                }
+                
+                // Copy the name
+				memcpy(line_buffer + line_pos, pos, name_len);
+                line_pos += name_len;
+                
+                // Add comma and space after name if there are more names coming
+                if (next_comma)
+                {
+                    line_buffer[line_pos++] = ',';
+                    line_buffer[line_pos++] = ' ';
+                }
+                
+                // Move to next name
+                if (next_comma)
+                    pos = next_comma + 1;
+                else
+                    break;
+            }
+            
+            // Print final line if any content (and we haven't exceeded 3 lines)
+            if (line_pos > 0 && line_count < 3)
+            {
+                line_buffer[line_pos] = '\0';
+                M_PrintWhite(x, current_y, line_buffer); // Remove indent - all lines align to same x position
+                current_y += 8;
+            }
+        }
+    }
+
+    if (demosmenu.list.search.len > 0)
+    {
+        M_DrawTextBox(16, 180, 32, 1);
+        M_PrintHighlight(24, 188, demosmenu.list.search.text,
+            demosmenu.list.search.text,
+            demosmenu.list.search.len);
+        int cursor_x = 24 + 8 * demosmenu.list.search.len;
+		if (demosmenu.list.numitems == 0)
+			M_DrawCharacter(cursor_x, 188, 11 ^ 128);
+		else
+			M_DrawCharacter(cursor_x, 188, 10 + ((int)(realtime * 4) & 1));
+    }
+}
+
+
+
+qboolean M_Demos_Match(int index, char initial)
+{
+    int demo_idx = demosmenu.filtered_indices[index];
+    return q_tolower(demosmenu.items[demo_idx].display[0]) == initial;
+}
+
+static int M_Demos_PathSuffixTextX(void)
+{
+	return DEMOS_PATH_TEXT_X + ((int)strlen(M_Demos_PathBase()) + 1) * 8;
+}
+
+static qboolean M_Demos_MouseInPathField(void)
+{
+	int box_w = (DEMOS_PATH_BOX_CHARS + 2) * 8;
+
+	return M_TextField_MouseInRow(m_mousey, DEMOS_PATH_ROW_Y) &&
+		m_mousex >= DEMOS_PATH_BOX_X &&
+		m_mousex <= DEMOS_PATH_BOX_X + box_w;
+}
+
+static void M_Demos_BeginPathEdit(void)
+{
+	demosmenu.path_editing = true;
+	M_TextField_ClampCursor(&demosmenu.path_field);
+	M_Demos_UpdatePathHint();
+}
+
+static void M_Demos_EndPathEdit(void)
+{
+	demosmenu.path_editing = false;
+	demosmenu.path_tabpartial[0] = '\0';
+	demosmenu.path_hint[0] = '\0';
+	M_TextField_ClearSelection(&demosmenu.path_field);
+}
+
+static void M_Demos_MouseClickPathField(void)
+{
+	int view_start = M_Demos_PathViewStart();
+	int suffix_x = M_Demos_PathSuffixTextX();
+
+	M_Demos_BeginPathEdit();
+	demosmenu.path_tabpartial[0] = '\0';
+	M_TextField_MouseClick(&demosmenu.path_field, m_mousex,
+		suffix_x - view_start * 8);
+	M_Demos_UpdatePathHint();
+}
+
+void M_Demos_Key(int key)
+{
+    int x, y; // woods #mousemenu
+
+	if (demosmenu.path_editing)
+	{
+		char old_suffix[MAX_QPATH];
+
+		q_strlcpy(old_suffix, demosmenu.path_suffix, sizeof(old_suffix));
+		if (M_TextField_Key(&demosmenu.path_field, key))
+		{
+			if (strcmp(old_suffix, demosmenu.path_suffix))
+				M_Demos_PathChanged();
+			else
+				M_Demos_UpdatePathHint();
+			return;
+		}
+
+		switch (key)
+		{
+		case K_TAB:
+			if (M_Menu_TabCompleteFileList(&demosmenu.path_field, demosmenu.path_suffix,
+				sizeof(demosmenu.path_suffix), demosmenu.path_folders,
+				demosmenu.path_tabpartial, sizeof(demosmenu.path_tabpartial)))
+			{
+				M_Demos_CleanPathSuffix();
+				M_Demos_RebuildForCurrentPath();
+				S_LocalSound("misc/menu2.wav");
+			}
+			else
+				M_Demos_UpdatePathHint();
+			return;
+
+		case K_ESCAPE:
+		case K_BBUTTON:
+			M_Demos_EndPathEdit();
+			return;
+
+		case K_MOUSE4:
+		case K_MOUSE2:
+			M_Demos_EndPathEdit();
+			S_LocalSound("misc/menu1.wav");
+			return;
+
+		case K_ENTER:
+		case K_KP_ENTER:
+		case K_ABUTTON:
+			if (demosmenu.path_valid)
+			{
+				M_Demos_EndPathEdit();
+				S_LocalSound("misc/menu1.wav");
+			}
+			else
+				S_LocalSound("misc/menu3.wav");
+			return;
+
+		case K_MOUSE1:
+			{
+				filelist_item_t *folder = M_Demos_GetHoveredPathOption();
+
+				if (folder)
+				{
+					M_Demos_SelectPathOption(folder);
+					S_LocalSound("misc/menu2.wav");
+				}
+				else if (M_Demos_MouseInShowId1Toggle())
+				{
+					M_Demos_EndPathEdit();
+					M_Demos_ToggleShowId1();
+				}
+				else if (M_Demos_MouseInPathField())
+					M_Demos_MouseClickPathField();
+				else
+					M_Demos_EndPathEdit();
+			}
+			return;
+
+		case K_UPARROW:
+		case K_DOWNARROW:
+		case K_MWHEELUP:
+		case K_MWHEELDOWN:
+			if (M_Demos_ShowPathOptions())
+				return;
+			break;
+
+		case K_BACKSPACE:
+		case K_DEL:
+			return;
+
+		default:
+			if (key >= 32 && key < 127)
+				return;
+			break;
+		}
+	}
+
+	if (key == K_MOUSE1 && M_Demos_MouseInShowId1Toggle())
+	{
+		M_Demos_ToggleShowId1();
+		return;
+	}
+
+	if (key == K_MOUSE1 && M_Demos_MouseInPathField())
+	{
+		M_Demos_MouseClickPathField();
+		return;
+	}
+
+	// Handle Ctrl+U or Ctrl+Backspace first
+	if (keydown[K_CTRL])
+	{
+		if ((key == 'u' || key == 'U') && demosmenu.list.search.len > 0)
+		{
+			demosmenu.list.search.len = 0;
+			demosmenu.list.search.text[0] = 0;
+			M_Demos_Refilter();
+			return;
+		}
+		else if (key == K_BACKSPACE && demosmenu.list.search.len > 0)
+		{
+			M_DeletePrevWord(&demosmenu.list.search);
+			M_Demos_Refilter();
+			return;
+		}
+		else if (key == K_BACKSPACE && demosmenu.list.numitems > 0)
+		{
+			// Delete the currently selected demo file
+			int demo_idx = demosmenu.filtered_indices[demosmenu.list.cursor];
+			demoitem_t *demo = &demosmenu.items[demo_idx];
+
+			// Copy demo name to local buffer BEFORE freeing memory
+			char demo_name[MAX_QPATH];
+			q_strlcpy(demo_name, demo->name, sizeof(demo_name));
+
+			if (demo->from_id1)
+			{
+				S_LocalSound("misc/menu3.wav");
+				Con_Printf("cannot delete inherited id1 demo ^m%s^m from this menu\n", M_Demos_CommandName(demo_name));
+				return;
+			}
+
+			char demo_path[MAX_OSPATH];
+
+			// Construct the full path to the demo file
+			if (strchr(demo_name, '/') || strchr(demo_name, '\\'))
+				q_snprintf(demo_path, sizeof(demo_path), "%s/%s", com_gamedir, demo_name);
+			else
+				q_snprintf(demo_path, sizeof(demo_path), "%s/demos/%s", com_gamedir, demo_name);
+
+			// Try to delete the file
+			if (remove(demo_path) == 0)
+			{
+				// Successfully deleted file, now remove from demo list
+				FileList_Subtract(demo_name, &demolist);
+
+				// Store current cursor position
+				int old_cursor = demosmenu.list.cursor;
+
+				M_Demos_RebuildForCurrentPath();
+
+				// Restore cursor position (adjust if necessary)
+				if (old_cursor >= demosmenu.list.numitems && demosmenu.list.numitems > 0)
+					demosmenu.list.cursor = demosmenu.list.numitems - 1;
+				else if (demosmenu.list.numitems > 0)
+					demosmenu.list.cursor = old_cursor;
+				else
+					demosmenu.list.cursor = -1;
+
+				// Play confirmation sound
+				S_LocalSound("misc/menu1.wav");
+
+				Con_Printf("demo ^m%s^m deleted\n", demo_name);
+			}
+			else
+			{
+				// Failed to delete file
+				S_LocalSound("misc/menu3.wav");
+				Con_Printf("failed to delete demo ^m%s^m\n", demo_name);
+			}
+			return;
+		}
+	}
+	
+    if (key >= 32 && key < 127) // Handle search input first, printable characters
+    {
+        if (demosmenu.list.search.len < demosmenu.list.search.maxlen)
+        {
+            demosmenu.list.search.text[demosmenu.list.search.len++] = key;
+            demosmenu.list.search.text[demosmenu.list.search.len] = 0;
+            M_Demos_Refilter();
+            return;
+        }
+    }
+
+    if (key == K_BACKSPACE)
+    {
+        if (demosmenu.list.search.len > 0)
+        {
+            demosmenu.list.search.text[--demosmenu.list.search.len] = 0;
+            M_Demos_Refilter();
+            return;
+        }
+    }
+
+    if (demosmenu.scrollbar_grab)
+    {
+        switch (key)
+        {
+        case K_ESCAPE:
+        case K_BBUTTON:
+        case K_MOUSE4:
+        case K_MOUSE2:
+            demosmenu.scrollbar_grab = false;
+            break;
+        }
+        return;
+    }
+
+    if (M_List_Key(&demosmenu.list, key))
+        return;
+
+    if (M_List_CycleMatch(&demosmenu.list, key, M_Demos_Match))
+        return;
+
+    if (M_Ticker_Key(&demosmenu.ticker, key))
+        return;
+
+    switch (key)
+    {
+    case K_ESCAPE:
+        if (demosmenu.list.search.len > 0)
+        {
+            demosmenu.list.search.len = 0;
+            demosmenu.list.search.text[0] = 0;
+            M_Demos_Refilter();
+            return;
+        }
+        // Fall through to exit menu if search is already empty
+    case K_BBUTTON:
+    case K_MOUSE4: // woods #mousemenu
+    case K_MOUSE2:
+        if (demosmenu.prev == m_options)
+            M_Menu_Options_f();
+        else
+            M_Menu_Main_f();
+        break;
+
+    case K_ENTER:
+    case K_KP_ENTER:
+    case K_ABUTTON:
+    enter: // woods #mousemenu
+        if (demosmenu.list.numitems > 0)
+        {
+			demoitem_t *demo = &demosmenu.items[demosmenu.filtered_indices[demosmenu.list.cursor]];
+
+			if (M_Demos_QueuePlayDemo(demo->name))
+			{
+				M_Demos_RememberCurrentPath();
+				M_Menu_Main_f();
+			}
+        }
+        else
+            S_LocalSound("misc/menu3.wav");
+        break;
+
+    case K_MOUSE1: // woods #mousemenu
+        x = m_mousex - demosmenu.x - (demosmenu.cols - 1) * 8;
+        y = m_mousey - demosmenu.y;
+        if (x < -8 || !M_List_UseScrollbar(&demosmenu.list, y))
+            goto enter;
+        demosmenu.scrollbar_grab = true;
+        M_Demos_Mousemove(m_mousex, m_mousey);
+        break;
+
+    default:
+        break;
+    }
+}
+
+void M_Demos_Char(int key)
+{
+	if (!demosmenu.path_editing)
+		return;
+
+	if (M_TextField_Char(&demosmenu.path_field, key))
+		M_Demos_PathChanged();
+}
+
+qboolean M_Demos_TextEntry(void)
+{
+	return demosmenu.path_editing;
+}
+
+void M_Demos_Mousemove(int cx, int cy) // woods #mousemenu
+{
+	if (textfield_mouse_dragging && textfield_drag_field == &demosmenu.path_field)
+	{
+		M_TextField_MouseDrag(cx);
+		M_Demos_UpdatePathHint();
+		return;
+	}
+
+	cy -= demosmenu.y;
+
+	if (M_Demos_ShowPathOptions())
+		return;
+
+	if (demosmenu.scrollbar_grab)
+	{
+		if (!keydown[K_MOUSE1])
+		{
+			demosmenu.scrollbar_grab = false;
+			return;
+		}
+		M_List_UseScrollbar(&demosmenu.list, cy);
+		// Note: no return, we also update the cursor
+	}
+
+	M_List_Mousemove(&demosmenu.list, cy);
+}
+
+/*
+=========================================
+Credit Menu - used by the 2021 re-release
+========================================+
+*/
+
+void M_Menu_Credits_f (void)
+{
+}
+
+void M_Menu_SearchInternet_f (void) // woods
+{
+	M_Menu_Search_f(SLIST_INTERNET);
+}
+
+static struct
+{
+	const char *name;
+	xcommand_t function;
+	cmd_function_t *cmd;
+} menucommands[] =
+{
+	{"menu_main", M_Menu_Main_f},
+	{"menu_singleplayer", M_Menu_SinglePlayer_f},
+	{"menu_load", M_Menu_Load_f},
+	{"menu_save", M_Menu_Save_f},
+	{"menu_skill", M_Menu_Skill_f},
+	{"menu_multiplayer", M_Menu_MultiPlayer_f},
+	{"menu_slist", M_Menu_SearchInternet_f},
+	{"menu_setup", M_Menu_Setup_f},
+	{"menu_options", M_Menu_Options_f},
+	{"menu_keys", M_Menu_Keys_f},
+	{"menu_mouse", M_Menu_Mouse_f},
+	{"menu_controller", M_Menu_Controller_f},
+	{"menu_controller_test", M_Menu_Controller_Test_f},
+	{"menu_weaponwheel", M_Menu_WeaponWheel_f},
+	{"menu_sound", M_Menu_Sound_f},
+	{"menu_voip", M_Menu_Voip_f},
+	{"menu_game", M_Menu_Game_f},
+	{"menu_hud", M_Menu_HUD_f},
+	{"menu_crosshair", M_Menu_Crosshair_f},
+	{"menu_console", M_Menu_HUD_f},
+	{"menu_colorpicker", M_Menu_ColorPicker_f},
+	{"menu_startup", M_Menu_Startup_f},
+	{"menu_demooptions", M_Menu_DemoOptions_f},
+	{"menu_pakloading", M_Menu_PakLoading_f},
+	{"menu_misc", M_Menu_Extras_f},
+	{"menu_version", M_Menu_Version_f},
+	{"menu_config", M_Menu_ResetConfig_f},
+	{"menu_video", M_Menu_Video_f},
+	{"menu_graphics", M_Menu_Graphics_f},
+	{"help", M_Menu_Help_f},
+	{"menu_quit", M_Menu_Quit_f},
+	{"menu_credits", M_Menu_Credits_f}, // needed by the 2021 re-release
+	{"menu_namemaker", M_Menu_NameMaker_f}, // woods #namemaker
+	{"namemaker", M_Shortcut_NameMaker_f}, // woods #namemaker
+	{"menu_mods", M_Menu_Mods_f}, // woods
+	{"menu_demos", M_Menu_Demos_f}, // woods
+	{"menu_maps", M_Menu_Maps_f}, // woods
+	{"menu_bookmarks", M_Menu_Bookmarks_f}, // woods #bookmarksmenu
+	{"bookmark", M_Shortcut_Bookmarks_Edit_f}, // woods #bookmarksmenu
+	{"menu_history", M_Menu_History_f}, // woods #historymenu
+};
+
+//=============================================================================
+/* MenuQC Subsystem */
+#define MENUQC_PROGHEADER_CRC 10020
+void MQC_End(void)
+{
+	PR_SwitchQCVM(NULL);
+}
+void MQC_Begin(void)
+{
+	PR_SwitchQCVM(&cls.menu_qcvm);
+	pr_global_struct = NULL;
+}
+static qboolean MQC_Init(void)
+{
+	size_t i;
+	qboolean success;
+	PR_SwitchQCVM(&cls.menu_qcvm);
+	if (COM_CheckParm("-qmenu") || fitzmode || !pr_checkextension.value)
+		success = false;
+	else
+		success = PR_LoadProgs("menu.dat", false, MENUQC_PROGHEADER_CRC, pr_menubuiltins, pr_menunumbuiltins);
+	if (success && qcvm->extfuncs.m_draw)
+	{
+		for (i = 0; i < sizeof(menucommands)/sizeof(menucommands[0]); i++)
+			if (menucommands[i].cmd)
+			{
+				Cmd_RemoveCommand (menucommands[i].cmd);
+				menucommands[i].cmd = NULL;
+			}
+
+
+		qcvm->max_edicts = CLAMP (MIN_EDICTS,(int)max_edicts.value,MAX_EDICTS);
+		qcvm->edicts = (edict_t *) malloc (qcvm->max_edicts*qcvm->edict_size);
+		qcvm->num_edicts = qcvm->reserved_edicts = 1;
+		memset(qcvm->edicts, 0, qcvm->num_edicts*qcvm->edict_size);
+
+		if (qcvm->extfuncs.m_init)
+			PR_ExecuteProgram(qcvm->extfuncs.m_init);
+	}
+	PR_SwitchQCVM(NULL);
+	return success;
+}
+
+void MQC_Shutdown(void)
+{
+	size_t i;
+	if (key_dest == key_menu)
+		key_dest = key_console;
+	PR_ClearProgs(&cls.menu_qcvm);					//nuke it from orbit
+
+	// Clean up menu memory
+	M_Demos_FreeItems();
+	M_Demos_ClearFileList(&demosmenu.path_folders);
+
+	for (i = 0; i < sizeof(menucommands)/sizeof(menucommands[0]); i++)
+		if (!menucommands[i].cmd)
+			menucommands[i].cmd = Cmd_AddCommand (menucommands[i].name, menucommands[i].function);
+}
+
+static void MQC_Command_f(void)
+{
+	if (cls.menu_qcvm.extfuncs.GameCommand)
+	{
+		MQC_Begin();
+		G_INT(OFS_PARM0) = PR_MakeTempString(Cmd_Args());
+		PR_ExecuteProgram(qcvm->extfuncs.GameCommand);
+		MQC_End();
+	}
+	else
+		Con_Printf("menu_cmd: no menuqc GameCommand function available\n");
+}
+
+//=============================================================================
+/* Menu Subsystem */
+
+/*
+================
+M_ToggleMenu_f
+================
+*/
+void M_ToggleMenu (int mode)
+{
+	if (cls.menu_qcvm.extfuncs.m_toggle)
+	{
+		MQC_Begin();
+		G_FLOAT(OFS_PARM0) = mode;
+		PR_ExecuteProgram(qcvm->extfuncs.m_toggle);
+		MQC_End();
+		return;
+	}
+
+	m_entersound = true;
+
+	if (key_dest == key_menu)
+	{
+		if (mode != 0 && m_state != m_main)
+		{
+			M_Menu_Main_f ();
+			return;
+		}
+
+		key_dest = key_game;
+		m_state = m_none;
+
+		IN_UpdateGrabs();
+		return;
+	}
+	else if (mode == 0)
+		return;
+	if (mode == -1 && key_dest == key_console)
+	{
+		Con_ToggleConsole_f ();
+	}
+	else
+	{
+		M_Menu_Main_f ();
+	}
+}
+static void M_ToggleMenu_f (void)
+{
+	M_ToggleMenu((Cmd_Argc() < 2) ? -1 : atoi(Cmd_Argv(1)));
+}
+
+static void M_MenuRestart_f (void)
+{
+	qboolean off = !strcmp(Cmd_Argv(1), "off");
+	if (off || !MQC_Init())
+		MQC_Shutdown();
+}
+
+void M_Init (void)
+{
+	Cmd_AddCommand ("togglemenu", M_ToggleMenu_f);
+	Cmd_AddCommand ("menu_cmd", MQC_Command_f);
+	Cmd_AddCommand ("menu_restart", M_MenuRestart_f);	//qss still loads progs on hunk, so we can't do this safely.
+
+	if (!MQC_Init())
+		MQC_Shutdown();
+}
+
+
+void M_Draw (void)
+{
+	if (cls.menu_qcvm.extfuncs.m_draw)
+	{	//Spike -- menuqc
+		float s = q_min((float)glwidth / 320.0, (float)glheight / 200.0);
+		s = CLAMP (1.0, scr_menuscale.value, s);
+		if (!host_initialized)
+			return;
+		MQC_Begin();
+
+		if (scr_con_current && key_dest == key_menu)
+		{	//make sure we don't have the console getting drawn in the background making the menu unreadable.
+			//FIXME: rework console to show over the top of menuqc.
+			Draw_ConsoleBackground ();
+			S_ExtraUpdate ();
+		}
+
+		GL_SetCanvas (CANVAS_MENUQC);
+		glEnable (GL_BLEND);	//in the finest tradition of glquake, we litter gl state calls all over the place. yay state trackers.
+		glDisable (GL_ALPHA_TEST);	//in the finest tradition of glquake, we litter gl state calls all over the place. yay state trackers.
+		glTexEnvf(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_MODULATE);
+
+		if (qcvm->extglobals.time)
+			*qcvm->extglobals.time = realtime;
+		if (qcvm->extglobals.frametime)
+			*qcvm->extglobals.frametime = host_frametime;
+		G_FLOAT(OFS_PARM0+0) = vid.width/s;
+		G_FLOAT(OFS_PARM0+1) = vid.height/s;
+		G_FLOAT(OFS_PARM0+2) = 0;
+		PR_ExecuteProgram(qcvm->extfuncs.m_draw);
+
+		glDisable (GL_BLEND);
+		glEnable (GL_ALPHA_TEST);
+		glTexEnvf(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_REPLACE);	//back to ignoring vertex colours.
+		glDisable(GL_SCISSOR_TEST);
+		glColor3f (1,1,1);
+
+		MQC_End();
+		return;
+	}
+
+	if (m_state == m_none || key_dest != key_menu)
+		return;
+
+	if (!m_recursiveDraw)
+	{
+		qboolean live_world_menu = (m_state == m_skywind && cl.worldmodel);
+
+		if (scr_con_current)
+		{
+			Draw_ConsoleBackground ();
+			S_ExtraUpdate ();
+		}
+
+		if (m_state != m_crosshair && !live_world_menu && !scr_con_current)
+			Draw_FadeScreen (); //johnfitz -- fade even if console fills screen
+	}
+	else
+	{
+		m_recursiveDraw = false;
+	}
+
+	GL_SetCanvas (CANVAS_MENU); //johnfitz
+
+	switch (m_state)
+	{
+	case m_none:
+		break;
+
+	case m_main:
+		M_Main_Draw ();
+		break;
+
+	case m_singleplayer:
+		M_SinglePlayer_Draw ();
+		break;
+
+	case m_load:
+		M_Load_Draw ();
+		break;
+
+	case m_save:
+		M_Save_Draw ();
+		break;
+
+	case m_maps: // woods #mapsmenu (iw)
+		M_Maps_Draw();
+		break;
+
+	case m_downloadmaps:
+		M_DownloadMaps_Draw();
+		break;
+
+	case m_skill: // woods #skillmenu (iw)
+		M_Skill_Draw();
+		break;
+
+	case m_multiplayer:
+		M_MultiPlayer_Draw ();
+		break;
+
+	case m_history: // woods #historymenu
+		M_History_Draw();
+		break;
+
+	case m_bookmarks: // woods #bookmarksmenu
+		M_Bookmarks_Draw();
+		break;
+
+	case m_bookmarks_edit: // woods #bookmarksmenu
+		M_Bookmarks_Edit_Draw();
+		break;
+
+	case m_setup:
+		M_Setup_Draw ();
+		break;
+
+	case m_namemaker: // woods #namemaker
+		M_NameMaker_Draw();
+		break;
+
+	case m_net:
+		M_Net_Draw ();
+		break;
+
+	case m_options:
+		M_Options_Draw ();
+		break;
+
+	case m_keys:
+		M_Keys_Draw ();
+		break;
+
+	case m_mouse:
+		M_Mouse_Draw();
+		break;
+
+	case m_controller:
+		M_Controller_Draw();
+		break;
+
+	case m_controller_test:
+		M_Controller_Test_Draw();
+		break;
+
+	case m_weaponwheel:
+		M_WeaponWheel_Draw();
+		break;
+
+	case m_calibration:
+		M_Calibration_Update();
+		if (m_state == m_calibration)
+			M_Calibration_Draw();
+		break;
+
+	case m_colorpicker:
+		M_ColorPicker_Draw();
+		break;
+
+	case m_extras:
+		M_Extras_Draw ();
+		break;
+
+	case m_version:
+		M_Version_Draw();
+		break;
+
+	case m_resetconfig: // woods #resetconfig
+		M_ResetConfig_Draw();
+		break;
+
+	case m_startup:
+		M_Startup_Draw();
+		break;
+
+	case m_demooptions:
+		M_DemoOptions_Draw();
+		break;
+
+	case m_pakloading:
+		M_PakLoading_Draw();
+		break;
+
+	case m_video:
+		M_Video_Draw ();
+		break;
+
+	case m_graphics:
+		M_Graphics_Draw();
+		break;
+
+	case m_sky:
+		M_Sky_Draw();
+		break;
+
+	case m_skywind:
+		M_Skywind_Draw();
+		break;
+
+	case m_sound:
+		M_Sound_Draw ();
+		break;
+
+	case m_voip:
+		M_Voip_Draw ();
+		break;
+
+	case m_game:
+		M_Game_Draw();
+		break;
+
+	case m_playerxray:
+		M_PlayerXray_Draw();
+		break;
+
+	case m_hud:
+		M_HUD_Draw();
+		break;
+
+	case m_crosshair:
+		M_Crosshair_Draw();
+		break;
+
+	case m_console:
+		M_Console_Draw();
+		break;
+
+	case m_mods: // woods #modsmenu (iw)
+		M_Mods_Draw();
+		break;
+
+	case m_demos: // woods #demosmenu
+		M_Demos_Draw ();
+		break;
+
+	case m_help:
+		M_Help_Draw ();
+		break;
+
+	case m_quit:
+		if (/*!fitzmode || */(cl.matchinp != 1 || cl.notobserver != 1 || cl.teamcolor[0] == 0) || cls.demoplayback) // woods #matchquit
+		{ /* QuakeSpasm customization: */
+			/* Quit now! S.A. */
+			key_dest = key_console;
+			Host_Quit_f ();
+		}
+		M_Quit_Draw ();
+		break;
+
+	case m_lanconfig:
+		M_LanConfig_Draw ();
+		break;
+
+	case m_gameoptions:
+		M_GameOptions_Draw ();
+		break;
+
+	case m_search:
+		M_Search_Draw ();
+		break;
+
+	case m_slist:
+		M_ServerList_Draw ();
+		break;
+	}
+
+	if (m_entersound)
+	{
+		S_LocalSound ("misc/menu2.wav");
+		m_entersound = false;
+	}
+
+	S_ExtraUpdate ();
+}
+
+
+void M_Keydown (int key, qboolean repeat)
+{
+	if (cls.menu_qcvm.extfuncs.m_draw)	//don't get confused.
+		return;
+
+	if (!bind_grab)
+	{
+		switch (key)
+		{
+		case K_DPAD_UP:		key = K_UPARROW; break;
+		case K_DPAD_DOWN:	key = K_DOWNARROW; break;
+		case K_DPAD_LEFT:	key = K_LEFTARROW; break;
+		case K_DPAD_RIGHT:	key = K_RIGHTARROW; break;
+		case K_ABUTTON:		key = K_ENTER; break;
+		case K_BBUTTON:		key = K_ESCAPE; break;
+		default:
+			break;
+		}
+	}
+
+	// only allow repeat events for a few navigational keys
+	// this reduces sound spam and, for gamepads, rumble spam
+	if (repeat)
+	{
+		switch (key)
+		{
+		case K_UPARROW:
+		case K_DOWNARROW:
+		case K_LEFTARROW:
+		case K_RIGHTARROW:
+		case K_KP_UPARROW:
+		case K_KP_DOWNARROW:
+		case K_KP_LEFTARROW:
+		case K_KP_RIGHTARROW:
+		case K_ESCAPE:
+			break;
+		case K_BACKSPACE:
+		case K_DEL:
+			if (M_TextEntry())
+				break;
+			return;
+		default:
+			return;
+		}
+	}
+
+	switch (m_state)
+	{
+	case m_none:
+		return;
+
+	case m_main:
+		M_Main_Key (key);
+		return;
+
+	case m_singleplayer:
+		M_SinglePlayer_Key (key);
+		return;
+
+	case m_load:
+		M_Load_Key (key);
+		return;
+
+	case m_save:
+		M_Save_Key (key);
+		return;
+
+	case m_maps: // woods #demosmenu
+		M_Maps_Key(key);
+		return;
+
+	case m_downloadmaps:
+		M_DownloadMaps_Key(key);
+		return;
+
+	case m_skill: // woods #skillmenu (iw)
+		M_Skill_Key(key);
+		return;
+
+	case m_multiplayer:
+		M_MultiPlayer_Key (key);
+		return;
+
+	case m_history: // woods #historymenu
+		M_History_Key(key);
+		return;
+
+	case m_bookmarks: // woods #bookmarksmenu
+		M_Bookmarks_Key(key);
+		return;
+
+	case m_bookmarks_edit: // woods #bookmarksmenu
+		M_Bookmarks_Edit_Key(key);
+		return;
+
+	case m_setup:
+		M_Setup_Key (key);
+		return;
+
+	case m_namemaker: // woods #namemaker
+		M_NameMaker_Key(key);
+		return;
+
+	case m_net:
+		M_Net_Key (key);
+		return;
+
+	case m_options:
+		M_Options_Key (key);
+		return;
+
+	case m_keys:
+		M_Keys_Key (key);
+		return;
+
+	case m_mouse:
+		M_Mouse_Key(key);
+		return;
+
+	case m_controller:
+		M_Controller_Key(key);
+		return;
+
+	case m_controller_test:
+		M_Controller_Test_Key(key);
+		return;
+
+	case m_weaponwheel:
+		M_WeaponWheel_Key(key);
+		return;
+
+	case m_calibration:
+		M_Calibration_Key(key);
+		return;
+
+	case m_colorpicker:
+		M_ColorPicker_Key(key);
+		return;
+
+	case m_extras:
+		M_Extras_Key (key);
+		return;
+
+	case m_version:
+		M_Version_Key(key);
+		return;
+
+	case m_resetconfig: // woods #resetconfig
+		M_ResetConfig_Key(key);
+		return;
+
+	case m_startup:
+		M_Startup_Key(key);
+		return;
+
+	case m_demooptions:
+		M_DemoOptions_Key(key);
+		return;
+
+	case m_pakloading:
+		M_PakLoading_Key(key);
+		return;
+
+	case m_video:
+		M_Video_Key (key);
+		return;
+
+	case m_graphics:
+		M_Graphics_Key(key);
+		return;
+
+	case m_sky:
+		M_Sky_Key(key);
+		return;
+
+	case m_skywind:
+		M_Skywind_Key(key);
+		return;
+
+	case m_sound:
+		M_Sound_Key (key);
+		break;
+
+	case m_voip:
+		M_Voip_Key (key);
+		break;
+
+	case m_game:
+		M_Game_Key(key);
+		break;
+
+	case m_playerxray:
+		M_PlayerXray_Key(key);
+		break;
+
+	case m_hud:
+		M_HUD_Key(key);
+		break;
+
+	case m_crosshair:
+		M_Crosshair_Key(key);
+		break;
+
+	case m_console:
+		M_Console_Key(key);
+		break;
+
+	case m_mods: // woods #modsmenu (iw)
+		M_Mods_Key(key);
+		return;
+
+	case m_demos: // woods #demosmenu
+		M_Demos_Key (key);
+		return;
+
+	case m_help:
+		M_Help_Key (key);
+		return;
+
+	case m_quit:
+		M_Quit_Key (key);
+		return;
+
+	case m_lanconfig:
+		M_LanConfig_Key (key);
+		return;
+
+	case m_gameoptions:
+		M_GameOptions_Key (key);
+		return;
+
+	case m_search:
+		M_Search_Key (key);
+		break;
+
+	case m_slist:
+		M_ServerList_Key (key);
+		return;
+	}
+}
+
+void M_Mousemove(int x, int y) // woods #mousemenu
+{
+	if (bind_grab)
+		return;
+	
+	vrect_t bounds, viewport;
+
+	Draw_GetMenuTransform(&bounds, &viewport);
+
+	m_mousex = x = bounds.x + (int)((x - viewport.x) * bounds.width / (float)viewport.width + 0.5f);
+	m_mousey = y = bounds.y + (int)((y - viewport.y) * bounds.height / (float)viewport.height + 0.5f);
+
+	switch (m_state)
+	{
+	default:
+		return;
+
+	case m_none:
+		return;
+
+	case m_main:
+		M_Main_Mousemove(x, y);
+		return;
+
+	case m_singleplayer:
+		M_SinglePlayer_Mousemove(x, y);
+		return;
+
+	case m_load:
+		M_Load_Mousemove(x, y);
+		return;
+
+	case m_save:
+		M_Save_Mousemove(x, y);
+		return;
+
+	case m_maps:
+		M_Maps_Mousemove(x, y);
+		return;
+
+	case m_downloadmaps:
+		M_DownloadMaps_Mousemove(x, y);
+		return;
+
+	case m_skill:
+		M_Skill_Mousemove(x, y);
+		return;
+
+	case m_multiplayer:
+		M_MultiPlayer_Mousemove(x, y);
+		return;
+
+	case m_history: // woods #historymenu
+		M_History_Mousemove(x, y);
+		return;
+
+	case m_bookmarks: // woods#bookmarksmenu
+		M_Bookmarks_Mousemove(x, y);
+		return;
+
+	case m_bookmarks_edit: // woods #bookmarksmenu
+		M_Bookmarks_Edit_Mousemove(x, y);
+		return;
+
+	case m_setup:
+		M_Setup_Mousemove(x, y);
+		return;
+
+	case m_namemaker:
+		M_NameMaker_Mousemove(x, y);
+		return;
+
+	case m_net:
+		M_Net_Mousemove(x, y);
+		return;
+
+	case m_options:
+		M_Options_Mousemove(x, y);
+		return;
+
+	case m_keys:
+		M_Keys_Mousemove(x, y);
+		return;
+
+	case m_mouse:
+		M_Mouse_Mousemove(x, y);
+		return;
+
+	case m_controller:
+		M_Controller_Mousemove(x, y);
+		return;
+
+	case m_controller_test:
+		return;
+
+	case m_weaponwheel:
+		M_WeaponWheel_Mousemove(x, y);
+		return;
+
+	case m_colorpicker:
+		M_ColorPicker_Mousemove(x, y);
+		return;
+
+	case m_video:
+		M_Video_Mousemove(x, y);
+		return;
+
+	case m_graphics:
+		M_Graphics_Mousemove(x, y);
+		return;
+
+	case m_sky:
+		M_Sky_Mousemove(x, y);
+		return;
+
+	case m_skywind:
+		M_Skywind_Mousemove(x, y);
+		return;
+
+	case m_sound:
+		M_Sound_Mousemove(x, y);
+		return;
+
+	case m_voip:
+		M_Voip_Mousemove(x, y);
+		return;
+
+	case m_game:
+		M_Game_Mousemove(x, y);
+		return;
+
+	case m_playerxray:
+		M_PlayerXray_Mousemove(x, y);
+		return;
+
+	case m_hud:
+		M_HUD_Mousemove(x, y);
+		return;
+
+	case m_crosshair:
+		M_Crosshair_Mousemove(x, y);
+		return;
+
+	case m_console:
+		M_Console_Mousemove(x, y);
+		return;
+
+	case m_extras:
+		M_Extras_Mousemove(x, y);
+		return;
+
+	case m_version:
+		M_Version_Mousemove(x, y);
+		return;
+
+	case m_resetconfig: // woods #resetconfig
+		M_ResetConfig_Mousemove(x, y);
+		break;
+
+	case m_startup:
+		M_Startup_Mousemove(x, y);
+		return;
+
+	case m_demooptions:
+		M_DemoOptions_Mousemove(x, y);
+		return;
+
+	case m_pakloading:
+		M_PakLoading_Mousemove(x, y);
+		return;
+
+	case m_mods:
+		M_Mods_Mousemove(x, y);
+		return;
+
+	case m_demos:
+		M_Demos_Mousemove(x, y);
+		return;
+
+		
+
+	case m_lanconfig:
+		M_LanConfig_Mousemove(x, y);
+		return;
+
+	case m_gameoptions:
+		M_GameOptions_Mousemove(x, y);
+		return;
+
+		
+
+	case m_slist:
+		M_ServerList_Mousemove(x, y);
+		return;
+	}
+}
+
+
+void M_Charinput (int key)
+{
+	if (cls.menu_qcvm.extfuncs.m_draw)	//don't get confused.
+		return;
+
+	switch (m_state)
+	{
+	case m_setup:
+		M_Setup_Char (key);
+		return;
+	case m_console:
+		M_Console_Char(key);
+		return;
+	case m_sky:
+		M_Sky_Char(key);
+		return;
+	case m_bookmarks_edit: // woods #bookmarksmenu
+		M_Bookmarks_Edit_Char(key);
+		return;
+	case m_quit:
+		M_Quit_Char (key);
+		return;
+	case m_lanconfig:
+		M_LanConfig_Char (key);
+		return;
+	case m_demos:
+		M_Demos_Char(key);
+		return;
+	case m_resetconfig:
+		M_ResetConfig_Char(key);
+		return;
+	case m_gameoptions:
+		M_GameOptions_Char(key);
+		return;
+	default:
+		return;
+	}
+}
+
+
+qboolean M_TextEntry (void)
+{
+	switch (m_state)
+	{
+	case m_setup:
+		return M_Setup_TextEntry ();
+	case m_namemaker:
+		return M_NameMaker_TextEntry();
+	case m_console:
+		return M_Console_TextEntry();
+	case m_sky:
+		return M_Sky_TextEntry();
+	case m_bookmarks_edit: // woods #bookmarksmenu
+		return M_Bookmarks_Edit_TextEntry();
+	case m_quit:
+		return M_Quit_TextEntry ();
+	case m_lanconfig:
+		return M_LanConfig_TextEntry ();
+	case m_demos:
+		return M_Demos_TextEntry();
+	case m_resetconfig:
+		return M_ResetConfig_TextEntry();
+	case m_gameoptions:
+		return M_GameOptions_TextEntry();
+	default:
+		return false;
+	}
+}
+
+qboolean M_WantsIBeamCursor(void)
+{
+	if (key_dest != key_menu)
+		return false;
+
+	if (M_TextField_IsDraggingAny())
+		return true;
+
+	if (m_state == m_namemaker)
+		return namemaker_edit_active;
+
+	if (m_state == m_demos)
+		return M_Demos_TextEntry() &&
+			!M_Demos_MouseInPathOptionsArea() &&
+			!M_Demos_MouseInShowId1Toggle();
+
+	if (m_state == m_resetconfig)
+		return M_ResetConfig_MouseInSearchBox();
+
+	return M_TextEntry();
+}
+
+#if defined(_WIN32) // woods #disablecaps via ironwail
+qboolean M_KeyBinding(void)
+{
+	return key_dest == key_menu && m_state == m_keys && bind_grab;
+}
+#endif
+
+void M_ConfigureNetSubsystem(void)
+{
+// enable/disable net systems to match desired config
+	Cbuf_AddText ("stopdemo\n");
+
+	if (/*IPXConfig || */TCPIPConfig) // woods #skipipx
+		net_hostport = lanConfig_port;
+}
+
+//=============================================================================
+
+static qboolean M_CheckCustomGfx(const char* custompath, const char* basepath, int knownlength, const unsigned int* hashes, int numhashes) // woods (iw)
+{
+	unsigned int id_custom, id_base;
+	int h, length;
+	qboolean ret = false;
+
+	if (!COM_FileExists(custompath, &id_custom))
+		return false;
+
+	length = COM_OpenFile(basepath, &h, &id_base);
+	if (id_custom >= id_base)
+		ret = true;
+	else if (length == knownlength)
+	{
+		int mark = Hunk_LowMark();
+		byte* data = (byte*)Hunk_Alloc(length);
+		if (length == Sys_FileRead(h, data, length))
+		{
+			unsigned int hash = COM_HashBlock(data, length);
+			while (numhashes-- > 0 && !ret)
+				if (hash == *hashes++)
+					ret = true;
+		}
+		Hunk_FreeToLowMark(mark);
+	}
+
+	COM_CloseFile(h);
+
+	return ret;
+}
+
+void M_CheckMods(void) // woods #modsmenu (iw)
+{
+	const unsigned int
+		main_hashes[] = { 0x136bc7fd, 0x90555cb4 },
+		sp_hashes[] = { 0x86a6f086 },
+		sgl_hashes[] = { 0x7bba813d }
+	;
+
+	m_main_mods = M_CheckCustomGfx("gfx/menumods.lmp",
+		"gfx/mainmenu.lmp", 26888, main_hashes, countof(main_hashes));
+
+	m_main_demos = M_CheckCustomGfx("gfx/menudemos.lmp", // woods #demosmenu
+		"gfx/mainmenu.lmp", 26888, main_hashes, countof(main_hashes));
+
+	m_singleplayer_showlevels = M_CheckCustomGfx("gfx/sp_maps.lmp",
+		"gfx/sp_menu.lmp", 14856, sp_hashes, countof(sp_hashes));
+
+	m_skill_usegfx = M_CheckCustomGfx("gfx/skillmenu.lmp",
+		"gfx/sp_menu.lmp", 14856, sp_hashes, countof(sp_hashes));
+
+	m_skill_usecustomtitle = M_CheckCustomGfx("gfx/p_skill.lmp",
+		"gfx/ttl_sgl.lmp", 6728, sgl_hashes, countof(sgl_hashes));
+}
+
+/*
+==================
+ Startup Menu
+==================
+*/
+
+enum startup_e
+{
+	STARTUP_PAK_TOGGLE,
+	STARTUP_PAK_LOADING,
+	STARTUP_SCREEN,
+	STARTUP_DEMO_ATTRACT,
+	STARTUP_ITEMS
+} startup_cursor;
+
+static struct
+{
+	int cursor;
+	struct {
+		char text[32];
+		int len;
+	} search;
+} startupmenu;
+
+int numberOfStartupItems = STARTUP_ITEMS;
+
+#define MAX_PAKS 256
+#define MAX_PAK_NAME 64
+
+typedef struct
+{
+	char name[MAX_PAK_NAME];
+	qboolean enabled;
+	qboolean readonly;  // true for id1 paks (not editable/reorderable)
+	int source;         // 0 = base (id1), 1 = mod (sorted base first)
+} menu_pak_t;
+
+static struct
+{
+	menu_pak_t paks[MAX_PAKS];
+	int num_paks;
+	int cursor;
+	int scroll;
+	qboolean dragging;
+	struct {
+		char text[32];
+		int len;
+	} search;
+} pakmenu;
+static qboolean paklist_exists = false;
+static qboolean pak_reorder_enabled = false;
+
+// Forward declarations
+void M_Menu_PakLoading_f(void);
+void M_PakLoading_Draw(void);
+void M_PakLoading_Key(int k);
+void M_PakLoading_Mousemove(int cx, int cy);
+void M_Startup_AdjustSliders(int dir);
+void M_Startup_Mousemove(int cx, int cy);
+void M_Startup_Draw(void);
+void M_Startup_Key(int k);
+static void M_Pak_SaveList(void);
+static void M_Pak_DeleteList(void);
+static void M_Pak_BuildList(void);
+
+static const char* M_Startup_GetItemText(int index)
+{
+	static char buffer[64];
+
+	switch (index)
+	{
+	case STARTUP_SCREEN:
+		return "Start-up Screen";
+	case STARTUP_DEMO_ATTRACT:
+		return "Start Demo Attract";
+	case STARTUP_PAK_LOADING:
+		return "PAK Loading   ...";
+	case STARTUP_PAK_TOGGLE:
+		return "Use PAK Re-Ordering";
+	default:
+		q_snprintf(buffer, sizeof(buffer), "Unknown Item %d", index);
+		return buffer;
+	}
+}
+
+static void M_Startup_ClampCursor(void)
+{
+	int cursor = (int)startup_cursor;
+
+	if (cursor < 0 || cursor >= STARTUP_ITEMS)
+	{
+		cursor %= STARTUP_ITEMS;
+		if (cursor < 0)
+			cursor += STARTUP_ITEMS;
+		startup_cursor = (enum startup_e)cursor;
+	}
+}
+
+static void M_Startup_MoveCursor(int delta)
+{
+	int cursor = (int)startup_cursor + delta;
+
+	cursor %= STARTUP_ITEMS;
+	if (cursor < 0)
+		cursor += STARTUP_ITEMS;
+
+	startup_cursor = (enum startup_e)cursor;
+}
+
+static void M_Startup_SearchUpdate(void)
+{
+	int i;
+	if (startupmenu.search.len <= 0)
+		return;
+
+	for (i = 0; i < STARTUP_ITEMS; i++)
+	{
+		const char* text = M_Startup_GetItemText(i);
+		if (q_strcasestr(text, startupmenu.search.text))
+		{
+			startup_cursor = (enum startup_e)i;
+			M_Startup_ClampCursor();
+			return;
+		}
+	}
+}
+
+// Startup Functions
+void M_Menu_Startup_f(void)
+{
+	key_dest = key_menu;
+	m_state = m_startup;
+	m_entersound = true;
+	startup_cursor = 0;
+	startupmenu.cursor = 0;
+	startupmenu.search.len = 0;
+	startupmenu.search.text[0] = 0;
+	numberOfStartupItems = STARTUP_ITEMS;
+
+	/* Check current pak.lst presence to seed toggle state */
+	{
+		char listpath[MAX_OSPATH];
+		FILE* f;
+		q_snprintf(listpath, sizeof(listpath), "%s/pak.lst", com_gamedir);
+		f = fopen(listpath, "rb");
+		paklist_exists = (f != NULL);
+		if (f) fclose(f);
+		if (!pak_reorder_enabled)
+			pak_reorder_enabled = paklist_exists;
+	}
+
+	M_Startup_ClampCursor();
+	IN_UpdateGrabs();
+}
+
+void M_Startup_AdjustSliders(int dir)
+{
+	int m;
+	S_LocalSound("misc/menu3.wav");
+
+	switch (startup_cursor)
+	{
+	case STARTUP_PAK_TOGGLE:
+		if (pak_reorder_enabled)
+		{
+			if (!SCR_ModalMessage("Disabling PAK re-ordering will\ndelete saved ordering (pak.lst)\n\nContinue? (^mn^m/^my^m)\n", 0.0f))
+				break;
+			pak_reorder_enabled = false;
+			M_Pak_DeleteList();
+		}
+		else
+		{
+			pak_reorder_enabled = true;
+		}
+		break;
+	case STARTUP_SCREEN:
+		if (dir > 0) {
+			if (!strcmp(cl_onload.string, "") || !strcmp(cl_onload.string, "menu"))
+				Cvar_Set("cl_onload", "browser");
+			else if (!strcmp(cl_onload.string, "browser"))
+				Cvar_Set("cl_onload", "bookmarks");
+			else if (!strcmp(cl_onload.string, "bookmarks"))
+				Cvar_Set("cl_onload", "save");
+			else if (!strcmp(cl_onload.string, "save"))
+				Cvar_Set("cl_onload", "history");
+			else if (!strcmp(cl_onload.string, "history"))
+				Cvar_Set("cl_onload", "console");
+			else if (!strcmp(cl_onload.string, "console"))
+				Cvar_Set("cl_onload", "demo");
+			else if (!strcmp(cl_onload.string, "demo"))
+				Cvar_Set("cl_onload", "menu");
+			else  
+				Cvar_Set("cl_onload", "menu");
+		}
+		else {
+			if (!strcmp(cl_onload.string, "") || !strcmp(cl_onload.string, "menu"))
+				Cvar_Set("cl_onload", "demo");
+			else if (!strcmp(cl_onload.string, "demo"))
+				Cvar_Set("cl_onload", "console");
+			else if (!strcmp(cl_onload.string, "console"))
+				Cvar_Set("cl_onload", "history");
+			else if (!strcmp(cl_onload.string, "history"))
+				Cvar_Set("cl_onload", "save");
+			else if (!strcmp(cl_onload.string, "save"))
+				Cvar_Set("cl_onload", "bookmarks");
+			else if (!strcmp(cl_onload.string, "bookmarks"))
+				Cvar_Set("cl_onload", "browser");
+			else if (!strcmp(cl_onload.string, "browser"))
+				Cvar_Set("cl_onload", "menu");
+			else  
+				Cvar_Set("cl_onload", "menu");
+		}
+		break;
+	case STARTUP_DEMO_ATTRACT:
+		m = cl_demoreel.value + dir;
+		if (m < 0)
+			m = 2;
+		else if (m > 2)
+			m = 0;
+		Cvar_SetValueQuick(&cl_demoreel, m);
+		break;
+	case STARTUP_PAK_LOADING:
+		M_Menu_PakLoading_f();
+		break;
+	default:
+		break;
+	}
+}
+
+void M_Startup_Draw(void)
+{
+	qpic_t* p;
+	enum startup_e i;
+
+	M_Startup_ClampCursor();
+
+	p = Draw_CachePic("gfx/p_option.lmp");
+	M_DrawPic((320 - p->width) / 2, 4, p);
+
+	const char* title = "Startup Options";
+	M_PrintWhite((320 - 8 * strlen(title)) / 2, 32, title);
+
+	for (i = 0; i < STARTUP_ITEMS; i++)
+	{
+		int y = 48 + 8 * i;
+		const char* text = NULL;
+		const char* value = NULL;
+
+		switch (i)
+		{
+		case STARTUP_PAK_TOGGLE:
+			text = "   PAK Re-Ordering";
+			value = pak_reorder_enabled ? "on" : "off";
+			break;
+		case STARTUP_PAK_LOADING:
+			text = " PAK Loading Order     ...";
+			break;
+		case STARTUP_SCREEN:
+			text = "   Start-up Screen";
+			if (!strcmp(cl_onload.string, "") || !strcmp(cl_onload.string, "menu"))
+				value = "main menu";
+			else if (!strcmp(cl_onload.string, "console"))
+				value = "console";
+			else if (!strcmp(cl_onload.string, "demo"))
+				value = "demos";
+			else if (!strcmp(cl_onload.string, "browser"))
+				value = "server browser";
+			else if (!strcmp(cl_onload.string, "bookmarks"))
+				value = "bookmarks";
+			else if (!strcmp(cl_onload.string, "save"))
+				value = "load game";
+			else if (!strcmp(cl_onload.string, "history"))
+				value = "history";
+			else
+				value = "custom";
+			break;
+		case STARTUP_DEMO_ATTRACT:
+			text = "Start Demo Attract";
+			if (cl_demoreel.value > 1)
+				value = "on";
+			else if (cl_demoreel.value)
+				value = "startup only";
+			else
+				value = "off";
+			break;
+		default:
+			break;
+		}
+
+		if (text)
+		{
+			if (startupmenu.search.len > 0 &&
+				q_strcasestr(text, startupmenu.search.text))
+			{
+				M_PrintHighlight(0, y, text,
+					startupmenu.search.text,
+					startupmenu.search.len);
+			}
+			else
+			{
+				M_Print(0, y, text);
+			}
+		}
+		if (value)
+			M_Print(183, y, value);
+	}
+
+	M_DrawCharacter(172, 48 + startup_cursor * 8, 12 + ((int)(realtime * 4) & 1));
+
+	if (startupmenu.search.len > 0)
+	{
+		int box_x = 20;
+		int box_y = 180;
+		int cursor_x = box_x + 8 * startupmenu.search.len;
+		M_DrawTextBox(box_x - 8, box_y - 8, 32, 1);
+		M_PrintHighlight(box_x, box_y, startupmenu.search.text,
+			startupmenu.search.text, startupmenu.search.len);
+
+		{
+			qboolean match = false;
+			for (i = 0; i < STARTUP_ITEMS; i++)
+			{
+				const char* text = M_Startup_GetItemText(i);
+				if (text && q_strcasestr(text, startupmenu.search.text))
+				{
+					match = true;
+					break;
+				}
+			}
+			if (match)
+				M_DrawCharacter(cursor_x, box_y, 10 + ((int)(realtime * 4) & 1));
+			else
+				M_DrawCharacter(cursor_x, box_y, 11 ^ 128);
+		}
+	}
+}
+
+void M_Startup_Key(int k)
+{
+	switch (k)
+	{
+	case K_ESCAPE:
+	case K_BBUTTON:
+	case K_MOUSE4:
+	case K_MOUSE2:
+		M_Menu_Options_f();
+		break;
+	case K_ENTER:
+	case K_KP_ENTER:
+	case K_ABUTTON:
+	case K_MOUSE1:
+		m_entersound = true;
+		if (startup_cursor == STARTUP_PAK_LOADING)
+		{
+			M_Menu_PakLoading_f();
+		}
+		else
+		{
+			M_Startup_AdjustSliders(1);
+		}
+		break;
+	case K_UPARROW:
+		S_LocalSound("misc/menu1.wav");
+		M_Startup_MoveCursor(-1);
+		break;
+	case K_DOWNARROW:
+		S_LocalSound("misc/menu1.wav");
+		M_Startup_MoveCursor(1);
+		break;
+	case K_LEFTARROW:
+		M_Startup_AdjustSliders(-1);
+		break;
+
+	case K_MWHEELDOWN:
+		if (startup_cursor != STARTUP_PAK_LOADING)
+			M_Startup_AdjustSliders(-1);
+		break;
+
+	case K_RIGHTARROW:
+		M_Startup_AdjustSliders(1);
+		break;
+
+	case K_MWHEELUP:
+		if (startup_cursor != STARTUP_PAK_LOADING)
+			M_Startup_AdjustSliders(1);
+		break;
+	case K_BACKSPACE:
+		if (startupmenu.search.len > 0)
+		{
+			startupmenu.search.text[--startupmenu.search.len] = 0;
+			M_Startup_SearchUpdate();
+		}
+		break;
+	default:
+		if (k >= 32 && k < 127 && startupmenu.search.len < (int)sizeof(startupmenu.search.text) - 1)
+		{
+			startupmenu.search.text[startupmenu.search.len++] = k;
+			startupmenu.search.text[startupmenu.search.len] = 0;
+			M_Startup_SearchUpdate();
+		}
+		break;
+	}
+}
+
+void M_Startup_Mousemove(int cx, int cy)
+{
+	int item = (cy - 48) / 8;
+	if (item >= 0 && item < STARTUP_ITEMS)
+	{
+		startup_cursor = item;
+	}
+	else
+	{
+		M_Startup_ClampCursor();
+	}
+}
+
+/*
+==================
+Demo Options Menu
+==================
+*/
+
+enum demooptions_e
+{
+	DEMOOPTIONS_DEMOEYES,
+	DEMOOPTIONS_FORMAT,
+	DEMOOPTIONS_AUTODEMO,
+	DEMOOPTIONS_DEMOREEL,
+	DEMOOPTIONS_EYECAM,
+	DEMOOPTIONS_BAR_TIMEOUT,
+	DEMOOPTIONS_ITEMS
+} demooptions_cursor;
+
+static struct
+{
+	int cursor;
+	struct {
+		char text[32];
+		int len;
+	} search;
+} demooptionsmenu;
+
+static qboolean demooptions_slider_grab;
+
+static const char* M_DemoOptions_GetItemText(int index)
+{
+	static char buffer[64];
+
+	switch (index)
+	{
+	case DEMOOPTIONS_DEMOEYES:
+		return "Demo Eyes";
+	case DEMOOPTIONS_FORMAT:
+		return "Demo Format";
+	case DEMOOPTIONS_AUTODEMO:
+		return "Auto-record";
+	case DEMOOPTIONS_DEMOREEL:
+		return "Demo Reel";
+	case DEMOOPTIONS_EYECAM:
+		return "Demo Eyecam";
+	case DEMOOPTIONS_BAR_TIMEOUT:
+		return "Demo Bar Timeout";
+	default:
+		q_snprintf(buffer, sizeof(buffer), "Unknown Item %d", index);
+		return buffer;
+	}
+}
+
+static const char* M_DemoOptions_GetValueText(int index)
+{
+	static char buffer[64];
+
+	switch (index)
+	{
+	case DEMOOPTIONS_FORMAT:
+		if (!cl_demo_format.string[0] || !q_strcasecmp(cl_demo_format.string, "dem"))
+			return "dem (original)";
+		if (!q_strcasecmp(cl_demo_format.string, "dz"))
+			return "dz (dzip)";
+		return cl_demo_format.string;
+	case DEMOOPTIONS_AUTODEMO:
+		switch ((int)cl_autodemo.value)
+		{
+		case 0: return "off";
+		case 1: return "every map";
+		case 2: return "crmod/crctf";
+		case 3: return "online only";
+		case 4: return "split by map";
+		default:
+			q_snprintf(buffer, sizeof(buffer), "%d", (int)cl_autodemo.value);
+			return buffer;
+		}
+	case DEMOOPTIONS_DEMOREEL:
+		if (cl_demoreel.value > 1)
+			return "on";
+		if (cl_demoreel.value > 0)
+			return "startup only";
+		return "off";
+	case DEMOOPTIONS_EYECAM:
+		return cl_demo_eyecam.value ? "on" : "off";
+	case DEMOOPTIONS_BAR_TIMEOUT:
+		if (scr_demobar_timeout.value < 0.0f)
+			q_snprintf(buffer, sizeof(buffer), "hidden (%.1f)", scr_demobar_timeout.value);
+		else if (scr_demobar_timeout.value == 0.0f)
+			q_snprintf(buffer, sizeof(buffer), "always (%.1f)", scr_demobar_timeout.value);
+		else if ((float)Q_rint(scr_demobar_timeout.value) == scr_demobar_timeout.value)
+			q_snprintf(buffer, sizeof(buffer), "%d (%s)",
+				Q_rint(scr_demobar_timeout.value),
+				(Q_rint(scr_demobar_timeout.value) == 1) ? "second" : "seconds");
+		else
+			q_snprintf(buffer, sizeof(buffer), "%.1f (seconds)", scr_demobar_timeout.value);
+		return buffer;
+	default:
+		return "";
+	}
+}
+
+static void M_DemoOptions_ClampCursor(void)
+{
+	int cursor = (int)demooptions_cursor;
+
+	if (cursor < 0 || cursor >= DEMOOPTIONS_ITEMS)
+	{
+		cursor %= DEMOOPTIONS_ITEMS;
+		if (cursor < 0)
+			cursor += DEMOOPTIONS_ITEMS;
+		demooptions_cursor = (enum demooptions_e)cursor;
+	}
+}
+
+static void M_DemoOptions_MoveCursor(int delta)
+{
+	int cursor = (int)demooptions_cursor + delta;
+
+	cursor %= DEMOOPTIONS_ITEMS;
+	if (cursor < 0)
+		cursor += DEMOOPTIONS_ITEMS;
+
+	demooptions_cursor = (enum demooptions_e)cursor;
+}
+
+static void M_DemoOptions_SearchUpdate(void)
+{
+	int i;
+
+	if (demooptionsmenu.search.len <= 0)
+		return;
+
+	for (i = 0; i < DEMOOPTIONS_ITEMS; i++)
+	{
+		const char* text = M_DemoOptions_GetItemText(i);
+		if (q_strcasestr(text, demooptionsmenu.search.text))
+		{
+			demooptions_cursor = (enum demooptions_e)i;
+			M_DemoOptions_ClampCursor();
+			return;
+		}
+	}
+}
+
+static void M_DemoOptions_CycleDemoFormat(int dir)
+{
+#ifdef USE_ZLIB
+	static const char* formats[] = {"dem", "dz"};
+	const int count = (int)(sizeof(formats) / sizeof(formats[0]));
+	int index = 0;
+	int i;
+
+	for (i = 0; i < count; i++)
+	{
+		if (!q_strcasecmp(cl_demo_format.string, formats[i]))
+		{
+			index = i;
+			break;
+		}
+	}
+
+	index += (dir > 0) ? 1 : -1;
+	if (index < 0)
+		index = count - 1;
+	else if (index >= count)
+		index = 0;
+
+	Cvar_Set("cl_demo_format", formats[index]);
+#else
+	(void)dir;
+	Cvar_Set("cl_demo_format", "dem");
+#endif
+}
+
+void M_Menu_DemoOptions_f(void)
+{
+	key_dest = key_menu;
+	m_state = m_demooptions;
+	m_entersound = true;
+	demooptions_cursor = 0;
+	demooptionsmenu.cursor = 0;
+	demooptionsmenu.search.len = 0;
+	demooptionsmenu.search.text[0] = 0;
+	demooptions_slider_grab = false;
+
+	M_DemoOptions_ClampCursor();
+	IN_UpdateGrabs();
+}
+
+static void M_DemoOptions_AdjustSliders(int dir)
+{
+	float f;
+	int m;
+
+	S_LocalSound("misc/menu3.wav");
+
+	switch (demooptions_cursor)
+	{
+	case DEMOOPTIONS_DEMOEYES:
+		f = CLAMP(0.0f, cl_demoeyes.value + dir * 0.1f, 1.0f);
+		f = Q_rint(f * 10.0f) / 10.0f;
+		if (f < 0.05f)
+			f = 0.0f;
+		Cvar_SetValueQuick(&cl_demoeyes, f);
+		break;
+	case DEMOOPTIONS_FORMAT:
+		M_DemoOptions_CycleDemoFormat(dir);
+		break;
+	case DEMOOPTIONS_AUTODEMO:
+		m = (int)cl_autodemo.value + dir;
+		if (m < 0)
+			m = 4;
+		else if (m > 4)
+			m = 0;
+		Cvar_SetValue("cl_autodemo", m);
+		break;
+	case DEMOOPTIONS_DEMOREEL:
+		m = (int)cl_demoreel.value + dir;
+		if (m < 0)
+			m = 2;
+		else if (m > 2)
+			m = 0;
+		Cvar_SetValueQuick(&cl_demoreel, m);
+		break;
+	case DEMOOPTIONS_EYECAM:
+		Cvar_SetValueQuick(&cl_demo_eyecam, cl_demo_eyecam.value ? 0 : 1);
+		break;
+	case DEMOOPTIONS_BAR_TIMEOUT:
+		if (scr_demobar_timeout.value < 0.0f)
+			f = (dir > 0) ? 0.0f : 10.0f;
+		else if (dir > 0)
+			f = (scr_demobar_timeout.value >= 10.0f) ? -1.0f : (float)Q_rint(scr_demobar_timeout.value) + 1.0f;
+		else if (scr_demobar_timeout.value <= 0.0f)
+			f = -1.0f;
+		else
+			f = (scr_demobar_timeout.value <= 1.0f) ? 0.0f : (float)Q_rint(scr_demobar_timeout.value) - 1.0f;
+		Cvar_SetValueQuick(&scr_demobar_timeout, f);
+		break;
+	default:
+		break;
+	}
+}
+
+void M_DemoOptions_Draw(void)
+{
+	qpic_t* p;
+	float r;
+	enum demooptions_e i;
+
+	M_DemoOptions_ClampCursor();
+
+	p = Draw_CachePic("gfx/p_option.lmp");
+	M_DrawPic((320 - p->width) / 2, 4, p);
+
+	{
+		const char* title = "Demo Options";
+		M_PrintWhite((320 - 8 * strlen(title)) / 2, 32, title);
+	}
+
+	for (i = 0; i < DEMOOPTIONS_ITEMS; i++)
+	{
+		int y = 48 + 8 * i;
+		const char* text = NULL;
+		const char* value = NULL;
+
+		switch (i)
+		{
+		case DEMOOPTIONS_DEMOEYES:
+			text = "         Demo Eyes";
+			r = CLAMP(0.0f, cl_demoeyes.value, 1.0f);
+			M_DrawSlider(186, y, r, r, "%.1f");
+			break;
+		case DEMOOPTIONS_FORMAT:
+			text = "       Demo Format";
+			value = M_DemoOptions_GetValueText(i);
+			break;
+		case DEMOOPTIONS_AUTODEMO:
+			text = "       Auto-record";
+			value = M_DemoOptions_GetValueText(i);
+			break;
+		case DEMOOPTIONS_DEMOREEL:
+			text = "         Demo Reel";
+			value = M_DemoOptions_GetValueText(i);
+			break;
+		case DEMOOPTIONS_EYECAM:
+			text = "       Demo Eyecam";
+			value = M_DemoOptions_GetValueText(i);
+			break;
+		case DEMOOPTIONS_BAR_TIMEOUT:
+			text = "  Demo Bar Timeout";
+			value = M_DemoOptions_GetValueText(i);
+			break;
+		default:
+			break;
+		}
+
+		if (text)
+		{
+			if (demooptionsmenu.search.len > 0 &&
+				q_strcasestr(text, demooptionsmenu.search.text))
+			{
+				M_PrintHighlight(0, y, text,
+					demooptionsmenu.search.text,
+					demooptionsmenu.search.len);
+			}
+			else
+			{
+				M_Print(0, y, text);
+			}
+		}
+		if (value)
+			M_Print(183, y, value);
+	}
+
+	M_DrawCharacter(172, 48 + demooptions_cursor * 8, 12 + ((int)(realtime * 4) & 1));
+
+	if (demooptionsmenu.search.len > 0)
+	{
+		int box_x = 20;
+		int box_y = 180;
+		int cursor_x = box_x + 8 * demooptionsmenu.search.len;
+		M_DrawTextBox(box_x - 8, box_y - 8, 32, 1);
+		M_PrintHighlight(box_x, box_y, demooptionsmenu.search.text,
+			demooptionsmenu.search.text, demooptionsmenu.search.len);
+
+		{
+			qboolean match = false;
+			for (i = 0; i < DEMOOPTIONS_ITEMS; i++)
+			{
+				const char* text = M_DemoOptions_GetItemText(i);
+				if (text && q_strcasestr(text, demooptionsmenu.search.text))
+				{
+					match = true;
+					break;
+				}
+			}
+			if (match)
+				M_DrawCharacter(cursor_x, box_y, 10 + ((int)(realtime * 4) & 1));
+			else
+				M_DrawCharacter(cursor_x, box_y, 11 ^ 128);
+		}
+	}
+}
+
+void M_DemoOptions_Key(int k)
+{
+	if (!keydown[K_MOUSE1])
+		demooptions_slider_grab = false;
+
+	if (demooptions_slider_grab)
+	{
+		switch (k)
+		{
+		case K_ESCAPE:
+		case K_BBUTTON:
+		case K_MOUSE4:
+		case K_MOUSE2:
+			demooptions_slider_grab = false;
+			break;
+		}
+		return;
+	}
+
+	switch (k)
+	{
+	case K_ESCAPE:
+	case K_BBUTTON:
+	case K_MOUSE4:
+	case K_MOUSE2:
+		M_Menu_Options_f();
+		break;
+	case K_MOUSE1:
+		m_entersound = true;
+		if (m_mousey >= 48 && m_mousey < 48 + (DEMOOPTIONS_ITEMS * 8))
+		{
+			demooptions_cursor = (m_mousey - 48) / 8;
+			if (demooptions_cursor == DEMOOPTIONS_DEMOEYES)
+				demooptions_slider_grab = true;
+			else
+				M_DemoOptions_AdjustSliders(1);
+		}
+		break;
+	case K_ENTER:
+	case K_KP_ENTER:
+	case K_ABUTTON:
+		m_entersound = true;
+		M_DemoOptions_AdjustSliders(1);
+		break;
+	case K_UPARROW:
+		S_LocalSound("misc/menu1.wav");
+		M_DemoOptions_MoveCursor(-1);
+		break;
+	case K_DOWNARROW:
+		S_LocalSound("misc/menu1.wav");
+		M_DemoOptions_MoveCursor(1);
+		break;
+	case K_LEFTARROW:
+	case K_MWHEELDOWN:
+		M_DemoOptions_AdjustSliders(-1);
+		break;
+	case K_RIGHTARROW:
+	case K_MWHEELUP:
+		M_DemoOptions_AdjustSliders(1);
+		break;
+	case K_BACKSPACE:
+		if (demooptionsmenu.search.len > 0)
+		{
+			demooptionsmenu.search.text[--demooptionsmenu.search.len] = 0;
+			M_DemoOptions_SearchUpdate();
+		}
+		break;
+	default:
+		if (k >= 32 && k < 127 && demooptionsmenu.search.len < (int)sizeof(demooptionsmenu.search.text) - 1)
+		{
+			demooptionsmenu.search.text[demooptionsmenu.search.len++] = k;
+			demooptionsmenu.search.text[demooptionsmenu.search.len] = 0;
+			M_DemoOptions_SearchUpdate();
+		}
+		break;
+	}
+}
+
+void M_DemoOptions_Mousemove(int cx, int cy)
+{
+	if (demooptions_slider_grab)
+	{
+		float f;
+
+		if (!keydown[K_MOUSE1])
+		{
+			demooptions_slider_grab = false;
+			return;
+		}
+
+		switch (demooptions_cursor)
+		{
+		case DEMOOPTIONS_DEMOEYES:
+			f = CLAMP(0.0f, M_MouseToSliderFraction(cx - 187), 1.0f);
+			f = Q_rint(f * 10.0f) / 10.0f;
+			if (f < 0.05f)
+				f = 0.0f;
+			Cvar_SetValue("cl_demoeyes", f);
+			break;
+		default:
+			break;
+		}
+		return;
+	}
+
+	int item = (cy - 48) / 8;
+	if (item >= 0 && item < DEMOOPTIONS_ITEMS)
+	{
+		demooptions_cursor = item;
+	}
+	else
+	{
+		M_DemoOptions_ClampCursor();
+	}
+}
+
+// Helper to add unique pak
+static void M_Pak_Add(const char* name, qboolean readonly, int source)
+{
+	int i;
+	if (pakmenu.num_paks >= MAX_PAKS)
+		return;
+
+	// Check duplicates
+	for (i = 0; i < pakmenu.num_paks; i++)
+	{
+		if (!q_strcasecmp(pakmenu.paks[i].name, name))
+			return;
+	}
+
+	// Add new
+	q_strlcpy(pakmenu.paks[pakmenu.num_paks].name, name, MAX_PAK_NAME);
+	pakmenu.paks[pakmenu.num_paks].enabled = true;
+	pakmenu.paks[pakmenu.num_paks].readonly = readonly;
+	pakmenu.paks[pakmenu.num_paks].source = source;
+	pakmenu.num_paks++;
+}
+
+// Callback for COM_ListAllFiles
+// Callback for COM_ListAllFiles
+static qboolean M_Pak_ScanCallback(void *ctx, const char *fname, time_t mtime, size_t fsize, searchpath_t *spath)
+{
+	char id1path[MAX_OSPATH];
+	qboolean is_id1;
+	qboolean in_id1_gamedir;
+	const char *gamedir_name;
+	const char *ext = COM_FileGetExtension(fname);
+	const char *pakname = fname;
+	if (!ext) return true;
+	
+	if (q_strcasecmp(ext, "pak") && q_strcasecmp(ext, "pk3"))
+		return true;
+
+	if (!spath)
+		return true;
+
+	// Build the id1 path for comparison
+	q_snprintf(id1path, sizeof(id1path), "%s/id1", com_basedir);
+	
+	// Determine if this pak is from id1
+	is_id1 = (q_strcasecmp(spath->filename, id1path) == 0);
+	
+	// Check if we're running in id1 gamedir (compare just the directory name)
+	gamedir_name = COM_SkipPath(com_gamedir);
+	in_id1_gamedir = (q_strcasecmp(gamedir_name, "id1") == 0);
+
+	if (!q_strncasecmp(fname, "paks/", 5) || !q_strncasecmp(fname, "paks\\", 5))
+		pakname = fname + 5;
+	
+	// If in id1 gamedir, only show paks from id1 (no base/mod distinction)
+	if (in_id1_gamedir)
+	{
+		// Running id1 only - only accept id1 paks, and filter engine paks
+		if (!is_id1)
+			return true;
+		
+		// Filter pak0/pak1 and engine paks (pinned at top) - ALWAYS in id1
+		if (!q_strncasecmp(pakname, "pak0.", 5) ||
+			!q_strncasecmp(pakname, "pak1.", 5) ||
+			!q_strncasecmp(pakname, "quakespasm.", 11) ||
+			!q_strncasecmp(pakname, "qssm.", 5))
+			return true;
+		
+		M_Pak_Add(pakname, false, 1); // Not readonly when in id1
+	}
+	else
+	{
+		// Running in a mod - show both id1 and mod paks
+		if (is_id1)
+		{
+			// id1 pak - filter pak0/pak1 (pinned at top), but add others as readonly
+			if (!q_strncasecmp(pakname, "pak0.", 5) ||
+				!q_strncasecmp(pakname, "pak1.", 5) ||
+				!q_strncasecmp(pakname, "quakespasm.", 11) ||
+				!q_strncasecmp(pakname, "qssm.", 5))
+				return true;
+			
+			M_Pak_Add(pakname, true, 0); // Base (id1) = source 0, readonly
+		}
+		else if (strcmp(spath->filename, com_gamedir) == 0)
+		{
+			// Mod pak - filter engine paks only, allow pak0/pak1/pak2 etc
+			if (!q_strncasecmp(pakname, "quakespasm.", 11) ||
+				!q_strncasecmp(pakname, "qssm.", 5))
+				return true;
+			
+			M_Pak_Add(pakname, false, 1); // Mod = source 1, editable
+		}
+		// Ignore paks from other directories
+	}
+	
+	return true;
+}
+static int M_Pak_Compare(const void* a, const void* b)
+{
+	const menu_pak_t* pa = (const menu_pak_t*)a;
+	const menu_pak_t* pb = (const menu_pak_t*)b;
+	// Sort by source first (base=0 before mod=1), then by name
+	if (pa->source != pb->source)
+		return pa->source - pb->source;
+	return q_strcasecmp(pa->name, pb->name);
+}
+static void M_Pak_BuildList(void)
+{
+	char listpath[MAX_OSPATH];
+	FILE *f;
+	long len;
+	char *buffer;
+	const char *data;
+
+	pakmenu.num_paks = 0;
+	pakmenu.dragging = false;
+	paklist_exists = false;
+
+	q_snprintf(listpath, sizeof(listpath), "%s/pak.lst", com_gamedir);
+	f = fopen(listpath, "rb");
+	if (f)
+	{
+		paklist_exists = true;
+		fseek(f, 0, SEEK_END);
+		len = ftell(f);
+		fseek(f, 0, SEEK_SET);
+		buffer = (char*)Z_Malloc(len + 1);
+		if (fread(buffer, 1, len, f) == (size_t)len)
+		{
+			fclose(f);
+			buffer[len] = 0;
+
+			data = buffer;
+			while ((data = COM_Parse(data)))
+			{
+				if (!*com_token) continue;
+				M_Pak_Add(com_token, false, 1);
+			}
+			Z_Free(buffer);
+			{
+				int i, count = 0;
+				menu_pak_t temp[MAX_PAKS];
+
+				COM_ListAllFiles(NULL, "*.pak", M_Pak_ScanCallback, 0, NULL);
+				COM_ListAllFiles(NULL, "*.pk3", M_Pak_ScanCallback, 0, NULL);
+				COM_ListAllFiles(NULL, "paks/*.pak", M_Pak_ScanCallback, 0, NULL);
+				COM_ListAllFiles(NULL, "paks/*.pk3", M_Pak_ScanCallback, 0, NULL);
+
+				/* Sort logic:
+				   1. Base paks (source 0) - sorted by name
+				   2. Mod paks (source 1) - preserve loaded order (from pak.lst), append new ones
+				*/
+				
+				/* 1. Extract and sort base paks */
+				for (i = 0; i < pakmenu.num_paks; i++)
+					if (pakmenu.paks[i].source == 0)
+						temp[count++] = pakmenu.paks[i];
+				
+				if (count > 0)
+					qsort(temp, count, sizeof(menu_pak_t), M_Pak_Compare); /* source is same, sorts by name */
+				
+				/* 2. Append mod paks (preserve order) */
+				for (i = 0; i < pakmenu.num_paks; i++)
+					if (pakmenu.paks[i].source == 1)
+						temp[count++] = pakmenu.paks[i];
+				
+				/* Apply back to main array */
+				memcpy(pakmenu.paks, temp, count * sizeof(menu_pak_t));
+				pakmenu.num_paks = count;
+			}
+			pak_reorder_enabled = true;
+			pakmenu.search.len = 0;
+			pakmenu.search.text[0] = 0;
+			return;
+		}
+		Z_Free(buffer);
+		fclose(f);
+		paklist_exists = false;
+	}
+
+	// Scan for all paks in current gamedir (callback filters by gamedir)
+	COM_ListAllFiles(NULL, "*.pak", M_Pak_ScanCallback, 0, NULL);
+	COM_ListAllFiles(NULL, "*.pk3", M_Pak_ScanCallback, 0, NULL);
+	COM_ListAllFiles(NULL, "paks/*.pak", M_Pak_ScanCallback, 0, NULL);
+	COM_ListAllFiles(NULL, "paks/*.pk3", M_Pak_ScanCallback, 0, NULL);
+	if (pakmenu.num_paks > 1)
+		qsort(pakmenu.paks, pakmenu.num_paks, sizeof(menu_pak_t), M_Pak_Compare);
+
+	pakmenu.search.len = 0;
+	pakmenu.search.text[0] = 0;
+}
+
+static void M_Pak_DeleteList(void)
+{
+	char listpath[MAX_OSPATH];
+
+	q_snprintf(listpath, sizeof(listpath), "%s/pak.lst", com_gamedir);
+	if (!remove(listpath))
+		Con_Printf("pak.lst deleted. Using default load order.\n");
+	paklist_exists = false;
+	pak_reorder_enabled = false;
+}
+
+static void M_Pak_SaveList(void)
+{
+	if (!pak_reorder_enabled)
+		return;
+
+	char listpath[MAX_OSPATH];
+	FILE *f;
+	int i;
+
+	q_snprintf(listpath, sizeof(listpath), "%s/pak.lst", com_gamedir);
+	f = fopen(listpath, "w");
+	if (!f) return;
+
+	fprintf(f, "// Generated by PAK Loading Menu\n");
+	for (i = 0; i < pakmenu.num_paks; i++)
+	{
+		/* Only save mod paks, skip readonly (id1) paks */
+		if (!pakmenu.paks[i].readonly)
+			fprintf(f, "%s\n", pakmenu.paks[i].name);
+	}
+	fclose(f);
+	paklist_exists = true;
+	
+	Con_Printf("pak.lst saved. Restart game to apply changes.\n");
+}
+
+void M_PakLoading_Draw(void)
+{
+	int i;
+	int x = 16;
+	int y = 32;
+	const int visible_items = 13;
+	const int cols = 36;
+	static const char* enginepacknames[] = { "quakespasm.pak", "qssm.pak" };
+	const char* pinned[] = {
+		"pak0.pak, pak1.pak (always loaded)",
+		enginepacknames[0],
+		enginepacknames[1]
+	};
+	const int pinned_count = (int)countof(pinned);
+	const int pinned_offset = pinned_count + 1; /* spacer line after pinned items */
+	const int list_y = y + pinned_offset * 8;
+	plcolour_t white = CL_PLColours_Parse("0xffffff");
+	int overflow_line_y = list_y - 8;
+
+	{
+		const char *gdir = COM_SkipPath(com_gamedir);
+		int title_width = strlen("PAK Loading Order (") * 8;
+		Draw_String(x, y - 28, "PAK Loading Order (");
+		M_Print(x + title_width, y - 28, gdir);
+		Draw_String(x + title_width + strlen(gdir) * 8, y - 28, ")");
+	}
+	M_DrawQuakeBar(x - 8, y - 16, cols + 2);
+
+	if (pakmenu.cursor < pakmenu.scroll) pakmenu.scroll = pakmenu.cursor;
+	if (pakmenu.cursor >= pakmenu.scroll + visible_items) pakmenu.scroll = pakmenu.cursor - visible_items + 1;
+
+	if (pakmenu.scroll < 0) pakmenu.scroll = 0;
+	if (pakmenu.scroll > q_max(0, pakmenu.num_paks - visible_items))
+		pakmenu.scroll = q_max(0, pakmenu.num_paks - visible_items);
+
+	/* Always show base/engine paks at top (not reorderable) */
+	for (i = 0; i < pinned_count; i++)
+		M_PrintRGBA(x, y + i * 8, pinned[i], white, 0.5f, false);
+	/* spacer line after pinned */
+	M_Print(x, y + pinned_count * 8, " ");
+
+	for (i = 0; i < visible_items; i++)
+	{
+		int idx = pakmenu.scroll + i;
+		if (idx >= pakmenu.num_paks) break;
+
+		if (idx == pakmenu.cursor)
+		{
+			if (pakmenu.dragging)
+				M_DrawCharacter(x - 8, list_y + i * 8, 141); 
+			else
+				M_DrawCharacter(x - 8, list_y + i * 8, 12 + ((int)(realtime * 4) & 1));
+		}
+		
+			if (pakmenu.dragging && idx == pakmenu.cursor)
+			{
+				M_PrintWhite(x, list_y + i * 8, ">>");
+				/* draw name after marker with optional highlight */
+				if (pakmenu.search.len > 0 &&
+					q_strcasestr(pakmenu.paks[idx].name, pakmenu.search.text))
+				{
+					M_PrintHighlight(x + 16, list_y + i * 8,
+						pakmenu.paks[idx].name,
+						pakmenu.search.text,
+						pakmenu.search.len);
+				}
+				else if (pakmenu.paks[idx].readonly)
+				{
+					M_PrintRGBA(x + 16, list_y + i * 8, pakmenu.paks[idx].name, white, 0.5f, false);
+				}
+				else
+				{
+					M_Print(x + 16, list_y + i * 8,
+						pakmenu.paks[idx].name);
+				}
+			}
+			else
+			{
+				if (pakmenu.search.len > 0 &&
+					q_strcasestr(pakmenu.paks[idx].name, pakmenu.search.text))
+				{
+					M_PrintHighlight(x, list_y + i * 8,
+						pakmenu.paks[idx].name,
+						pakmenu.search.text,
+						pakmenu.search.len);
+				}
+				else if (pakmenu.paks[idx].readonly)
+				{
+					M_PrintRGBA(x, list_y + i * 8, pakmenu.paks[idx].name, white, 0.5f, false);
+				}
+				else
+				{
+					M_Print(x, list_y + i * 8, pakmenu.paks[idx].name);
+				}
+			}
+	}
+	
+	if (pakmenu.num_paks > visible_items)
+	{
+		if (pakmenu.scroll > 0)
+			M_DrawEllipsisBar(x, overflow_line_y, cols);
+		if (pakmenu.scroll + visible_items < pakmenu.num_paks)
+			M_DrawEllipsisBar(x, list_y + visible_items * 8, cols);
+	}
+
+	if (pakmenu.search.len > 0)
+	{
+		int box_x = x;
+		int box_y = list_y + visible_items * 8 + 16;
+		int cursor_x = box_x + 8 * pakmenu.search.len;
+		M_DrawTextBox(box_x - 8, box_y - 8, 32, 1);
+		M_PrintWhite(box_x, box_y, pakmenu.search.text);
+
+		/* cursor color matches other menus: blink if match exists, solid inverted if no match */
+		{
+			qboolean match = false;
+			for (i = 0; i < pakmenu.num_paks; i++)
+			{
+				if (q_strcasestr(pakmenu.paks[i].name, pakmenu.search.text))
+				{
+					match = true;
+					break;
+				}
+			}
+			if (match)
+				M_DrawCharacter(cursor_x, box_y, 10 + ((int)(realtime * 4) & 1));
+			else
+				M_DrawCharacter(cursor_x, box_y, 11 ^ 128);
+		}
+	}
+
+	if (pakmenu.search.len == 0)
+	{
+		if (!pak_reorder_enabled)
+			M_PrintWhite(16, 180, "Re-ordering disabled");
+		else if (pakmenu.dragging)
+			M_PrintWhite(16, 180, "Arrows: Move  Enter/Space: Drop");
+		else
+			M_PrintWhite(16, 180, "Enter/Space: Grab  Arrows: Move");
+	}
+}
+
+void M_PakLoading_Key(int k)
+{
+	qboolean disabled = !pak_reorder_enabled;
+
+	if (k == K_ESCAPE || k == K_MOUSE2 || k == K_MOUSE4 || k == K_BBUTTON)
+	{
+		if (pakmenu.dragging)
+		{
+			pakmenu.dragging = false;
+			S_LocalSound("misc/menu1.wav");
+			return;
+		}
+		M_Pak_SaveList();
+		M_Menu_Startup_f(); 
+		return;
+	}
+
+	if (k == K_BACKSPACE)
+	{
+		if (pakmenu.search.len > 0)
+		{
+			pakmenu.search.text[--pakmenu.search.len] = 0;
+			if (pakmenu.cursor >= pakmenu.num_paks)
+				pakmenu.cursor = pakmenu.num_paks - 1;
+			if (pakmenu.cursor < pakmenu.scroll)
+				pakmenu.scroll = pakmenu.cursor;
+		}
+		return;
+	}
+
+	if (k >= 32 && k < 127 && pakmenu.search.len < (int)sizeof(pakmenu.search.text) - 1)
+	{
+		int i;
+		pakmenu.search.text[pakmenu.search.len++] = k;
+		pakmenu.search.text[pakmenu.search.len] = 0;
+
+		for (i = 0; i < pakmenu.num_paks; i++)
+		{
+			if (q_strcasestr(pakmenu.paks[i].name, pakmenu.search.text))
+			{
+				pakmenu.cursor = i;
+				if (pakmenu.cursor < pakmenu.scroll)
+					pakmenu.scroll = pakmenu.cursor;
+				break;
+			}
+		}
+		return;
+	}
+
+	if (disabled)
+	{
+		if (k == K_UPARROW || k == K_MWHEELUP)
+		{
+			if (pakmenu.cursor > 0)
+			{
+				pakmenu.cursor--;
+				S_LocalSound("misc/menu1.wav");
+			}
+		}
+		else if (k == K_DOWNARROW || k == K_MWHEELDOWN)
+		{
+			if (pakmenu.cursor < pakmenu.num_paks - 1)
+			{
+				pakmenu.cursor++;
+				S_LocalSound("misc/menu1.wav");
+			}
+		}
+		return;
+	}
+
+	if (k == K_ENTER || k == K_KP_ENTER || k == K_SPACE || k == K_CTRL || k == K_SHIFT || k == K_MOUSE1)
+	{
+		/* Cannot drag readonly items */
+		if (pakmenu.paks[pakmenu.cursor].readonly)
+			return;
+		pakmenu.dragging = !pakmenu.dragging;
+		S_LocalSound("misc/menu2.wav");
+		return;
+	}
+
+	if (k == K_UPARROW || k == K_MWHEELUP)
+	{
+		if (pakmenu.cursor > 0)
+		{
+			if (pakmenu.dragging)
+			{
+				/* Cannot swap with readonly items */
+				if (pakmenu.paks[pakmenu.cursor - 1].readonly)
+					return;
+				menu_pak_t tmp = pakmenu.paks[pakmenu.cursor];
+				pakmenu.paks[pakmenu.cursor] = pakmenu.paks[pakmenu.cursor - 1];
+				pakmenu.paks[pakmenu.cursor - 1] = tmp;
+				pakmenu.cursor--;
+				S_LocalSound("misc/menu2.wav");
+			}
+			else
+			{
+				pakmenu.cursor--;
+				S_LocalSound("misc/menu1.wav");
+			}
+		}
+	}
+	else if (k == K_DOWNARROW || k == K_MWHEELDOWN)
+	{
+		if (pakmenu.cursor < pakmenu.num_paks - 1)
+		{
+			if (pakmenu.dragging)
+			{
+				/* Cannot swap with readonly items */
+				if (pakmenu.paks[pakmenu.cursor + 1].readonly)
+					return;
+				menu_pak_t tmp = pakmenu.paks[pakmenu.cursor];
+				pakmenu.paks[pakmenu.cursor] = pakmenu.paks[pakmenu.cursor + 1];
+				pakmenu.paks[pakmenu.cursor + 1] = tmp;
+				pakmenu.cursor++;
+				S_LocalSound("misc/menu2.wav");
+			}
+			else
+			{
+				pakmenu.cursor++;
+				S_LocalSound("misc/menu1.wav");
+			}
+		}
+	}
+}
+
+void M_PakLoading_Mousemove(int cx, int cy)
+{
+	const int pinned_count = 3; /* pak0+pak1, engine packs */
+	const int pinned_offset = pinned_count + 1; /* spacer line */
+	const int y_start = 32 + pinned_offset * 8;
+	const int item_h = 8;
+	const int visible_items = 13;
+	
+	int item_idx;
+	
+	if (cy < y_start) return;
+	
+	item_idx = (cy - y_start) / item_h;
+	
+	if (item_idx >= 0 && item_idx < visible_items)
+	{
+		int target_cursor = pakmenu.scroll + item_idx;
+		if (target_cursor < pakmenu.num_paks)
+		{
+			pakmenu.cursor = target_cursor;
+		}
+	}
+}
+
+void M_Menu_PakLoading_f(void)
+{
+	key_dest = key_menu;
+	m_state = m_pakloading;
+	m_entersound = true;
+
+	M_Pak_BuildList();
+	pakmenu.cursor = 0;
+	pakmenu.scroll = 0;
+	pakmenu.dragging = false;
+	pakmenu.search.len = 0;
+	pakmenu.search.text[0] = 0;
+
+	IN_UpdateGrabs();
+}
